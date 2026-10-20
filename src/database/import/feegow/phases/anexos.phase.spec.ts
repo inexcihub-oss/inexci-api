@@ -38,7 +38,6 @@ const ARQUIVOS_NO_DISCO = new Set([
   'Perfil/orfa.png',
 ]);
 
-/** Disco falso: o export sintético mora em `/export`. */
 const disco: Disco = {
   existe: (c) => ARQUIVOS_NO_DISCO.has(c.replace(/^\/export\/Client\//, '')),
   listar: (p) =>
@@ -72,7 +71,6 @@ function planejar(
   ledgerExtra?: (l: ReturnType<typeof contextoDeTeste>['ledger']) => void,
 ) {
   const base = exportSintetico(tabelas as never);
-  // Mesmas tabelas, mas com pasta (para `arquivo()` montar o caminho).
   const exp = Object.assign(Object.create(ExportFeegow.prototype), base, {
     dir: '/export',
   }) as ExportFeegow;

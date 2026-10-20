@@ -2,17 +2,10 @@ import { ServiceUnavailableException } from '@nestjs/common';
 
 import { hashRefreshToken } from 'src/shared/crypto/refresh-token-hash.util';
 
-/**
- * Fake mínimo de IORedis: emula os comandos usados pelo RefreshTokenStore
- * (multi/exec encadeado, eval com a semântica do CONSUME_LUA, smembers) sobre
- * Maps em memória. O `status` é controlável para testar o comportamento
- * fail-closed.
- */
 class FakeRedis {
   status: 'ready' | 'connecting' | 'end' = 'ready';
   store = new Map<string, string>();
   sets = new Map<string, Set<string>>();
-  /** Relógio (segundos) controlável para testar a janela de graça. */
   clockSeconds = Math.floor(Date.now() / 1000);
 
   connect = jest.fn().mockResolvedValue(undefined);
@@ -56,32 +49,41 @@ class FakeRedis {
     return Array.from(this.sets.get(key) ?? []);
   }
 
-  // Emula o CONSUME_LUA (incluindo a janela de graça): lê tok key, distingue
-  // not_found / grace / reused / valid e marca revoked+revokedAt no caminho
-  // válido.
   async eval(
     _script: string,
     _numKeys: number,
     key: string,
     graceArg: string,
+    maxGraceArg: string,
   ): Promise<string> {
     const raw = this.store.get(key);
     if (!raw) return 'not_found';
     const data = JSON.parse(raw);
     const grace = Number(graceArg);
+    const maxGrace = Number(maxGraceArg);
+    const family = data.familyId ?? '';
+    const tv = data.tokenVersion === undefined ? '' : String(data.tokenVersion);
+    const suffix = `${data.userId}:${family}:${tv}`;
     if (data.revoked) {
       if (
         data.revokedAt !== undefined &&
         this.clockSeconds - data.revokedAt <= grace
       ) {
-        return `grace:${data.userId}`;
+        const used = Number(data.graceUsed ?? 0);
+        if (used < maxGrace) {
+          data.graceUsed = used + 1;
+          this.store.set(key, JSON.stringify(data));
+          return `grace:${suffix}`;
+        }
+        return `grace_exhausted:${suffix}`;
       }
-      return `reused:${data.userId}`;
+      return `reused:${suffix}`;
     }
     data.revoked = true;
     data.revokedAt = this.clockSeconds;
+    data.graceUsed = 0;
     this.store.set(key, JSON.stringify(data));
-    return `valid:${data.userId}`;
+    return `valid:${suffix}`;
   }
 }
 
@@ -94,8 +96,11 @@ jest.mock('ioredis', () => {
   };
 });
 
-// Import após o mock para que o construtor use o FakeRedis.
-import { RefreshTokenStore } from './refresh-token.store';
+import {
+  CONSUME_LUA,
+  MAX_GRACE_EXCHANGES,
+  RefreshTokenStore,
+} from './refresh-token.store';
 
 describe('RefreshTokenStore', () => {
   let store: RefreshTokenStore;
@@ -107,44 +112,125 @@ describe('RefreshTokenStore', () => {
   });
 
   it('issue retorna o token cru e persiste apenas o hash (nunca o cru)', async () => {
-    const raw = await store.issue('user-1');
+    const raw = await store.issue('user-1', 0);
 
     const hash = hashRefreshToken(raw);
     expect(fakeRedis.store.has(`refresh:tok:${hash}`)).toBe(true);
-    // O valor cru nunca aparece em nenhuma chave/valor.
     expect(fakeRedis.store.has(`refresh:tok:${raw}`)).toBe(false);
     for (const value of fakeRedis.store.values()) {
       expect(value).not.toContain(raw);
     }
-    // O hash entra no set do usuário.
     expect(await fakeRedis.smembers('refresh:user:user-1')).toContain(hash);
   });
 
-  it('consume de um token válido retorna valid e marca como revogado (rotação)', async () => {
-    const raw = await store.issue('user-1');
+  const familiaDe = (raw: string): string =>
+    JSON.parse(fakeRedis.store.get(`refresh:tok:${hashRefreshToken(raw)}`)!)
+      .familyId as string;
 
-    const first = await store.consume(raw);
-    expect(first).toEqual({ status: 'valid', userId: 'user-1' });
+  it('issue sem família abre uma família nova; com família, herda', async () => {
+    const primeiro = await store.issue('user-1', 0);
+    const familia = familiaDe(primeiro);
+    expect(familia).toEqual(expect.any(String));
+
+    const sucessor = await store.issue('user-1', 0, familia);
+    expect(familiaDe(sucessor)).toBe(familia);
+
+    const outroLogin = await store.issue('user-1', 0);
+    expect(familiaDe(outroLogin)).not.toBe(familia);
   });
 
-  it('replay dentro da janela de graça é corrida legítima (valid, não reused)', async () => {
-    const raw = await store.issue('user-1');
-    await store.consume(raw); // rotação inicial
+  it('consume de um token válido retorna valid com a família e marca como revogado (rotação)', async () => {
+    const raw = await store.issue('user-1', 0, 'fam-1');
 
-    // Replay imediato (mesmo "agora") → dentro da janela → valid.
+    const first = await store.consume(raw);
+    expect(first).toEqual({
+      status: 'valid',
+      userId: 'user-1',
+      familyId: 'fam-1',
+      tokenVersion: 0,
+    });
+  });
+
+  it('a primeira reapresentação dentro da janela de graça é corrida legítima (grace, mesma família)', async () => {
+    const raw = await store.issue('user-1', 0, 'fam-1');
+    await store.consume(raw);
+
     const replay = await store.consume(raw);
-    expect(replay).toEqual({ status: 'valid', userId: 'user-1' });
+    expect(replay).toEqual({
+      status: 'grace',
+      userId: 'user-1',
+      familyId: 'fam-1',
+      tokenVersion: 0,
+    });
+  });
+
+  it('só permite uma troca de graça por token: a seguinte é recusada sem virar reuso', async () => {
+    const raw = await store.issue('user-1', 0, 'fam-1');
+    await store.consume(raw);
+    for (let i = 0; i < MAX_GRACE_EXCHANGES; i++) {
+      await store.consume(raw);
+    }
+
+    const terceira = await store.consume(raw);
+    expect(terceira).toEqual({
+      status: 'grace_exhausted',
+      userId: 'user-1',
+      familyId: 'fam-1',
+      tokenVersion: 0,
+    });
   });
 
   it('replay fora da janela de graça é reuso (reused)', async () => {
-    const raw = await store.issue('user-1');
-    await store.consume(raw); // rotação inicial
+    const raw = await store.issue('user-1', 0, 'fam-1');
+    await store.consume(raw);
 
-    // Avança o relógio além da janela de graça (30s).
     fakeRedis.clockSeconds += 31;
 
     const replay = await store.consume(raw);
-    expect(replay).toEqual({ status: 'reused', userId: 'user-1' });
+    expect(replay).toEqual({
+      status: 'reused',
+      userId: 'user-1',
+      familyId: 'fam-1',
+      tokenVersion: 0,
+    });
+  });
+
+  it('registro legado sem família é aceito e devolve familyId nulo', async () => {
+    const hash = hashRefreshToken('legado');
+    fakeRedis.store.set(
+      `refresh:tok:${hash}`,
+      JSON.stringify({ userId: 'user-1', createdAt: Date.now() }),
+    );
+
+    expect(await store.consume('legado')).toEqual({
+      status: 'valid',
+      userId: 'user-1',
+      familyId: null,
+      tokenVersion: null,
+    });
+  });
+
+  it('guarda a versão de sessão do usuário e a devolve no consume', async () => {
+    const raw = await store.issue('user-1', 7, 'fam-1');
+    const registro = JSON.parse(
+      fakeRedis.store.get(`refresh:tok:${hashRefreshToken(raw)}`)!,
+    );
+    expect(registro.tokenVersion).toBe(7);
+
+    expect(await store.consume(raw)).toEqual({
+      status: 'valid',
+      userId: 'user-1',
+      familyId: 'fam-1',
+      tokenVersion: 7,
+    });
+  });
+
+  it('o script Lua limita as trocas de graça e propaga a família', () => {
+    expect(CONSUME_LUA).toContain('graceUsed');
+    expect(CONSUME_LUA).toContain('maxGrace');
+    expect(CONSUME_LUA).toContain("'grace_exhausted:'");
+    expect(CONSUME_LUA).toContain('data.familyId');
+    expect(CONSUME_LUA).toContain('data.tokenVersion');
   });
 
   it('consume de um token inexistente retorna not_found', async () => {
@@ -152,8 +238,8 @@ describe('RefreshTokenStore', () => {
   });
 
   it('revokeAllForUser apaga todos os hashes do usuário', async () => {
-    const raw1 = await store.issue('user-1');
-    const raw2 = await store.issue('user-1');
+    const raw1 = await store.issue('user-1', 0);
+    const raw2 = await store.issue('user-1', 0);
 
     await store.revokeAllForUser('user-1');
 
@@ -169,7 +255,7 @@ describe('RefreshTokenStore', () => {
   it('falha fechado (não usa in-memory) quando o Redis não está pronto', async () => {
     fakeRedis.status = 'end';
 
-    await expect(store.issue('user-1')).rejects.toBeInstanceOf(
+    await expect(store.issue('user-1', 0)).rejects.toBeInstanceOf(
       ServiceUnavailableException,
     );
     await expect(store.consume('x')).rejects.toBeInstanceOf(

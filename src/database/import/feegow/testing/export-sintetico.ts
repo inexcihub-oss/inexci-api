@@ -4,10 +4,6 @@ import { Relatorio } from '../../core/report';
 import { ContextoImportacao } from '../context';
 import { ExportFeegow } from '../export';
 
-/**
- * Export do Feegow **sintético** para os testes — nenhum dado de paciente real
- * entra no repositório. Mesmas colunas do backup verdadeiro, só as usadas.
- */
 export const OWNER = 'owner-uuid';
 
 type Tabelas = Record<string, Partial<Record<string, string | null>>[]>;
@@ -126,8 +122,6 @@ export function exportSintetico(sobrescrever: Tabelas = {}): ExportFeegow {
       ag('10', '4', '2025-02-10', '15'),
       ag('10', '1', '2025-03-10', '0'),
       ag('11', '9', '2025-03-10', '5'),
-      // Antigo, com o UNIMED "excluído": não muda o convênio do paciente 11
-      // (mais recente é o 5, que não conta), mas faz o UNIMED ser usado.
       ag('11', '9', '2024-01-01', '14'),
     ],
     ...sobrescrever,

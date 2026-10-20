@@ -2,15 +2,6 @@ import { DataSource, Repository } from 'typeorm';
 import { SurgeryRequestReportService } from './services/surgery-request-report.service';
 import { ReportSection } from 'src/database/entities/report-section.entity';
 
-/**
- * Testes unitários focados nas funcionalidades dos PRDs:
- * - PRD Reformulação Laudos (sections dinâmicas)
- * - PRD Registro PDF Histórico
- * - PRD Modal Confirmação Notificação
- *
- * Testa o SurgeryRequestReportService diretamente (lógica real),
- * não o SurgeryRequestsService que agora é apenas fachada.
- */
 describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
   let service: SurgeryRequestReportService;
   let mockReportSectionRepo: Partial<Repository<ReportSection>>;
@@ -39,9 +30,6 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
     (mockDataSource.query as jest.Mock).mockReset();
     (mockDataSource.query as jest.Mock).mockResolvedValue([]);
 
-    // Instanciação direta do SurgeryRequestReportService — assinatura
-    // atual: (reportSectionRepository, surgeryRequestRepository,
-    // pdfAssemblyService, dataSource).
     service = new SurgeryRequestReportService(
       mockReportSectionRepo as any,
       mockSurgeryRequestRepository as any,
@@ -54,7 +42,6 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
     expect(service).toBeDefined();
   });
 
-  // ─── PRD: Reformulação Laudos — US-003 (CRUD sections) ──────────────────
   describe('getReportSections', () => {
     it('deve retornar sections ordenadas por order ASC', async () => {
       const mockSections = [
@@ -217,7 +204,6 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
     });
   });
 
-  // ─── Segurança VULN-02: sanitização XSS nas seções de laudo ────────────────
   describe('sanitização de seções de laudo (VULN-02)', () => {
     it('deve remover tag <script> do title antes de salvar', async () => {
       (mockReportSectionRepo.count as jest.Mock).mockResolvedValue(0);
@@ -283,7 +269,6 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
     });
   });
 
-  // ─── PRD: Reformulação Laudos — US-003 (reorder) ────────────────────────
   describe('reorderReportSections', () => {
     it('deve executar batch update com dataSource.query para todas as sections', async () => {
       (mockReportSectionRepo.find as jest.Mock).mockResolvedValue([]);
@@ -294,12 +279,8 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
         'user-1',
       );
 
-      // Batch: apenas 1 query em vez de N updates individuais
       expect(mockDataSource.query).toHaveBeenCalledTimes(1);
       const [sql, params] = (mockDataSource.query as jest.Mock).mock.calls[0];
-      // Nome de tabela e coluna reais (report_sections / surgery_request_id):
-      // a versão anterior usava 'report_section' e 'rs.surgeryRequestId',
-      // que quebravam em runtime e anulavam o escopo por SC.
       expect(sql).toContain('UPDATE report_sections rs');
       expect(sql).toContain('rs.surgery_request_id');
       expect(sql).toContain('VALUES');

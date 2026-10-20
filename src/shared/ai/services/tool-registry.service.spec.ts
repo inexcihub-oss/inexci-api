@@ -1,19 +1,8 @@
 import OpenAI from 'openai';
 import { Test } from '@nestjs/testing';
 import { ToolRegistryService, detectDraftType } from './tool-registry.service';
-import { AiTool, AI_TOOL } from '../tools/tool.interface';
+import { AiTool, AI_TOOL, ANY_AUTHENTICATED } from '../tools/tool.interface';
 
-/**
- * Cria uma instância do `ToolRegistryService` via `Test.createTestingModule`
- * usando o token `AI_TOOL` com um array de tools fixo.
- *
- * Fase 6 do `PLANO-SANITIZACAO-CLEAN-CODE-IA.md` — o registry agora recebe
- * `@Inject(AI_TOOL) allTools: AiTool[]` em vez de 30+ deps individuais.
- *
- * Por padrão também executa o warmup do `definitionsCache` para refletir
- * o comportamento de produção (após `onModuleInit`). Use `warmup: false`
- * para testar especificamente o cache miss path.
- */
 async function buildRegistryWithToolsDI(
   tools: AiTool[],
   options: { warmup?: boolean } = {},
@@ -27,11 +16,6 @@ async function buildRegistryWithToolsDI(
   return registry;
 }
 
-/**
- * Versão síncrona (sem DI) para testes que não precisam do container NestJS.
- * Mantida para compatibilidade com os testes de filtragem que são puramente
- * síncronos e não dependem do construtor real.
- */
 function buildRegistryWithTools(
   tools: AiTool[],
   options: { warmup?: boolean } = {},
@@ -53,7 +37,8 @@ function makeTool(name: string): AiTool {
     definition: {
       type: 'function',
       function: { name, description: name, parameters: { type: 'object' } },
-    } as OpenAI.ChatCompletionTool,
+    },
+    requiredPermission: ANY_AUTHENTICATED,
     execute: async () => '',
   };
 }
@@ -185,13 +170,6 @@ describe('ToolRegistryService.getToolDefinitionsForDraft', () => {
     expect(withInvoice).toBeLessThan(128);
   });
 
-  /**
-   * O prompt caching da OpenAI faz hash do prefixo do request (system prompt
-   * + tool definitions). Se a ordem das tools muda, o hit rate vai a zero.
-   * Este teste é uma "tripwire" — se passar a quebrar, alguém reordenou as
-   * tools sem bumpar `PROMPT_VERSION`. Veja Fase 1 do
-   * `PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA.md`.
-   */
   it('preserva ordem de inserção (tripwire para prompt caching)', () => {
     const insertionOrder = [
       'plan_actions',
@@ -206,13 +184,10 @@ describe('ToolRegistryService.getToolDefinitionsForDraft', () => {
 
     const registry = buildRegistryWithTools(insertionOrder.map(makeTool));
 
-    // Sem draft ativo: só as globais, na ordem que foram inseridas.
     expect(
       registry.getToolDefinitionsForDraft(null).map((d) => d.function.name),
     ).toEqual(['plan_actions', 'query_surgery_requests', 'query_patients']);
 
-    // Com draft `create_sc`: globais + as `sc_draft_*`, preservando a ordem
-    // relativa de cada grupo conforme inseridas.
     expect(
       registry
         .getToolDefinitionsForDraft('create_sc')
@@ -226,7 +201,6 @@ describe('ToolRegistryService.getToolDefinitionsForDraft', () => {
       'query_patients',
     ]);
 
-    // Com draft `invoice`: globais + as `invoice_draft_*`.
     expect(
       registry
         .getToolDefinitionsForDraft('invoice')
@@ -259,8 +233,6 @@ describe('ToolRegistryService.getToolDefinitionsForDraft', () => {
   });
 });
 
-// ─── Fase 6 — Auto-registro via token AI_TOOL ─────────────────────────────────
-
 describe('ToolRegistryService (Fase 6 — DI via AI_TOOL)', () => {
   it('instancia corretamente via Test.createTestingModule com provider AI_TOOL', async () => {
     const tools = [
@@ -271,7 +243,7 @@ describe('ToolRegistryService (Fase 6 — DI via AI_TOOL)', () => {
 
     const registry = await buildRegistryWithToolsDI(tools);
 
-    const allDefs = registry.getToolDefinitions();
+    const allDefs = registry.getAll().map((t) => t.definition);
     expect(allDefs).toHaveLength(3);
     expect(allDefs.map((d) => d.function.name)).toEqual([
       'plan_actions',
@@ -298,9 +270,12 @@ describe('ToolRegistryService (Fase 6 — DI via AI_TOOL)', () => {
       insertionOrder.map(makeTool),
     );
 
-    expect(registry.getToolDefinitions().map((d) => d.function.name)).toEqual(
-      insertionOrder,
-    );
+    expect(
+      registry
+        .getAll()
+        .map((t) => t.definition)
+        .map((d) => d.function.name),
+    ).toEqual(insertionOrder);
   });
 
   it('filtragem por draft ativo funciona corretamente após DI', async () => {
@@ -337,9 +312,20 @@ describe('ToolRegistryService (Fase 6 — DI via AI_TOOL)', () => {
     ]);
   });
 
+  it('lança erro no boot quando duas tools têm o mesmo nome', () => {
+    expect(
+      () =>
+        new ToolRegistryService([
+          makeTool('plan_actions'),
+          makeTool('query_patients'),
+          makeTool('plan_actions'),
+        ]),
+    ).toThrow(/duplicada: "plan_actions"/);
+  });
+
   it('construtor recebe array vazio sem erros (zero tools)', async () => {
     const registry = await buildRegistryWithToolsDI([]);
-    expect(registry.getToolDefinitions()).toHaveLength(0);
+    expect(registry.getAll().map((t) => t.definition)).toHaveLength(0);
     expect(registry.getToolDefinitionsForDraft(null)).toHaveLength(0);
   });
 });
@@ -367,7 +353,6 @@ describe('ToolRegistryService.definitionsCache (Fase 2 — memoização)', () =>
       string,
       unknown
     >;
-    // 1 chave 'none' + 13 OperationDraftType distintos.
     expect(cacheAfter.size).toBe(14);
     expect(cacheAfter.has('none')).toBe(true);
     expect(cacheAfter.has('create_sc')).toBe(true);
@@ -405,7 +390,6 @@ describe('ToolRegistryService.definitionsCache (Fase 2 — memoização)', () =>
     expect(cache.size).toBe(1);
     expect(cache.get('create_sc')).toBe(ref1);
 
-    // Segunda chamada usa o que foi memoizado.
     const ref2 = registry.getToolDefinitionsForDraft('create_sc');
     expect(ref1).toBe(ref2);
     expect(cache.size).toBe(1);

@@ -14,18 +14,6 @@ import { User } from './user.entity';
 import { SubscriptionPlan } from './subscription-plan.entity';
 import type { SubscriptionQuotaPeriod } from './subscription-quota-period.entity';
 
-/**
- * Status do ciclo de vida da assinatura.
- *
- * - TRIALING: período de avaliação gratuita (30 dias). Não requer
- *   método de pagamento. `trialEndsAt` define o fim.
- * - ACTIVE: assinatura paga em dia.
- * - PAST_DUE: última cobrança falhou; Stripe está em retry/dunning.
- *   UX continua liberada durante esse período.
- * - SUSPENDED: conta bloqueada para mutar/criar solicitações; permanece
- *   read-only até regularizar via Customer Portal.
- * - CANCELED: cancelada definitivamente.
- */
 export enum SubscriptionStatus {
   TRIALING = 'trialing',
   ACTIVE = 'active',
@@ -34,12 +22,6 @@ export enum SubscriptionStatus {
   CANCELED = 'canceled',
 }
 
-/**
- * Assinatura do tenant (vinculada ao admin/owner).
- *
- * Espelho read-model da Stripe. Fonte da verdade: Stripe.
- * Sincronizado via webhooks (`customer.subscription.*`, `invoice.*`).
- */
 @Entity('subscriptions')
 @Index('idx_subscriptions_owner_id', ['ownerId'])
 @Index('idx_subscriptions_status', ['status'])
@@ -48,7 +30,6 @@ export class Subscription {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  /** FK para `users.id` do admin dono da conta (ownerId do tenant). */
   @Column({ name: 'owner_id', type: 'uuid' })
   ownerId: string;
 
@@ -62,8 +43,6 @@ export class Subscription {
   })
   status: SubscriptionStatus;
 
-  // ───── Datas do ciclo ─────
-
   @Column({ name: 'trial_ends_at', type: 'timestamptz', nullable: true })
   trialEndsAt: Date | null;
 
@@ -73,11 +52,9 @@ export class Subscription {
   @Column({ name: 'current_period_end', type: 'timestamptz' })
   currentPeriodEnd: Date;
 
-  /** Marca o momento em que a última cobrança falhou (Stripe em dunning). */
   @Column({ name: 'past_due_since', type: 'timestamptz', nullable: true })
   pastDueSince: Date | null;
 
-  /** Quando true, no fim do período a assinatura vira CANCELED (gerenciado pelo Portal). */
   @Column({ name: 'cancel_at_period_end', type: 'boolean', default: false })
   cancelAtPeriodEnd: boolean;
 
@@ -87,9 +64,6 @@ export class Subscription {
   @Column({ name: 'suspended_at', type: 'timestamptz', nullable: true })
   suspendedAt: Date | null;
 
-  // ───── Referências do gateway ─────
-
-  /** Provider que cuida desta assinatura (stripe). */
   @Column({ name: 'gateway_provider', type: 'varchar', length: 30 })
   gatewayProvider: string;
 
@@ -114,8 +88,6 @@ export class Subscription {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
-
-  // ───── Relações ─────
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'owner_id' })

@@ -1,10 +1,14 @@
+import { SessionRevocationService } from './session-revocation.service';
+
 describe('Troca de senha — revogacao de sessoes', () => {
   it('revoga refresh tokens ao concluir a recuperacao', async () => {
     const refreshTokenStore = { revokeAllForUser: jest.fn() };
     const userRepository = {
       findOne: jest.fn().mockResolvedValue({ id: 'user-1', email: 'a@b.com' }),
       update: jest.fn(),
+      incrementTokenVersion: jest.fn(),
     };
+    const eventEmitter = { emit: jest.fn() };
     const recoveryCodeRepository = {
       findOne: jest.fn().mockResolvedValue({
         id: 'rec-1',
@@ -25,9 +29,12 @@ describe('Troca de senha — revogacao de sessoes', () => {
       refreshTokenStore,
       userRepository,
       recoveryCodeRepository,
+      sessionRevocation: new SessionRevocationService(
+        refreshTokenStore as never,
+        userRepository as never,
+        eventEmitter as never,
+      ),
     });
-    // revokeRefreshTokens (auth.service.ts:611) apenas delega ao store; o
-    // teste observa o store para nao depender do wrapper.
 
     await service.changePassword({
       email: 'a@b.com',
@@ -36,5 +43,11 @@ describe('Troca de senha — revogacao de sessoes', () => {
     } as any);
 
     expect(refreshTokenStore.revokeAllForUser).toHaveBeenCalledWith('user-1');
+    expect(userRepository.incrementTokenVersion).toHaveBeenCalledWith('user-1');
+    expect(eventEmitter.emit).toHaveBeenCalledWith('user.sessions_revoked', {
+      userId: 'user-1',
+      reason: 'password_reset',
+      accessTokensRevoked: true,
+    });
   });
 });

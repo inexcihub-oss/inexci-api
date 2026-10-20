@@ -35,7 +35,6 @@ describe('Suppliers (e2e)', () => {
         .expect(200);
 
       expect(response.body).toBeDefined();
-      // A resposta tem formato { total, records }
       const suppliers =
         response.body.records || response.body.suppliers || response.body;
       expect(Array.isArray(suppliers)).toBe(true);

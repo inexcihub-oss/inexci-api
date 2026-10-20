@@ -150,7 +150,7 @@ describe('PatientNotificationService', () => {
 
     expect(mockWhatsappService.sendTemplate).toHaveBeenCalledWith(
       expect.any(String),
-      'mock-status-sid', // contentSid
+      'mock-status-sid',
       expect.any(Object),
     );
   });

@@ -1,4 +1,4 @@
-import { resolveAuthorizedRequest } from './_helpers/resolve-surgery-request';
+import { resolveAuthorizedRequest } from './helpers/surgery-request-access';
 
 describe('Tools de draft — IDOR cross-tenant', () => {
   const scDaVitima = {
@@ -44,8 +44,6 @@ describe('Tools de draft — IDOR cross-tenant', () => {
   });
 
   it('o helper de transicao de draft usa a versao autorizada', () => {
-    // Barreira de regressao: o modulo nao pode mais importar a versao sem
-    // checagem de permissao, senao o IDOR volta.
     const fonte = require('fs').readFileSync(
       require.resolve('./flow-draft-transition/_helpers'),
       'utf8',

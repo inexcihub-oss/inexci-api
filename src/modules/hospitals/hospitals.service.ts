@@ -1,16 +1,26 @@
-import {
-  ConflictException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { FindManyHospitalDto } from './dto/find-many-hospital.dto';
 import { CreateHospitalDto } from './dto/create-hospital.dto';
 import { UpdateHospitalDto } from './dto/update-hospital.dto';
 import { HospitalRepository } from 'src/database/repositories/hospital.repository';
-import { FindOptionsWhere, In } from 'typeorm';
-import { Hospital } from 'src/database/entities/hospital.entity';
+import { FindOptionsWhere } from 'typeorm';
+import {
+  HOSPITAL_NOME_UNICO,
+  Hospital,
+} from 'src/database/entities/hospital.entity';
 import { AccessControlService } from 'src/shared/services/access-control.service';
+import {
+  bulkDeleteOwned,
+  createOrRestoreByName,
+  findOwnedOrFail,
+  resolveCatalogOwnerId,
+  updateWithUniqueName,
+} from 'src/shared/catalog/owned-catalog.helpers';
+
+const conflitoDeNome = (nome: string) =>
+  `Já existe um hospital com o nome "${nome}"`;
+
+const NAO_ENCONTRADO = 'Hospital não encontrado';
 
 @Injectable()
 export class HospitalsService {
@@ -33,31 +43,19 @@ export class HospitalsService {
     return { total, records };
   }
 
-  async findOne(id: string, userId: string): Promise<Hospital> {
-    const hospital = await this.hospitalRepository.findOne({ id });
-    if (!hospital) throw new NotFoundException('Hospital não encontrado');
-
-    await this.accessControlService.assertSameOwner(userId, hospital.ownerId);
-    return hospital;
-  }
-
   async create(data: CreateHospitalDto, userId: string): Promise<Hospital> {
-    const ownerId = await this.accessControlService.getOwnerId(userId);
+    const ownerId = await resolveCatalogOwnerId(
+      this.accessControlService,
+      userId,
+    );
 
-    const existing = await this.hospitalRepository.findOne({
-      name: data.name,
+    return createOrRestoreByName({
+      repository: this.hospitalRepository,
       ownerId,
-    });
-    if (existing) {
-      throw new ConflictException(
-        `Já existe um hospital com o nome "${data.name}"`,
-      );
-    }
-
-    return this.hospitalRepository.create({
-      ...data,
-      ownerId,
-      active: true,
+      data: { ...data, active: true },
+      conflictMessage: conflitoDeNome,
+      uniqueIndex: HOSPITAL_NOME_UNICO,
+      logger: this.logger,
     });
   }
 
@@ -66,16 +64,18 @@ export class HospitalsService {
     data: UpdateHospitalDto,
     userId: string,
   ): Promise<Hospital> {
-    const hospital = await this.hospitalRepository.findOne({ id });
-    if (!hospital) throw new NotFoundException('Hospital não encontrado');
-    await this.accessControlService.assertSameOwner(userId, hospital.ownerId);
-    return (await this.hospitalRepository.update(id, data))!;
+    await this.findOwned(id, userId);
+    return updateWithUniqueName({
+      repository: this.hospitalRepository,
+      id,
+      data,
+      uniqueIndex: HOSPITAL_NOME_UNICO,
+      conflictMessage: conflitoDeNome,
+    });
   }
 
   async delete(id: string, userId: string): Promise<void> {
-    const hospital = await this.hospitalRepository.findOne({ id });
-    if (!hospital) throw new NotFoundException('Hospital não encontrado');
-    await this.accessControlService.assertSameOwner(userId, hospital.ownerId);
+    await this.findOwned(id, userId);
     await this.hospitalRepository.delete(id);
   }
 
@@ -84,24 +84,23 @@ export class HospitalsService {
     userId: string,
   ): Promise<{ deleted: number }> {
     const ownerId = await this.accessControlService.getOwnerId(userId);
-    const uniqueIds = [...new Set(ids)];
-
-    const hospitals = await this.hospitalRepository.findMany({
-      id: In(uniqueIds),
+    const result = await bulkDeleteOwned({
+      repository: this.hospitalRepository,
+      ids,
       ownerId,
+      notFoundMessage: 'Um ou mais hospitais não foram encontrados.',
     });
+    this.logger.log(`Hospitais soft-deleted em lote: total=${result.deleted}`);
+    return result;
+  }
 
-    if (hospitals.length !== uniqueIds.length) {
-      throw new NotFoundException(
-        'Um ou mais hospitais não foram encontrados.',
-      );
-    }
-
-    await this.hospitalRepository.getRepository().softDelete(uniqueIds);
-    this.logger.log(
-      `Hospitais soft-deleted em lote: total=${uniqueIds.length}`,
+  private findOwned(id: string, userId: string): Promise<Hospital> {
+    return findOwnedOrFail(
+      this.hospitalRepository,
+      this.accessControlService,
+      id,
+      userId,
+      NAO_ENCONTRADO,
     );
-
-    return { deleted: uniqueIds.length };
   }
 }

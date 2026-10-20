@@ -1,19 +1,32 @@
 import { Logger } from '@nestjs/common';
 import { StorageService } from 'src/shared/storage/storage.service';
+import { caminhoDoLogoDoCabecalho } from 'src/shared/storage/logo-do-cabecalho';
 
 const logger = new Logger('SignedUrlTransformer');
 
-/**
- * Transforma os documentos de uma solicitação cirúrgica, substituindo
- * os `uri` internos por URLs assinadas do R2.
- */
-export function transformDocumentUrls(
-  documents: any[],
+interface DocumentoComUri {
+  id?: string;
+  uri: string | null;
+}
+
+interface MedicoComAssinatura {
+  id?: string;
+  ownerId?: string | null;
+  signatureUrl?: string | null;
+  doctorProfile?: {
+    signatureUrl?: string | null;
+    header?: { logoUrl?: string | null } | null;
+  } | null;
+}
+
+export function transformDocumentUrls<T extends DocumentoComUri>(
+  documents: T[],
   storageService: StorageService,
-): Promise<any[]> {
+): Promise<T[]> {
   return Promise.all(
     documents.map(async (doc) => {
       try {
+        if (doc.uri === null) throw new Error('documento sem uri');
         return {
           ...doc,
           path: doc.uri,
@@ -29,25 +42,17 @@ export function transformDocumentUrls(
   );
 }
 
-/**
- * Transforma a `signatureUrl` do médico substituindo o path interno
- * por uma URL assinada do R2, quando necessário.
- */
-export async function transformDoctorSignatureUrl(
-  doctor: any,
-  storageService: StorageService,
-): Promise<any> {
-  // A assinatura fica em doctor.doctorProfile.signatureUrl (path bruto).
-  // Promove para doctor.signatureUrl como signed URL para uso no frontend.
+export async function transformDoctorSignatureUrl<
+  T extends MedicoComAssinatura,
+>(doctor: T, storageService: StorageService): Promise<T> {
   const rawSignature: string | undefined =
-    doctor?.doctorProfile?.signatureUrl || doctor?.signatureUrl;
+    doctor?.doctorProfile?.signatureUrl || doctor?.signatureUrl || undefined;
 
   if (!rawSignature) {
-    // Mesmo sem assinatura, resolve o logo do cabeçalho se houver
     return resolveHeaderLogoUrl(doctor, storageService);
   }
 
-  const withSignedSignature = (signedUrl: string) => ({
+  const withSignedSignature = (signedUrl: string): T => ({
     ...doctor,
     signatureUrl: signedUrl,
     doctorProfile: doctor.doctorProfile
@@ -55,7 +60,7 @@ export async function transformDoctorSignatureUrl(
       : doctor.doctorProfile,
   });
 
-  let transformed: any;
+  let transformed: T;
   if (rawSignature.startsWith('http')) {
     transformed = withSignedSignature(rawSignature);
   } else {
@@ -74,21 +79,31 @@ export async function transformDoctorSignatureUrl(
   return resolveHeaderLogoUrl(transformed, storageService);
 }
 
-/**
- * Resolve a URL assinada do logo do cabeçalho customizado do médico,
- * quando houver um path bruto armazenado.
- */
-async function resolveHeaderLogoUrl(
-  doctor: any,
+async function resolveHeaderLogoUrl<T extends MedicoComAssinatura>(
+  doctor: T,
   storageService: StorageService,
-): Promise<any> {
+): Promise<T> {
   const header = doctor?.doctorProfile?.header;
-  if (!header?.logoUrl || header.logoUrl.startsWith('http')) {
+  if (!header?.logoUrl) {
     return doctor;
   }
 
+  const caminhoDoLogo = caminhoDoLogoDoCabecalho(header.logoUrl, {
+    bucket: storageService.nomeDoBucket,
+    ownerId: doctor.ownerId,
+  });
+  if (!caminhoDoLogo) {
+    return {
+      ...doctor,
+      doctorProfile: {
+        ...doctor.doctorProfile,
+        header: { ...header, logoUrl: null },
+      },
+    };
+  }
+
   try {
-    const signedLogoUrl = await storageService.getSignedUrl(header.logoUrl);
+    const signedLogoUrl = await storageService.getSignedUrl(caminhoDoLogo);
     return {
       ...doctor,
       doctorProfile: {

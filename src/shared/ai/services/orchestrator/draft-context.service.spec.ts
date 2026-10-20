@@ -42,7 +42,7 @@ describe('DraftContextService', () => {
   describe('buildToolsForDraft', () => {
     it('retorna tools globais quando não há draft ativo', async () => {
       operationDraftService.getCurrent.mockResolvedValue(null);
-      toolRegistry.getToolDefinitionsForDraft.mockReturnValue([] as any);
+      toolRegistry.getToolDefinitionsForDraft.mockReturnValue([]);
 
       const result = await service.buildToolsForDraft('conv-1');
 

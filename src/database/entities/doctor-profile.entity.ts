@@ -10,13 +10,6 @@ import {
 import { User } from './user.entity';
 import { DoctorHeader } from './doctor-header.entity';
 
-/**
- * Conselho profissional. Gravado como texto em `doctor_profiles.council`.
- *
- * Só `CRM` é médico: indica cirurgia e enxerga Solicitações. Receita, atestado
- * e pedido de exame saem do CRM e do CRO (dentista). Os demais (psicologia,
- * nutrição, enfermagem…) têm agenda e prontuário próprios.
- */
 export enum ProfessionalCouncil {
   CRM = 'CRM',
   CRP = 'CRP',
@@ -30,32 +23,17 @@ export enum ProfessionalCouncil {
   OUTRO = 'OUTRO',
 }
 
-/**
- * Médico de fato: perfil com conselho CRM. Estrito de propósito — um perfil
- * carregado sem a coluna `council` (select parcial) **não** vira médico por
- * omissão, para não abrir Solicitações e receita a quem não é.
- */
 export function isPhysicianProfile(
   profile: { council?: string | null } | null | undefined,
 ): boolean {
   return !!profile && profile.council === ProfessionalCouncil.CRM;
 }
 
-/**
- * Conselhos cujo profissional emite receita, atestado e pedido de exame: o
- * médico (CRM) e o cirurgião-dentista (CRO). Separado de `isPhysicianProfile`
- * de propósito — aquele também decide Solicitações e indicação cirúrgica, que
- * continuam só do CRM.
- */
 const CONSELHOS_QUE_EMITEM_DOCUMENTOS: ReadonlySet<string> = new Set([
   ProfessionalCouncil.CRM,
   ProfessionalCouncil.CRO,
 ]);
 
-/**
- * Conselho habilitado a emitir documentos clínicos (CRM ou CRO). Estrito como
- * `isPhysicianProfile`: perfil sem `council` carregado não emite.
- */
 export function isClinicalDocumentIssuerProfile(
   profile: { council?: string | null } | null | undefined,
 ): boolean {
@@ -64,23 +42,12 @@ export function isClinicalDocumentIssuerProfile(
   );
 }
 
-/**
- * Registro no conselho completo — número **e** UF. Documento ou SC assinados
- * com o registro pela metade não valem (o importador do Feegow cria perfil sem
- * número quando o export não traz o registro).
- */
 export function hasCouncilRegistry(
   profile: { crm?: string | null; crmState?: string | null } | null | undefined,
 ): boolean {
   return !!profile?.crm?.trim() && !!profile?.crmState?.trim();
 }
 
-/**
- * Perfil profissional de saúde (nome histórico: "doctor profile").
- * Um usuário (admin ou collaborator) atende pacientes se e somente se existir
- * um registro nesta tabela com seu userId. Se é **médico** depende do
- * `council` — ver `isPhysicianProfile`.
- */
 @Entity('doctor_profiles')
 export class DoctorProfile {
   @PrimaryGeneratedColumn('uuid')
@@ -96,14 +63,9 @@ export class DoctorProfile {
   })
   council: ProfessionalCouncil;
 
-  /**
-   * Número no conselho (nome histórico `crm`). Obrigatório para CRM — regra no
-   * DTO/service, não no banco; opcional para os demais conselhos.
-   */
   @Column({ type: 'varchar', length: 20, nullable: true })
   crm: string | null;
 
-  /** UF do conselho (nome histórico `crm_state`). */
   @Column({ name: 'crm_state', type: 'char', length: 2, nullable: true })
   crmState: string | null;
 
@@ -137,8 +99,6 @@ export class DoctorProfile {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
-
-  // ============ RELAÇÕES ============
 
   @OneToOne(() => User, (user) => user.doctorProfile)
   @JoinColumn({ name: 'user_id' })

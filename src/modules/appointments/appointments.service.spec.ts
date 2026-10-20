@@ -37,6 +37,7 @@ describe('AppointmentsService', () => {
 
   const mockUserRepository = {
     findOne: jest.fn(),
+    isPatientNotificationEnabled: jest.fn(),
   };
 
   const mockClinicRoomRepository = {
@@ -60,8 +61,6 @@ describe('AppointmentsService', () => {
     sendAppointmentCancelled: jest.fn(),
     sendAppointmentScheduled: jest.fn(),
   };
-
-  const mockPatientNotificationSettings = { isEnabled: jest.fn() };
 
   const mockAccessControlService = {
     getOwnerId: jest.fn(),
@@ -100,6 +99,7 @@ describe('AppointmentsService', () => {
     });
     mockWhatsappService.sendAppointmentCancelled.mockResolvedValue(undefined);
     mockWhatsappService.sendAppointmentScheduled.mockResolvedValue(undefined);
+    mockUserRepository.isPatientNotificationEnabled.mockResolvedValue(true);
     mockAppointmentRepository.create.mockImplementation((d) =>
       Promise.resolve({ id: 'appt-1', ...d }),
     );
@@ -119,9 +119,7 @@ describe('AppointmentsService', () => {
       mockHealthPlanRepository as any,
       mockActivityRepository as any,
       mockAvailabilityService as any,
-      mockPatientNotificationSettings as any,
     );
-    mockPatientNotificationSettings.isEnabled.mockResolvedValue(true);
     mockAvailabilityService.assertNaoBloqueado.mockResolvedValue(undefined);
     mockAvailabilityService.foraDaGrade.mockResolvedValue(false);
     mockActivityRepository.create.mockImplementation((d) =>
@@ -168,8 +166,6 @@ describe('AppointmentsService', () => {
     });
   });
 
-  // "Iniciar" × "Continuar" × "Ver atendimento" sai da ficha, não do status
-  // da agenda (que pode ser mexido à mão sem acompanhar a ficha).
   describe('situação da ficha na leitura', () => {
     beforeEach(() => {
       mockAccessControlService.getAccessibleDoctorIds.mockResolvedValue([
@@ -189,7 +185,7 @@ describe('AppointmentsService', () => {
         total: 3,
       });
 
-      const { records } = await service.findAgenda({} as any, userId);
+      const { records } = await service.findAgenda({}, userId);
 
       expect(records.map((r) => r.clinicalRecordStatus)).toEqual([
         'draft',
@@ -365,8 +361,6 @@ describe('AppointmentsService', () => {
       expect(mockAppointmentRepository.hasOverlap).not.toHaveBeenCalled();
     });
 
-    // D-03: sem zerar a marca, o lembrete "já enviado" era o da data antiga e
-    // o paciente nunca era avisado do novo horário.
     it('zera reminderSentAt ao reagendar para outro horário', async () => {
       mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
         id: 'appt-1',
@@ -483,8 +477,6 @@ describe('AppointmentsService', () => {
       });
     });
 
-    // D-01: reabrir uma consulta cancelada devolvia o slot sem checar se ele
-    // já tinha sido reocupado — duas consultas ativas no mesmo horário.
     it.each([
       [AppointmentStatus.CANCELLED, AppointmentStatus.SCHEDULED],
       [AppointmentStatus.CANCELLED, AppointmentStatus.CONFIRMED],
@@ -583,8 +575,6 @@ describe('AppointmentsService', () => {
       durationMinutes: 30,
     };
 
-    // D-06: sem a consulta, `/atendimento/[appointmentId]` dá 404 e o rascunho
-    // clínico fica inalcançável pela UI, mas continua na timeline do paciente.
     it('bloqueia a exclusão quando existe ficha de atendimento vinculada', async () => {
       mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
         appointment,
@@ -631,14 +621,14 @@ describe('AppointmentsService', () => {
       });
 
       it('passa skip e take, limitando a página ao teto', async () => {
-        await service.findAgenda({ skip: 20, take: 20 } as any, userId);
+        await service.findAgenda({ skip: 20, take: 20 }, userId);
         expect(mockAppointmentRepository.findAgenda).toHaveBeenCalledWith(
           ownerId,
           [doctorId, 'doctor-2'],
           expect.objectContaining({ skip: 20, take: 20 }),
         );
 
-        await service.findAgenda({ take: 5000 } as any, userId);
+        await service.findAgenda({ take: 5000 }, userId);
         expect(mockAppointmentRepository.findAgenda.mock.calls[1][2].take).toBe(
           1000,
         );
@@ -646,7 +636,7 @@ describe('AppointmentsService', () => {
 
       it('doctorIds filtra só os acessíveis; nenhum acessível = lista vazia', async () => {
         await service.findAgenda(
-          { doctorIds: ['doctor-2', 'de-outra-conta'] } as any,
+          { doctorIds: ['doctor-2', 'de-outra-conta'] },
           userId,
         );
         expect(mockAppointmentRepository.findAgenda).toHaveBeenCalledWith(
@@ -657,7 +647,7 @@ describe('AppointmentsService', () => {
 
         mockAppointmentRepository.findAgenda.mockClear();
         const vazio = await service.findAgenda(
-          { doctorIds: ['de-outra-conta'] } as any,
+          { doctorIds: ['de-outra-conta'] },
           userId,
         );
         expect(vazio).toEqual({ total: 0, records: [] });
@@ -685,7 +675,7 @@ describe('AppointmentsService', () => {
       });
 
       it('sem withDoctorCounts não conta', async () => {
-        const result = await service.findAgenda({} as any, userId);
+        const result = await service.findAgenda({}, userId);
         expect(mockAppointmentRepository.countByDoctor).not.toHaveBeenCalled();
         expect(result).not.toHaveProperty('countByDoctorId');
       });
@@ -729,9 +719,6 @@ describe('AppointmentsService', () => {
       );
     });
 
-    // D-05: antes o filtro era descartado em silêncio e a resposta trazia a
-    // agenda de todos os médicos acessíveis, como se o filtro não existisse.
-    // Lista vazia (e não 403) para não permitir enumerar ids de médicos.
     it('retorna vazio quando o médico do filtro não é acessível (fail-closed)', async () => {
       mockAccessControlService.getAccessibleDoctorIds.mockResolvedValue([
         doctorId,
@@ -782,7 +769,6 @@ describe('AppointmentsService', () => {
         total: 0,
       });
 
-      // "Realizadas" lista todo o passado; "Próximas" não tem teto de data.
       await service.findAgenda({}, userId);
 
       expect(mockAppointmentRepository.findAgenda).toHaveBeenCalledWith(
@@ -792,9 +778,6 @@ describe('AppointmentsService', () => {
       );
     });
 
-    // D-15: o teto de APPOINTMENTS_MAX_TAKE corta a lista em silêncio. Se
-    // `total` for o tamanho da página, ele vira o próprio teto e ninguém —
-    // nem o frontend, nem o usuário — consegue saber que faltou consulta.
     it('devolve a contagem real do banco, não o tamanho da página cortada', async () => {
       mockAccessControlService.getAccessibleDoctorIds.mockResolvedValue([
         doctorId,
@@ -814,7 +797,6 @@ describe('AppointmentsService', () => {
 
       expect(result.total).toBe(1103);
       expect(result.records).toHaveLength(APPOINTMENTS_MAX_TAKE);
-      // É a desigualdade que o consumidor usa para avisar do corte.
       expect(result.total).toBeGreaterThan(result.records.length);
     });
 
@@ -925,7 +907,6 @@ describe('AppointmentsService', () => {
       expect(dados).not.toHaveProperty('clinicId');
     });
   });
-  // ─── Aviso de cancelamento ao paciente (template appointment_cancelled) ──
 
   describe('aviso de cancelamento pelo WhatsApp', () => {
     const consultaAgendada = {
@@ -968,8 +949,10 @@ describe('AppointmentsService', () => {
       );
     });
 
-    it('não avisa quando a conta desligou o aviso de cancelamento', async () => {
-      mockPatientNotificationSettings.isEnabled.mockResolvedValue(false);
+    it('não avisa quando a clínica desligou o aviso de cancelamento', async () => {
+      mockUserRepository.isPatientNotificationEnabled.mockImplementation(
+        async (_owner: string, kind: string) => kind !== 'appointmentCancelled',
+      );
 
       await service.updateStatus(
         'appt-1',
@@ -977,10 +960,9 @@ describe('AppointmentsService', () => {
         userId,
       );
 
-      expect(mockPatientNotificationSettings.isEnabled).toHaveBeenCalledWith(
-        ownerId,
-        'appointmentCancelled',
-      );
+      expect(
+        mockUserRepository.isPatientNotificationEnabled,
+      ).toHaveBeenCalledWith(ownerId, 'appointmentCancelled');
       expect(
         mockWhatsappService.sendAppointmentCancelled,
       ).not.toHaveBeenCalled();
@@ -998,10 +980,6 @@ describe('AppointmentsService', () => {
       ).not.toHaveBeenCalled();
     });
 
-    /**
-     * O paciente já recebeu esse mesmo aviso na tela do WhatsApp quando a
-     * consulta foi cancelada; recancelar não é um fato novo para ele.
-     */
     it('não reavisa quando a consulta já estava cancelada', async () => {
       mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
         ...consultaAgendada,
@@ -1038,7 +1016,6 @@ describe('AppointmentsService', () => {
       ).not.toHaveBeenCalled();
     });
 
-    /** Aviso é efeito colateral: Redis fora não pode desfazer o cancelamento. */
     it('cancela mesmo quando o aviso falha', async () => {
       mockWhatsappService.sendAppointmentCancelled.mockRejectedValue(
         new Error('redis down'),
@@ -1058,7 +1035,6 @@ describe('AppointmentsService', () => {
       });
     });
   });
-  // ─── Aviso de agendamento ao paciente (template appointment_scheduled) ───
 
   describe('aviso de consulta marcada pelo WhatsApp', () => {
     beforeEach(() => {
@@ -1068,6 +1044,24 @@ describe('AppointmentsService', () => {
         name: 'Ana Souza',
         phone: '5511998877665',
       });
+    });
+
+    it('não avisa quando a clínica desligou o aviso de consulta marcada', async () => {
+      mockUserRepository.isPatientNotificationEnabled.mockResolvedValue(false);
+
+      await expect(
+        service.create(
+          { ...baseCreate, scheduledAt: '2026-08-01T17:00:00.000Z' },
+          userId,
+        ),
+      ).resolves.toBeDefined();
+
+      expect(
+        mockUserRepository.isPatientNotificationEnabled,
+      ).toHaveBeenCalledWith(ownerId, 'appointmentScheduled');
+      expect(
+        mockWhatsappService.sendAppointmentScheduled,
+      ).not.toHaveBeenCalled();
     });
 
     it('avisa o paciente ao marcar a consulta', async () => {
@@ -1086,32 +1080,6 @@ describe('AppointmentsService', () => {
       );
     });
 
-    it('não avisa quando a conta desligou o aviso de agendamento', async () => {
-      mockPatientNotificationSettings.isEnabled.mockResolvedValue(false);
-
-      const criada = await service.create(baseCreate, userId);
-
-      expect(criada).toBeDefined();
-      expect(mockPatientNotificationSettings.isEnabled).toHaveBeenCalledWith(
-        ownerId,
-        'appointmentScheduled',
-      );
-      expect(
-        mockWhatsappService.sendAppointmentScheduled,
-      ).not.toHaveBeenCalled();
-    });
-
-    it('a falha ao ler a configuração não derruba o agendamento nem envia o aviso', async () => {
-      mockPatientNotificationSettings.isEnabled.mockRejectedValue(
-        new Error('db fora'),
-      );
-
-      await expect(service.create(baseCreate, userId)).resolves.toBeDefined();
-      expect(
-        mockWhatsappService.sendAppointmentScheduled,
-      ).not.toHaveBeenCalled();
-    });
-
     it('não avisa paciente sem telefone', async () => {
       mockPatientRepository.findOne.mockResolvedValue({
         id: patientId,
@@ -1127,7 +1095,6 @@ describe('AppointmentsService', () => {
       ).not.toHaveBeenCalled();
     });
 
-    /** Aviso é efeito colateral: a consulta tem de ser criada de qualquer jeito. */
     it('cria a consulta mesmo quando o aviso falha', async () => {
       mockWhatsappService.sendAppointmentScheduled.mockRejectedValue(
         new Error('redis down'),
@@ -1136,8 +1103,6 @@ describe('AppointmentsService', () => {
       await expect(service.create(baseCreate, userId)).resolves.toBeDefined();
       expect(mockAppointmentRepository.create).toHaveBeenCalled();
     });
-
-    // ─── Reagendamento ────────────────────────────────────────────────────
 
     it('reavisa com a data nova quando a consulta é remarcada', async () => {
       mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
@@ -1166,7 +1131,6 @@ describe('AppointmentsService', () => {
       );
     });
 
-    /** Mexer em notas ou tipo não é notícia para o paciente. */
     it('não reavisa quando o horário não mudou', async () => {
       mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
         id: 'appt-1',
@@ -1207,7 +1171,6 @@ describe('AppointmentsService', () => {
       ).not.toHaveBeenCalled();
     });
   });
-  // ─── MIG-03: sala, encaixe, convênio, autor e sala de espera ───
   describe('sala, encaixe, convênio e autor (MIG-03)', () => {
     const sala = (parcial: object = {}) => ({
       id: 'room-1',
@@ -1396,8 +1359,6 @@ describe('AppointmentsService', () => {
         );
       });
 
-      // A exclusion constraint ignora encaixes dos dois lados: um encaixe
-      // posto sobre a consulta não pode impedir de remarcá-la.
       it('remarcar consulta normal ignora encaixes na checagem de conflito', async () => {
         mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
           existente(),
@@ -1510,7 +1471,6 @@ describe('AppointmentsService', () => {
       );
     });
   });
-  // ─── MIG-04: histórico da consulta ───
   describe('histórico (MIG-04)', () => {
     const tipos = () =>
       mockActivityRepository.create.mock.calls.map(([d]) => d.type);
@@ -1724,7 +1684,7 @@ describe('AppointmentsService', () => {
 
     it('fora da grade cria a consulta e devolve o aviso', async () => {
       mockAvailabilityService.foraDaGrade.mockResolvedValue(true);
-      const criada = await service.create(baseCreate as any, userId);
+      const criada = await service.create(baseCreate, userId);
       expect(criada).toMatchObject({
         id: 'appt-1',
         warnings: ['fora_da_grade'],
@@ -1732,7 +1692,7 @@ describe('AppointmentsService', () => {
     });
 
     it('dentro da grade (ou sem grade) não tem aviso', async () => {
-      const criada = await service.create(baseCreate as any, userId);
+      const criada = await service.create(baseCreate, userId);
       expect(criada).not.toHaveProperty('warnings');
     });
 
@@ -1762,10 +1722,7 @@ describe('AppointmentsService', () => {
     });
 
     it('a grade é avaliada na clínica da consulta (null sem clínica)', async () => {
-      await service.create(
-        { ...baseCreate, clinicId: 'clinic-1' } as any,
-        userId,
-      );
+      await service.create({ ...baseCreate, clinicId: 'clinic-1' }, userId);
       expect(mockAvailabilityService.foraDaGrade).toHaveBeenLastCalledWith(
         doctorId,
         new Date('2026-08-01T14:00:00.000Z'),
@@ -1773,7 +1730,7 @@ describe('AppointmentsService', () => {
         'clinic-1',
       );
 
-      await service.create(baseCreate as any, userId);
+      await service.create(baseCreate, userId);
       expect(mockAvailabilityService.foraDaGrade).toHaveBeenLastCalledWith(
         doctorId,
         expect.any(Date),
@@ -1786,7 +1743,7 @@ describe('AppointmentsService', () => {
       mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(existente);
       await service.update(
         'appt-9',
-        { scheduledAt: '2026-08-02T14:00:00.000Z' } as any,
+        { scheduledAt: '2026-08-02T14:00:00.000Z' },
         userId,
       );
       expect(mockAvailabilityService.foraDaGrade).toHaveBeenLastCalledWith(
@@ -1800,7 +1757,7 @@ describe('AppointmentsService', () => {
         id: 'clinic-2',
         ownerId,
       });
-      await service.update('appt-9', { clinicId: 'clinic-2' } as any, userId);
+      await service.update('appt-9', { clinicId: 'clinic-2' }, userId);
       expect(mockAvailabilityService.foraDaGrade).toHaveBeenLastCalledWith(
         doctorId,
         existente.scheduledAt,
@@ -1811,7 +1768,7 @@ describe('AppointmentsService', () => {
 
     it('editar só as observações não consulta bloqueio nem grade', async () => {
       mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(existente);
-      await service.update('appt-9', { notes: 'trazer exames' } as any, userId);
+      await service.update('appt-9', { notes: 'trazer exames' }, userId);
       expect(mockAvailabilityService.assertNaoBloqueado).not.toHaveBeenCalled();
       expect(mockAvailabilityService.foraDaGrade).not.toHaveBeenCalled();
     });
@@ -1854,8 +1811,6 @@ describe('AppointmentsService', () => {
     });
 
     describe('updateStatus', () => {
-      // Realizada ocupa o horário (OCCUPYING_APPOINTMENT_STATUSES): voltar de
-      // cancelada direto para realizada também disputa o slot.
       it('cancelada → realizada revalida conflito e bloqueio', async () => {
         mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
           consulta({ status: AppointmentStatus.CANCELLED }),
@@ -1885,7 +1840,6 @@ describe('AppointmentsService', () => {
 
         expect(mockAppointmentRepository.hasOverlap).toHaveBeenCalled();
         expect(mockAvailabilityService.assertNaoBloqueado).toHaveBeenCalled();
-        // Realizada não é reativação para o paciente: sem aviso nem reset.
         expect(
           mockWhatsappService.sendAppointmentScheduled,
         ).not.toHaveBeenCalled();
@@ -1953,8 +1907,6 @@ describe('AppointmentsService', () => {
         expect(mockAppointmentRepository.update).toHaveBeenCalled();
       });
 
-      // Ficha vinculada (rascunho ou finalizada) atesta o atendimento: a
-      // consulta não pode virar cancelada nem falta.
       it.each([
         [AppointmentStatus.IN_PROGRESS, AppointmentStatus.CANCELLED, null],
         [AppointmentStatus.IN_PROGRESS, AppointmentStatus.NO_SHOW, null],
@@ -2141,8 +2093,6 @@ describe('AppointmentsService', () => {
         },
       );
 
-      // Realizada continua ocupando o horário: mexer nela ainda disputa o slot
-      // (o banco recusaria pela constraint), mas não é aviso de agendamento.
       it('remarcar consulta realizada checa conflito mas não avisa o paciente', async () => {
         mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
           consulta({ status: AppointmentStatus.COMPLETED }),

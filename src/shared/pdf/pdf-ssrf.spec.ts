@@ -19,8 +19,6 @@ describe('PdfService — allowlist de host (SSRF)', () => {
   });
 
   it('recusa host arbitrario da AWS controlavel pelo atacante', () => {
-    // A allowlist antiga aceitava qualquer *.amazonaws.com, o que inclui
-    // API Gateway e Lambda Function URLs — controlaveis por qualquer pessoa.
     expect(
       isAllowedHost('https://xyz.execute-api.us-east-1.amazonaws.com/p/r'),
     ).toBe(false);

@@ -1,12 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Cria a tabela `clinics` — locais de atendimento da conta, com a grade
- * semanal de funcionamento em `business_hours` (jsonb).
- *
- * Não aperta o schema (sem UNIQUE, sem NOT NULL em coluna existente), então
- * não precisa de entrada no preflight de `data-checks.ts`.
- */
 export class CreateClinics1755600000000 implements MigrationInterface {
   name = 'CreateClinics1755600000000';
 

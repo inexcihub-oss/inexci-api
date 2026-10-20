@@ -9,18 +9,10 @@ import { SurgeryRequestRealtimeService } from 'src/modules/surgery-requests/real
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { IndicationDocumentsJobsService } from './indication-documents-jobs.service';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
-/** Teto por rodada — o cron roda de novo em 10 min se sobrar trabalho. */
 const SWEEP_BATCH_SIZE = 50;
 
-/**
- * Garante que toda ficha finalizada com indicação cirúrgica tenha uma SC.
- *
- * O `finalize` chama isto logo depois de gravar a ficha, mas de forma
- * best-effort: o atendimento não pode ser bloqueado por uma falha na criação da
- * SC. O que impede a perda é o estado da própria ficha — "finalizada + com
- * indicação + sem SC" é a fila de trabalho, varrida pelo cron.
- */
 @Injectable()
 export class SurgicalIndicationService {
   private readonly logger = new Logger(SurgicalIndicationService.name);
@@ -34,21 +26,10 @@ export class SurgicalIndicationService {
     private readonly accessControlService: AccessControlService,
   ) {}
 
-  /**
-   * Cria a SC da ficha, se ainda não existir. Devolve `null` quando não havia
-   * nada a fazer (ficha inexistente, sem marcador, não finalizada, ou já com SC)
-   * ou quando o profissional da ficha não pode indicar cirurgia.
-   *
-   * Idempotente sob concorrência: a leitura com `FOR UPDATE` serializa esta
-   * chamada com o sweeper e com outras instâncias da API. Quem chegar depois
-   * relê a linha commitada, vê `surgeryRequestId` preenchido e desiste.
-   */
   async createForRecord(
     recordId: string,
     actorUserId?: string,
   ): Promise<SurgeryRequest | null> {
-    // Guardado da transação para o pós-commit (cópia dos documentos): a ficha
-    // só é lida lá dentro, com o lock.
     let source: Pick<
       ClinicalRecord,
       'patientId' | 'ownerId' | 'doctorId'
@@ -72,11 +53,6 @@ export class SurgicalIndicationService {
           return null;
         }
 
-        // A SC sai em nome do profissional da ficha, e SC é de médico (CRM)
-        // com registro completo. O `finalize` já barra, mas o conselho ou o
-        // registro podem mudar entre a finalização e o cron — e ficha antiga
-        // pode ter sido marcada antes da regra. Fica pendente (não é apagada):
-        // completado o CRM em Colaboradores, a próxima varredura cria a SC.
         if (
           !(await this.accessControlService.canIndicateSurgery(record.doctorId))
         ) {
@@ -97,9 +73,6 @@ export class SurgicalIndicationService {
             procedureId: record.procedureId ?? null,
           });
 
-        // Escrita direta pelo manager, não via ClinicalRecordsService.update:
-        // aquele caminho recusa fichas finalizadas, e aqui a ficha está
-        // finalizada por definição.
         await recordRepo.update(record.id, {
           surgeryRequestId: surgeryRequest.id,
         });
@@ -116,9 +89,6 @@ export class SurgicalIndicationService {
     );
 
     if (created && source) {
-      // Enfileirado, não copiado aqui: são N cópias no R2, e a resposta de
-      // "Finalizar atendimento" não pode esperar por elas. A fila ainda dá
-      // retentativa, que a cópia inline não tinha.
       const { patientId, ownerId, doctorId } = source;
       try {
         await this.indicationDocumentsJobsService.schedule({
@@ -127,22 +97,21 @@ export class SurgicalIndicationService {
           ownerId,
           createdById: doctorId,
         });
-      } catch (err: any) {
+      } catch (err) {
         this.logger.warn(
-          `SC ${created.id} criada, mas a cópia dos documentos não foi agendada: ${err?.message}`,
+          `SC ${created.id} criada, mas a cópia dos documentos não foi agendada: ${errorMessage(err)}`,
         );
       }
 
-      // Depois do commit: o broadcast relê a SC no banco.
       try {
         await this.realtimeService.broadcastChange(
           created.id,
           'created',
           actorUserId,
         );
-      } catch (err: any) {
+      } catch (err) {
         this.logger.warn(
-          `SC ${created.id} criada, mas o broadcast falhou: ${err?.message}`,
+          `SC ${created.id} criada, mas o broadcast falhou: ${errorMessage(err)}`,
         );
       }
     }
@@ -150,10 +119,6 @@ export class SurgicalIndicationService {
     return created;
   }
 
-  /**
-   * Rede de segurança da criação inline. O `@Cron` vive no próprio serviço, como
-   * em `AppointmentReminderService`, em vez de passar pelo `CronService`.
-   */
   @Cron(CronExpression.EVERY_10_MINUTES)
   async handlePendingIndicationsCron(): Promise<void> {
     try {
@@ -163,14 +128,13 @@ export class SurgicalIndicationService {
           `SCs criadas a partir de atendimentos pendentes: ${created}`,
         );
       }
-    } catch (err: any) {
+    } catch (err) {
       this.logger.error(
-        `Erro no cron de indicações cirúrgicas: ${err?.message}`,
+        `Erro no cron de indicações cirúrgicas: ${errorMessage(err)}`,
       );
     }
   }
 
-  /** Retoma as fichas cuja SC não foi criada na finalização. */
   async sweepPendingIndications(): Promise<number> {
     const pending =
       await this.clinicalRecordRepository.findPendingSurgicalIndications(
@@ -181,9 +145,9 @@ export class SurgicalIndicationService {
     for (const record of pending) {
       try {
         if (await this.createForRecord(record.id)) created++;
-      } catch (err: any) {
+      } catch (err) {
         this.logger.warn(
-          `Falha ao criar SC da ficha ${record.id}: ${err?.message}`,
+          `Falha ao criar SC da ficha ${record.id}: ${errorMessage(err)}`,
         );
       }
     }

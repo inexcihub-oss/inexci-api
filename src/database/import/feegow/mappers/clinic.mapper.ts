@@ -38,11 +38,6 @@ export interface NovaClinica {
   active: boolean;
 }
 
-/**
- * A única unidade do Feegow vira a clínica (local de atendimento). O horário
- * de funcionamento é a união das grades vigentes de todos os profissionais —
- * a grade individual de cada um é outra trilha (MIG-05).
- */
 export function planejarClinica(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
@@ -86,7 +81,6 @@ export function planejarClinica(
   };
 }
 
-/** 1º e-mail da unidade que cabe em `clinics.email`; o longo demais vira aviso. */
 function emailDaClinica(
   unidade: LinhaCsv,
   idOrigem: string,
@@ -113,13 +107,6 @@ const paraMinutos = (h: string) => {
 const paraHora = (m: number) =>
   `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
-/**
- * União das grades semanais vigentes (`fim_vigencia` vazia ou >= hoje), por
- * dia. A data passa pelo `normalizarData`, como em `planejarGrades`: o
- * Feegow grava `0000-00-00` como "sem fim" e às vezes DD/MM/AAAA — comparar
- * o texto cru tratava essas grades como vencidas. Feegow: `dia_semana` 1 = domingo … 7 = sábado. Blocos que se tocam ou
- * se sobrepõem são fundidos; o máximo por dia é o da INEXCI.
- */
 export function horarioDaClinica(
   grade: LinhaCsv[],
   hoje: string,

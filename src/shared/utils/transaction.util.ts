@@ -1,15 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 
-/**
- * Executa um bloco de código dentro de uma transação do TypeORM.
- * Garante que qualquer erro seja registrado no logger antes de ser relançado,
- * evitando catches silenciosos nos services.
- *
- * @param dataSource - DataSource TypeORM injetado no service
- * @param fn         - Função assíncrona que recebe o EntityManager transacional
- * @param options    - Opções opcionais: logger e nome da operação para o log de erro
- */
 export async function executeInTransaction<T>(
   dataSource: DataSource,
   fn: (manager: EntityManager) => Promise<T>,

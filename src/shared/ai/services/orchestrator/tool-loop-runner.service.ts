@@ -10,37 +10,20 @@ import {
 import { ToolContext } from '../../tools/tool.interface';
 import { OperationDraftType } from '../../drafts/operation-draft.types';
 import { inexciTracer, SpanStatusCode } from '../../../observability/tracer';
+import { errorMessage } from '../../../utils/error-message.util';
 
-/**
- * Máximo de iterações de tool calls por turno do orchestrator.
- *
- * Histórico:
- *  - 3 → 5 (2026-05-13): fluxos de criação de SC via draft (`plan_actions` →
- *    `query_patients` → `draft_update` ×3 → `sc_draft_preview` →
- *    `sc_draft_commit`) precisavam de pelo menos 5 iterações sequenciais.
- *  - 5 → 8 (2026-05-14): fluxos de criação de SC a partir de documento
- *    chegam a 6-7 iterações (resolução do paciente + sub-draft de procedimento
- *    + draft_update do laudo/TUSS/OPME + preview + commit). Com 5, em fluxos
- *    longos o limite era atingido e o usuário recebia a mensagem genérica
- *    "Vou parar por aqui" sem nenhum contexto.
- */
 const MAX_TOOL_ITERATIONS = 8;
 
-/**
- * Hooks que delegam responsabilidades específicas do orchestrator que ainda
- * não foram extraídas para outros serviços. Cada hook é puro do ponto de
- * vista do runner — invocado por contrato em momentos bem definidos do loop.
- */
 export interface ToolLoopHooks {
   memorizeEntitiesFromToolCall: (input: {
     conversationId: string;
     toolName: string;
-    args: Record<string, any>;
+    args: Record<string, unknown>;
     output: string;
   }) => Promise<void>;
   appendNextStepIfNeeded: (
     functionName: string,
-    args: Record<string, any>,
+    args: Record<string, unknown>,
     output: string,
     toolContext: ToolContext,
   ) => Promise<string>;
@@ -76,29 +59,9 @@ export interface ToolLoopResult {
   loopLimitReached: boolean;
   activeDraftType: OperationDraftType | null;
   promptCacheKey: string;
-  /**
-   * Nome da última tool que o LLM tentou chamar quando o loop estourou. Útil
-   * para o orchestrator escolher uma mensagem de fallback contextual em vez
-   * de "Vou parar por aqui" genérico.
-   */
   pendingToolNames: string[];
 }
 
-/**
- * Executa o loop de tool calls do orchestrator (até `MAX_TOOL_ITERATIONS`
- * iterações). Cuida de:
- *
- * - delegar execução para `ToolExecutorService`;
- * - rastrear `pending_confirmation` via `ConfirmationManagerService`;
- * - memorizar entidades extraídas via hook do orchestrator;
- * - enriquecer outputs com hints de próximo passo;
- * - reaplicar redator de PII antes de cada follow-up;
- * - recalcular tools/cache key entre iterações;
- * - capturar snapshots de uso via `OrchestratorTelemetryService`.
- *
- * Quando o limite é atingido, sinaliza `loopLimitReached = true` e o
- * orchestrator decide a mensagem final do usuário.
- */
 @Injectable()
 export class ToolLoopRunnerService {
   private readonly logger = new Logger(ToolLoopRunnerService.name);
@@ -137,7 +100,7 @@ export class ToolLoopRunnerService {
       iterations--;
       const iterNum = MAX_TOOL_ITERATIONS - iterations;
 
-      const currentToolCalls = responseMessage.tool_calls!;
+      const currentToolCalls = responseMessage.tool_calls;
       await inexciTracer.startActiveSpan(
         `ai.toolLoop.iteration`,
         async (iterSpan) => {
@@ -161,7 +124,7 @@ export class ToolLoopRunnerService {
                 if (!toolCall) return result;
 
                 const functionName = toolCall.function?.name || '';
-                let args: Record<string, any> = {};
+                let args: Record<string, unknown> = {};
 
                 try {
                   args = toolCall.function?.arguments
@@ -199,7 +162,7 @@ export class ToolLoopRunnerService {
               }),
             );
 
-            messages.push(responseMessage as OpenAI.ChatCompletionMessageParam);
+            messages.push(responseMessage);
             for (const result of patchedToolResults) {
               messages.push({
                 role: 'tool',
@@ -243,18 +206,18 @@ export class ToolLoopRunnerService {
             );
             responseMessage = followUp.choices[0].message;
             iterSpan.setStatus({ code: SpanStatusCode.OK });
-          } catch (e: any) {
-            iterSpan.recordException(e);
+          } catch (e) {
+            iterSpan.recordException(e instanceof Error ? e : String(e));
             iterSpan.setStatus({
               code: SpanStatusCode.ERROR,
-              message: e.message,
+              message: errorMessage(e),
             });
             throw e;
           } finally {
             iterSpan.end();
           }
         },
-      ); // fim startActiveSpan iteration
+      );
     }
 
     const pendingToolNames: string[] = (responseMessage.tool_calls ?? [])

@@ -94,7 +94,6 @@ describe('interpretarArgumentos', () => {
 
   it('--hoje padrão é a data de São Paulo, não a UTC', () => {
     expect(interpretarArgumentos(base).hoje).toBe(hojeEmSaoPaulo());
-    // 22h de 06/10 em São Paulo = 01h de 07/10 em UTC.
     expect(hojeEmSaoPaulo(new Date('2026-10-07T01:00:00Z'))).toBe('2026-10-06');
     expect(hojeEmSaoPaulo(new Date('2026-10-07T03:00:00Z'))).toBe('2026-10-07');
   });

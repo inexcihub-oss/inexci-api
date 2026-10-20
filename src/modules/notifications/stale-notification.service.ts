@@ -5,16 +5,20 @@ import { NotificationsService } from 'src/modules/notifications/notifications.se
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { WHATSAPP_TEMPLATES } from 'src/shared/whatsapp/whatsapp-templates.constants';
 import { UserRepository } from 'src/database/repositories/user.repository';
-import { UserRole } from 'src/database/entities/user.entity';
+import { canAdministrate } from 'src/shared/permissions';
 import { NotificationType } from 'src/database/entities/notification.entity';
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
-import { getStatusLabel, getStalePendencyMessage } from 'src/shared/utils';
+import {
+  errorMessage,
+  getStatusLabel,
+  getStalePendencyMessage,
+} from 'src/shared/utils';
 
 export interface StaleTier {
   days: number;
   severity: string;
   notifyWhatsApp: boolean;
-  notifyAll: boolean; // true = all stakeholders; false = just responsible + admin
+  notifyAll: boolean;
 }
 
 export const STALE_TIERS: StaleTier[] = [
@@ -39,7 +43,6 @@ export class StaleNotificationService {
   async checkAndNotifyStaleRequests(): Promise<number> {
     let notifiedCount = 0;
 
-    // Check from the smallest tier (3 days) to cover all stale requests
     const minDays = Math.min(...STALE_TIERS.map((t) => t.days));
     const staleRequests =
       await this.surgeryRequestRepository.findStaleRequests(minDays);
@@ -59,9 +62,9 @@ export class StaleNotificationService {
         await this.sendStaleNotifications(request, tier, staleDays);
         await this.staleLogRepository.record(request.id, tier.days, 'in_app');
         notifiedCount++;
-      } catch (err: any) {
+      } catch (err: unknown) {
         this.logger.error(
-          `Erro ao processar stale para solicitação ${request.id}: ${err?.message}`,
+          `Erro ao processar stale para solicitação ${request.id}: ${errorMessage(err)}`,
         );
       }
     }
@@ -81,7 +84,6 @@ export class StaleNotificationService {
   }
 
   getMatchingTier(staleDays: number): StaleTier | null {
-    // Return the highest tier the request qualifies for
     for (const tier of STALE_TIERS) {
       if (staleDays >= tier.days) return tier;
     }
@@ -105,7 +107,6 @@ export class StaleNotificationService {
         : 'Solicitação Parada';
     const message = `A solicitação do paciente ${patientName} está há ${staleDays} dias no status "${statusLabel}"`;
 
-    // Push (in-app + WS) — respeita pushNotifications
     await this.notificationsService.createNotificationForUsers(recipientIds, {
       type: NotificationType.SYSTEM,
       title,
@@ -119,8 +120,6 @@ export class StaleNotificationService {
       },
     });
 
-    // WhatsApp — quando o tier exige (15+ dias). E-mail não é mais enviado
-    // para usuários do sistema; o único e-mail é o resumo semanal.
     if (tier.notifyWhatsApp) {
       await this.sendStaleWhatsApp(recipientIds, {
         requestProtocol: request.protocol ?? request.id,
@@ -144,7 +143,7 @@ export class StaleNotificationService {
     );
 
     const adminIds = allUsersInAccount
-      .filter((u) => u.role === UserRole.ADMIN)
+      .filter((u) => canAdministrate(u))
       .map((u) => u.id);
 
     const activityUserIds =
@@ -207,9 +206,9 @@ export class StaleNotificationService {
               '5': context.pendencyMessage,
             },
           );
-        } catch (err: any) {
+        } catch (err: unknown) {
           this.logger.warn(
-            `Falha ao enviar WhatsApp stale para ${uid}: ${err?.message}`,
+            `Falha ao enviar WhatsApp stale para ${uid}: ${errorMessage(err)}`,
           );
         }
       }),

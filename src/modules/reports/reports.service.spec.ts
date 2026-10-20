@@ -1,9 +1,5 @@
 import { ReportsService } from './reports.service';
 
-/**
- * Cobertura do dashboard consolidado (item 5.1 / P13): contagens via
- * COUNT FILTER numa query e endpoint único `dashboardFull`.
- */
 describe('ReportsService — dashboard consolidado', () => {
   function makeService(overrides: {
     doctorIds?: string[];

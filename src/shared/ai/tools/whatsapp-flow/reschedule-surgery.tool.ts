@@ -1,20 +1,21 @@
-import OpenAI from 'openai';
 import { AiTool } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { buildToolResult } from '../tool-result';
 import { WhatsappFlowToolDeps } from './_types';
+import { asValidDateString, formatDatePtBr } from '../helpers/arg-parsers';
 import {
-  asValidDateString,
-  formatDatePtBr,
   getAuthorizedRequest,
-} from './_helpers';
+  recordAiActivity,
+} from '../helpers/surgery-request-access';
+import { errorMessage } from '../../../utils/error-message.util';
 
 export function buildRescheduleSurgeryTool(deps: WhatsappFlowToolDeps): AiTool {
   const { surgeryRequestRepo, workflowService, activityRepo } = deps;
   return {
     name: 'reschedule_surgery',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {
@@ -41,7 +42,7 @@ export function buildRescheduleSurgeryTool(deps: WhatsappFlowToolDeps): AiTool {
           required: ['surgeryRequestId', 'newDate'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
@@ -81,22 +82,22 @@ export function buildRescheduleSurgeryTool(deps: WhatsappFlowToolDeps): AiTool {
           context.userId as string,
         );
 
-        await activityRepo.create({
-          surgeryRequestId: auth.request.id,
-          userId: context.userId as string,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Cirurgia reagendada para ${newDate}.`,
-        });
+        await recordAiActivity(
+          activityRepo,
+          context,
+          auth.request.id,
+          `Cirurgia reagendada para ${newDate}.`,
+        );
 
         return buildToolResult({
           status: 'ok',
           message: `✅ Solicitação ${auth.request.protocol} reagendada com sucesso.`,
           affected: [{ kind: 'surgery_request', id: auth.request.id }],
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
-          message: `Erro ao reagendar cirurgia: ${err?.message || 'erro desconhecido'}`,
+          message: `Erro ao reagendar cirurgia: ${errorMessage(err) || 'erro desconhecido'}`,
         });
       }
     },

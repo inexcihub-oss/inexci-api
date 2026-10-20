@@ -1,15 +1,20 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import { DocumentExtractionService } from 'src/shared/ai/ocr/document-extraction.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { Patient } from 'src/database/entities/patient.entity';
-import { Hospital } from 'src/database/entities/hospital.entity';
-import { HealthPlan } from 'src/database/entities/health-plan.entity';
-import { Procedure } from 'src/database/entities/procedure.entity';
 import { PatientsService } from '../../patients/patients.service';
-import { SurgeryRequestsService } from '../surgery-requests.service';
+import { CreatePatientDto } from '../../patients/dto/create-patient.dto';
+import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
+import { executeInTransaction } from 'src/shared/utils/transaction.util';
+import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 import { SurgeryRequestMutationService } from './surgery-request-mutation.service';
 import { SurgeryRequestAssemblyService } from './surgery-request-assembly.service';
 import { DocumentEntityResolverService } from './document-entity-resolver.service';
@@ -30,9 +35,6 @@ import { v4 as uuid } from 'uuid';
 import * as path from 'path';
 
 const TEMP_FOLDER = 'sc-from-document-tmp';
-const MAX_PROCEDURE_NAME_LENGTH = 255;
-// documents.name é varchar(75); nome de arquivo maior estoura o insert e
-// derruba silenciosamente o anexo do documento de origem.
 const MAX_DOCUMENT_NAME_LENGTH = 75;
 
 @Injectable()
@@ -44,18 +46,14 @@ export class SurgeryRequestFromDocumentService {
     private readonly storage: StorageService,
     private readonly accessControl: AccessControlService,
     private readonly patientsService: PatientsService,
-    private readonly surgeryRequestsService: SurgeryRequestsService,
     private readonly mutationService: SurgeryRequestMutationService,
     private readonly assemblyService: SurgeryRequestAssemblyService,
     private readonly entityResolver: DocumentEntityResolverService,
     private readonly documentsService: DocumentsService,
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
+    private readonly surgeryRequestRepository: SurgeryRequestRepository,
   ) {}
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // EXTRAÇÃO (Tarefa 5 — POST /surgery-requests/extract-from-document)
-  // ──────────────────────────────────────────────────────────────────────────
 
   async extractFromDocument(
     file: Express.Multer.File,
@@ -158,10 +156,6 @@ export class SurgeryRequestFromDocumentService {
     };
   }
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // CRIAÇÃO (Tarefa 6 — POST /surgery-requests/from-document)
-  // ──────────────────────────────────────────────────────────────────────────
-
   async createFromDocument(
     dto: CreateFromDocumentDto,
     userId: string,
@@ -170,55 +164,89 @@ export class SurgeryRequestFromDocumentService {
     if (dto.tempStoragePath) {
       this.assertOwnedTemporaryStoragePath(dto.tempStoragePath, ownerId);
     }
-
-    const resolvedHospitalId =
-      dto.hospitalId ||
-      (await this.resolveOrCreateHospitalId(dto.hospitalName, ownerId));
-    const resolvedHealthPlanId =
-      dto.healthPlanId ||
-      (await this.resolveOrCreateHealthPlanId(dto.healthPlanName, ownerId));
-    const resolvedProcedureId =
-      dto.procedureId ||
-      (await this.resolveOrCreateProcedureId(dto.procedureName, ownerId));
-
-    let patientId = dto.patientId;
-
-    if (!patientId && dto.newPatient) {
-      patientId = await this.createPatient(
-        dto.newPatient,
-        resolvedHealthPlanId,
-        userId,
-      );
-    } else if (patientId) {
-      await this.backfillExistingPatientInsurance({
-        patientId,
-        ownerId,
-        healthPlanId: resolvedHealthPlanId,
-        healthPlanNumber: dto.healthPlanNumber,
-      });
-    }
-
-    if (!patientId) {
+    if (!dto.patientId && !dto.newPatient) {
       throw new BadRequestException(
         'É necessário informar um paciente existente (patientId) ou os dados do novo paciente (newPatient).',
       );
     }
-
-    const sc = await this.mutationService.createSurgeryRequest(
+    await this.mutationService.assertBelongsToOwner(
       {
-        doctorId: dto.doctorId,
-        patientId,
-        procedureId: resolvedProcedureId,
-        priority: dto.priority ?? SurgeryRequestPriority.LOW,
-        hospitalId: resolvedHospitalId,
-        healthPlanId: resolvedHealthPlanId,
-        healthPlanRegistration:
-          dto.newPatient?.healthPlanNumber?.trim() ||
-          dto.healthPlanNumber?.trim() ||
-          undefined,
+        patientId: dto.patientId,
+        hospitalId: dto.hospitalId,
+        healthPlanId: dto.healthPlanId,
+        procedureId: dto.procedureId,
       },
-      userId,
+      ownerId,
     );
+
+    const newPatientData = dto.patientId
+      ? null
+      : this.buildNewPatientData(dto.newPatient!);
+
+    const { sc, createdPatient } = await executeInTransaction(
+      this.dataSource,
+      async (manager) => {
+        const createdPatient: Patient | null = newPatientData
+          ? await this.patientsService.create(newPatientData, userId, {
+              manager,
+            })
+          : null;
+        const patientId = dto.patientId ?? createdPatient!.id;
+
+        const [hospitalId, healthPlanId, procedureId] = await Promise.all([
+          dto.hospitalId ||
+            this.entityResolver.resolveOrCreateHospitalId(
+              dto.hospitalName,
+              ownerId,
+              manager,
+            ),
+          dto.healthPlanId ||
+            this.entityResolver.resolveOrCreateHealthPlanId(
+              dto.healthPlanName,
+              ownerId,
+              manager,
+            ),
+          dto.procedureId ||
+            this.entityResolver.resolveOrCreateProcedureId(
+              dto.procedureName,
+              ownerId,
+              manager,
+            ),
+        ]);
+
+        await this.backfillPatientInsurance(manager, {
+          patientId,
+          ownerId,
+          healthPlanId,
+          healthPlanNumber: dto.newPatient
+            ? dto.newPatient.healthPlanNumber
+            : dto.healthPlanNumber,
+        });
+
+        const sc = await this.mutationService.createSurgeryRequest(
+          {
+            doctorId: dto.doctorId,
+            patientId,
+            procedureId,
+            priority: dto.priority ?? SurgeryRequestPriority.LOW,
+            hospitalId,
+            healthPlanId,
+            healthPlanRegistration:
+              dto.newPatient?.healthPlanNumber?.trim() ||
+              dto.healthPlanNumber?.trim() ||
+              undefined,
+          },
+          userId,
+          { manager },
+        );
+        return { sc, createdPatient };
+      },
+      { logger: this.logger, operationName: 'createFromDocument' },
+    );
+    if (createdPatient) {
+      await this.patientsService.sendWelcome(createdPatient);
+    }
+    await this.mutationService.broadcastCreated(sc.id, userId);
 
     const { warnings } = await this.assemblyService.assembleFromExtracted({
       scId: sc.id,
@@ -243,56 +271,40 @@ export class SurgeryRequestFromDocumentService {
     });
 
     if (dto.tempStoragePath) {
-      try {
-        const ownerId = await this.accessControl.getOwnerId(userId);
-        const destFolder = `documents/${ownerId}`;
-        const newPath = await this.storage.move(
-          dto.tempStoragePath,
-          destFolder,
-        );
-        const fileName = this.capDocumentName(
-          dto.originalFileName || path.basename(dto.tempStoragePath),
-        );
-        await this.documentsService.createFromPath({
-          surgeryRequestId: sc.id,
-          storagePath: newPath,
-          type: DOCUMENT_KEYS.SC_CREATION_SOURCE,
-          name: fileName,
-          key: DOCUMENT_KEYS.SC_CREATION_SOURCE,
-          contentType: this.guessMimeFromPath(dto.tempStoragePath),
-          createdById: userId,
-        });
-      } catch (err: any) {
-        warnings.push(`anexo do documento (${err?.message || 'erro'})`);
-        this.logger.warn(
-          `[SC_FROM_DOC] attach failed scId=${sc.id}: ${err?.message}`,
-        );
-      }
+      await this.attachSourceDocument({
+        surgeryRequestId: sc.id,
+        tempStoragePath: dto.tempStoragePath,
+        originalFileName: dto.originalFileName,
+        ownerId,
+        userId,
+        warnings,
+      });
     }
 
     return { id: sc.id, protocol: sc.protocol ?? sc.id, warnings };
   }
 
-  /** Aplica os grupos confirmados, sem substituir dados já preenchidos. */
   async applyDocumentExtraction(
     requestId: string,
     dto: ApplyDocumentExtractionDto,
     userId: string,
   ): Promise<{ warnings: string[] }> {
-    const detail = await this.surgeryRequestsService.findOne(requestId, userId);
-    if (detail.status !== SurgeryRequestStatus.PENDING) {
+    const ownerId = await this.accessControl.getOwnerId(userId);
+    const where = await this.accessControl.buildSurgeryAccessWhere(
+      { id: requestId },
+      userId,
+    );
+    const request = await this.surgeryRequestRepository.findOneSimple(where);
+    if (!request)
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+    if (request.status !== SurgeryRequestStatus.PENDING) {
       throw new BadRequestException(
         'A complementação por documento está disponível apenas para solicitações pendentes.',
       );
     }
-    const ownerId = await this.accessControl.getOwnerId(userId);
     if (dto.tempStoragePath) {
       this.assertOwnedTemporaryStoragePath(dto.tempStoragePath, ownerId);
     }
-    const repo = this.dataSource.getRepository(SurgeryRequest);
-    const request = await repo.findOne({ where: { id: requestId, ownerId } });
-    if (!request)
-      throw new BadRequestException('Solicitação cirúrgica não encontrada.');
 
     const update: Partial<
       Pick<
@@ -302,18 +314,24 @@ export class SurgeryRequestFromDocumentService {
     > = {};
     if (dto.procedure && !request.procedureId) {
       update.procedureId =
-        (await this.resolveOrCreateProcedureId(dto.procedureName, ownerId)) ??
-        null;
+        (await this.entityResolver.resolveOrCreateProcedureId(
+          dto.procedureName,
+          ownerId,
+        )) ?? null;
     }
     if (dto.hospital && !request.hospitalId) {
       update.hospitalId =
-        (await this.resolveOrCreateHospitalId(dto.hospitalName, ownerId)) ??
-        null;
+        (await this.entityResolver.resolveOrCreateHospitalId(
+          dto.hospitalName,
+          ownerId,
+        )) ?? null;
     }
     if (dto.healthPlan && !request.healthPlanId) {
       update.healthPlanId =
-        (await this.resolveOrCreateHealthPlanId(dto.healthPlanName, ownerId)) ??
-        null;
+        (await this.entityResolver.resolveOrCreateHealthPlanId(
+          dto.healthPlanName,
+          ownerId,
+        )) ?? null;
     }
     if (
       dto.healthPlan &&
@@ -322,10 +340,12 @@ export class SurgeryRequestFromDocumentService {
     ) {
       update.healthPlanRegistration = dto.healthPlanNumber.trim();
     }
-    if (Object.keys(update).length) await repo.update(requestId, update);
+    if (Object.keys(update).length) {
+      await this.surgeryRequestRepository.update(requestId, update);
+    }
     const healthPlanId = update.healthPlanId ?? request.healthPlanId;
     if (dto.healthPlan && healthPlanId) {
-      await this.backfillExistingPatientInsurance({
+      await this.backfillPatientInsurance(this.dataSource.manager, {
         patientId: request.patientId,
         ownerId,
         healthPlanId,
@@ -356,61 +376,76 @@ export class SurgeryRequestFromDocumentService {
       suggestedSuppliers: dto.opme ? dto.suggestedSuppliers : undefined,
     });
     if (dto.tempStoragePath) {
-      try {
-        const newPath = await this.storage.move(
-          dto.tempStoragePath,
-          `documents/${ownerId}`,
-        );
-        await this.documentsService.createFromPath({
-          surgeryRequestId: requestId,
-          storagePath: newPath,
-          type: DOCUMENT_KEYS.SC_CREATION_SOURCE,
-          key: DOCUMENT_KEYS.SC_CREATION_SOURCE,
-          name: this.capDocumentName(
-            dto.originalFileName || path.basename(dto.tempStoragePath),
-          ),
-          contentType: this.guessMimeFromPath(dto.tempStoragePath),
-          createdById: userId,
-        });
-      } catch (err: any) {
-        warnings.push(`anexo do documento (${err?.message || 'erro'})`);
-      }
+      await this.attachSourceDocument({
+        surgeryRequestId: requestId,
+        tempStoragePath: dto.tempStoragePath,
+        originalFileName: dto.originalFileName,
+        ownerId,
+        userId,
+        warnings,
+      });
     }
     return { warnings };
   }
 
-  private async createPatient(
+  private async attachSourceDocument(input: {
+    surgeryRequestId: string;
+    tempStoragePath: string;
+    originalFileName?: string;
+    ownerId: string;
+    userId: string;
+    warnings: string[];
+  }): Promise<void> {
+    try {
+      const newPath = await this.storage.move(
+        input.tempStoragePath,
+        `documents/${input.ownerId}`,
+      );
+      await this.documentsService.createFromPath({
+        surgeryRequestId: input.surgeryRequestId,
+        storagePath: newPath,
+        type: DOCUMENT_KEYS.SC_CREATION_SOURCE,
+        key: DOCUMENT_KEYS.SC_CREATION_SOURCE,
+        name: this.capDocumentName(
+          input.originalFileName || path.basename(input.tempStoragePath),
+        ),
+        contentType: this.guessMimeFromPath(input.tempStoragePath),
+        createdById: input.userId,
+      });
+    } catch (err) {
+      const message = (err as Error)?.message || 'erro';
+      input.warnings.push(`anexo do documento (${message})`);
+      this.logger.warn(
+        `[SC_FROM_DOC] attach failed scId=${input.surgeryRequestId}: ${message}`,
+      );
+    }
+  }
+
+  private buildNewPatientData(
     data: NewPatientFromDocumentDto,
-    healthPlanId: string | undefined,
-    userId: string,
-  ): Promise<string> {
+  ): CreatePatientDto {
     const cpf = data.cpf.replace(/\D/g, '');
     if (cpf.length !== 11) {
       throw new BadRequestException(
         'CPF do novo paciente deve ter 11 dígitos.',
       );
     }
-    const patient = await this.patientsService.create(
-      {
-        name: data.name,
-        cpf,
-        birthDate: data.birthDate,
-        gender: data.gender,
-        phone: data.phone,
-        email: data.email,
-        address: data.address,
-        addressNumber: data.addressNumber,
-        addressComplement: data.addressComplement,
-        neighborhood: data.neighborhood,
-        city: data.city,
-        state: data.state,
-        zipCode: data.zipCode,
-        healthPlanId,
-        healthPlanNumber: data.healthPlanNumber,
-      },
-      userId,
-    );
-    return patient.id;
+    return {
+      name: data.name,
+      cpf,
+      birthDate: data.birthDate,
+      gender: data.gender,
+      phone: data.phone,
+      email: data.email,
+      address: data.address,
+      addressNumber: data.addressNumber,
+      addressComplement: data.addressComplement,
+      neighborhood: data.neighborhood,
+      city: data.city,
+      state: data.state,
+      zipCode: data.zipCode,
+      healthPlanNumber: data.healthPlanNumber,
+    };
   }
 
   private splitNames(raw?: string): string[] | undefined {
@@ -422,11 +457,6 @@ export class SurgeryRequestFromDocumentService {
     return parts.length ? parts : undefined;
   }
 
-  /**
-   * O caminho de upload temporário vem do cliente, portanto não pode ser
-   * tratado como uma capacidade de acesso ao storage. Só aceitamos arquivos
-   * gerados pela extração deste tenant e diretamente dentro do seu prefixo.
-   */
   private assertOwnedTemporaryStoragePath(
     storagePath: string,
     ownerId: string,
@@ -443,96 +473,19 @@ export class SurgeryRequestFromDocumentService {
     }
   }
 
-  private async resolveOrCreateHospitalId(
-    hospitalName: string | undefined,
-    ownerId: string,
-  ): Promise<string | undefined> {
-    const name = (hospitalName ?? '').trim();
-    if (!name) return undefined;
-
-    const repo = this.dataSource.getRepository(Hospital);
-    const existing = await repo
-      .createQueryBuilder('h')
-      .where('h.owner_id = :ownerId', { ownerId })
-      .andWhere('unaccent(lower(h.name)) = unaccent(lower(:name))', { name })
-      .select(['h.id'])
-      .getOne();
-
-    if (existing?.id) return existing.id;
-
-    const created = repo.create({ name, ownerId, active: true });
-    const saved = await repo.save(created);
-    return saved.id;
-  }
-
-  private async resolveOrCreateHealthPlanId(
-    healthPlanName: string | undefined,
-    ownerId: string,
-  ): Promise<string | undefined> {
-    const name = (healthPlanName ?? '').trim();
-    if (!name) return undefined;
-
-    const repo = this.dataSource.getRepository(HealthPlan);
-    const existing = await repo
-      .createQueryBuilder('hp')
-      .where('hp.owner_id = :ownerId', { ownerId })
-      .andWhere('unaccent(lower(hp.name)) = unaccent(lower(:name))', { name })
-      .select(['hp.id'])
-      .getOne();
-
-    if (existing?.id) return existing.id;
-
-    const created = repo.create({ name, ownerId, active: true });
-    const saved = await repo.save(created);
-    return saved.id;
-  }
-
-  private async resolveOrCreateProcedureId(
-    procedureName: string | undefined,
-    ownerId: string,
-  ): Promise<string | undefined> {
-    const name = this.normalizeProcedureName(procedureName);
-    if (!name) return undefined;
-
-    const repo = this.dataSource.getRepository(Procedure);
-    const existing = await repo
-      .createQueryBuilder('p')
-      .where('p.owner_id = :ownerId', { ownerId })
-      .andWhere('unaccent(lower(p.name)) = unaccent(lower(:name))', { name })
-      .select(['p.id'])
-      .getOne();
-
-    if (existing?.id) return existing.id;
-
-    const created = repo.create({ name, ownerId });
-    const saved = await repo.save(created);
-    return saved.id;
-  }
-
-  private normalizeProcedureName(raw: string | undefined): string | undefined {
-    const name = (raw ?? '').replace(/\s+/g, ' ').trim();
-    if (!name) return undefined;
-
-    if (name.length > MAX_PROCEDURE_NAME_LENGTH) {
-      this.logger.warn(
-        `[SC_FROM_DOC] procedure_name_too_long len=${name.length} max=${MAX_PROCEDURE_NAME_LENGTH} dropping_auto_create`,
-      );
-      return undefined;
-    }
-
-    return name;
-  }
-
-  private async backfillExistingPatientInsurance(input: {
-    patientId: string;
-    ownerId: string;
-    healthPlanId?: string;
-    healthPlanNumber?: string;
-  }): Promise<void> {
+  private async backfillPatientInsurance(
+    manager: EntityManager,
+    input: {
+      patientId: string;
+      ownerId: string;
+      healthPlanId?: string | null;
+      healthPlanNumber?: string;
+    },
+  ): Promise<void> {
     const healthPlanNumber = (input.healthPlanNumber ?? '').trim();
     if (!input.healthPlanId && !healthPlanNumber) return;
 
-    const repo = this.dataSource.getRepository(Patient);
+    const repo = manager.getRepository(Patient);
     const patient = await repo.findOne({
       where: { id: input.patientId, ownerId: input.ownerId },
       select: ['id', 'healthPlanId', 'healthPlanNumber'],
@@ -566,7 +519,6 @@ export class SurgeryRequestFromDocumentService {
     return map[ext] ?? 'application/octet-stream';
   }
 
-  /** Trunca o nome para caber em documents.name (varchar 75), preservando a extensão. */
   private capDocumentName(name: string): string {
     if (name.length <= MAX_DOCUMENT_NAME_LENGTH) return name;
     const ext = path.extname(name);

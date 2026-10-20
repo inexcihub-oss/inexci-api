@@ -4,6 +4,7 @@ import { AccessControlService } from 'src/shared/services/access-control.service
 import { NotificationDispatcherService } from 'src/modules/notifications/notification-dispatcher.service';
 import { NotificationType } from 'src/database/entities/notification.entity';
 import { MentionEmailsJobsService } from './mention-emails-jobs.service';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 export interface RegisterMentionsParams {
   activityId: string;
@@ -21,16 +22,8 @@ export interface MentionedUserSummary {
   name: string;
 }
 
-/** Trecho do comentário que cabe no corpo da notificação. */
 const TAMANHO_PREVIA = 140;
 
-/**
- * Registra as menções de um comentário e dispara os avisos.
- *
- * Fica fora do `ActivitiesService` porque o caminho da menção tem um
- * contrato próprio — nada aqui pode lançar: o comentário já foi salvo e uma
- * falha de Redis ou de e-mail não pode devolver erro para quem comentou.
- */
 @Injectable()
 export class ActivityMentionsService {
   private readonly logger = new Logger(ActivityMentionsService.name);
@@ -42,11 +35,6 @@ export class ActivityMentionsService {
     private readonly mentionEmailsJobs: MentionEmailsJobsService,
   ) {}
 
-  /**
-   * Valida, grava e avisa. Nunca lança: quando chega aqui o comentário já
-   * está no banco, e uma falha de notificação não pode virar erro na tela de
-   * quem comentou.
-   */
   async register(
     params: RegisterMentionsParams,
   ): Promise<MentionedUserSummary[]> {
@@ -63,10 +51,6 @@ export class ActivityMentionsService {
         );
       const porId = new Map(permitidos.map((u) => [u.id, u]));
 
-      // Fail-closed: id que não está na lista de quem acessa a SC é
-      // descartado em silêncio. Recusar o comentário inteiro puniria quem
-      // escreveu por um estado de acesso que mudou entre abrir a tela e
-      // enviar.
       const validos = solicitados.filter((id) => porId.has(id));
       if (validos.length === 0) return [];
 
@@ -83,9 +67,9 @@ export class ActivityMentionsService {
         id,
         name: porId.get(id)?.name ?? '',
       }));
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `[MENCAO] Falha ao registrar menções da atividade ${params.activityId}: ${err?.message}`,
+        `[MENCAO] Falha ao registrar menções da atividade ${params.activityId}: ${errorMessage(err)}`,
       );
       return [];
     }
@@ -118,8 +102,6 @@ export class ActivityMentionsService {
         );
       }
 
-      // Fora do `if`: quem desligou o push não tem notificação para ler, e
-      // aí o e-mail é o único aviso possível.
       await this.mentionEmailsJobs.schedule({
         mentionId: mention.id,
         surgeryRequestId: params.surgeryRequestId,
@@ -127,9 +109,9 @@ export class ActivityMentionsService {
         content: params.content,
         inAppNotified: Boolean(notification),
       });
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `[MENCAO] Falha ao avisar ${mention.mentionedUserId} da atividade ${params.activityId}: ${err?.message}`,
+        `[MENCAO] Falha ao avisar ${mention.mentionedUserId} da atividade ${params.activityId}: ${errorMessage(err)}`,
       );
     }
   }

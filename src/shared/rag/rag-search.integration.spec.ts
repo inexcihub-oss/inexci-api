@@ -1,14 +1,3 @@
-/**
- * Teste de integração ponta a ponta do RAG (Fase 5 do PLANO-RAG-PIPELINE).
- *
- * Requer Postgres com pgvector + chunks já seedados. Roda apenas quando a
- * variável `RAG_INTEGRATION_E2E=1` está definida — caso contrário o suite é
- * skipado e não bloqueia a suíte unitária.
- *
- * Uso:
- *   RAG_INTEGRATION_E2E=1 OPENAI_API_KEY=sk-... DATABASE_URL=postgres://... \
- *     yarn test --testPathPattern=rag-search.integration
- */
 import { Test, TestingModule } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
@@ -55,7 +44,10 @@ describeOrSkip('RAG search (integração)', () => {
   it.each(QUERIES)(
     'retorna ao menos 1 chunk com score >= 0.65 para "%s"',
     async (query) => {
-      const results = await ragService.search(query, 5, 0.65);
+      const results = await ragService.search(query, {
+        topK: 5,
+        minScore: 0.65,
+      });
       expect(results.length).toBeGreaterThanOrEqual(1);
       expect(results[0].score).toBeGreaterThanOrEqual(0.65);
     },

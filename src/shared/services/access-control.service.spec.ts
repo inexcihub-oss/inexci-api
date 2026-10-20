@@ -1,6 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { AccessControlService } from './access-control.service';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  AccessControlService,
+  resolverOwnerIdDoUsuario,
+} from './access-control.service';
 import { UserRepository } from '../../database/repositories/user.repository';
 import { DoctorProfileRepository } from '../../database/repositories/doctor-profile.repository';
 import { UserDoctorAccessRepository } from '../../database/repositories/user-doctor-access.repository';
@@ -43,8 +50,6 @@ describe('AccessControlService', () => {
     service = module.get<AccessControlService>(AccessControlService);
   });
 
-  // ─── getAccessibleDoctorIds ───
-
   describe('getAccessibleDoctorIds', () => {
     it('should return empty array for unknown user', async () => {
       userRepository.findOneWithProfile.mockResolvedValue(null);
@@ -76,6 +81,48 @@ describe('AccessControlService', () => {
       expect(userRepository.findDoctorsByOwnerId).toHaveBeenCalledWith(
         'account-1',
       );
+    });
+
+    it('admin delegado (colaborador com ADMINISTRACAO) enxerga todos os médicos da conta', async () => {
+      userRepository.findOneWithProfile.mockResolvedValue({
+        id: 'delegado',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'account-1',
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+      userRepository.findDoctorsByOwnerId.mockResolvedValue([
+        { id: 'doc-1' },
+        { id: 'doc-2' },
+      ]);
+
+      const result = await service.getAccessibleDoctorIds('delegado');
+
+      expect(result).toEqual(['doc-1', 'doc-2']);
+      expect(userRepository.findDoctorsByOwnerId).toHaveBeenCalledWith(
+        'account-1',
+      );
+      expect(
+        userDoctorAccessRepository.findActiveByUserId,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('colaborador sem ADMINISTRACAO continua restrito aos vínculos', async () => {
+      userRepository.findOneWithProfile.mockResolvedValue({
+        id: 'secretaria',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'account-1',
+        permissions: [Permission.AGENDA, Permission.SOLICITACOES],
+        doctorProfile: null,
+      });
+      userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
+        { doctorUserId: 'doc-9' },
+      ]);
+
+      await expect(
+        service.getAccessibleDoctorIds('secretaria'),
+      ).resolves.toEqual(['doc-9']);
+      expect(userRepository.findDoctorsByOwnerId).not.toHaveBeenCalled();
     });
 
     it('should include own user ID when user has doctorProfile', async () => {
@@ -124,7 +171,6 @@ describe('AccessControlService', () => {
       const result = await service.getAccessibleDoctorIds('doctor-user-id');
 
       expect(result).toEqual(['doctor-user-id', 'other-doc']);
-      // No duplicates
       expect(result.filter((id) => id === 'doctor-user-id')).toHaveLength(1);
     });
 
@@ -144,7 +190,6 @@ describe('AccessControlService', () => {
 
       expect(first).toEqual(['doc-1']);
       expect(second).toEqual(['doc-1']);
-      // Só uma consulta ao banco graças ao cache.
       expect(userRepository.findOneWithProfile).toHaveBeenCalledTimes(1);
       expect(userRepository.findDoctorsByOwnerId).toHaveBeenCalledTimes(1);
     });
@@ -204,12 +249,9 @@ describe('AccessControlService', () => {
       service.invalidateAccessibleDoctors('admin-id');
       await service.getAccessibleDoctorIds('admin-id');
 
-      // Invalidação força nova consulta.
       expect(userRepository.findOneWithProfile).toHaveBeenCalledTimes(2);
     });
   });
-
-  // ─── getAvailableDoctorsForCreation ───
 
   describe('getAvailableDoctorsForCreation', () => {
     it('should return empty array for unknown user', async () => {
@@ -271,7 +313,6 @@ describe('AccessControlService', () => {
       userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
         { doctorUserId: 'linked-doc-id', doctor: { id: 'linked-doc-id' } },
       ] as any);
-      // Carga única por IDs (substitui o N+1 de findOneWithProfile por vínculo).
       userRepository.findManyWithProfileByIds.mockResolvedValue([
         linkedDoctor,
       ] as any);
@@ -295,7 +336,6 @@ describe('AccessControlService', () => {
       userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
         { doctorUserId: 'doctor-id', doctor: { id: 'doctor-id' } },
       ] as any);
-      // Mesmo médico via vínculo — deve ser deduplicado com o "self".
       userRepository.findManyWithProfileByIds.mockResolvedValue([
         doctorUser,
       ] as any);
@@ -306,7 +346,49 @@ describe('AccessControlService', () => {
     });
   });
 
-  // ─── canAccessDoctor ───
+  describe('getOwnerId', () => {
+    it('devolve o ownerId e ignora admin_id legado', async () => {
+      userRepository.findOne.mockResolvedValue({
+        id: 'colab-1',
+        ownerId: 'dono-1',
+        adminId: 'delegado-1',
+      });
+
+      await expect(service.getOwnerId('colab-1')).resolves.toBe('dono-1');
+    });
+
+    it('cai no próprio id quando não há ownerId, sem consultar admin_id', async () => {
+      userRepository.findOne.mockResolvedValue({
+        id: 'legado-1',
+        ownerId: null,
+        adminId: 'dono-1',
+      });
+
+      await expect(service.getOwnerId('legado-1')).resolves.toBe('legado-1');
+    });
+
+    it('lança NotFoundException quando o usuário não existe', async () => {
+      userRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.getOwnerId('nao-existe')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('resolverOwnerIdDoUsuario', () => {
+    it('usa ownerId quando presente e id como fallback', () => {
+      expect(resolverOwnerIdDoUsuario({ id: 'u', ownerId: 'dono' })).toBe(
+        'dono',
+      );
+      expect(
+        resolverOwnerIdDoUsuario({
+          id: 'u',
+          ownerId: null as unknown as string,
+        }),
+      ).toBe('u');
+    });
+  });
 
   describe('canAccessDoctor', () => {
     it('should return true if doctorId is in accessible list', async () => {
@@ -341,32 +423,6 @@ describe('AccessControlService', () => {
       expect(result).toBe(false);
     });
   });
-
-  // ─── getAccountId ───
-
-  describe('getAccountId', () => {
-    it('should return ownerId when user is found', async () => {
-      userRepository.findOne.mockResolvedValue({
-        id: 'user-id',
-        ownerId: 'account-42',
-      } as any);
-
-      const result = await service.getAccountId('user-id');
-
-      expect(result).toBe('account-42');
-      expect(userRepository.findOne).toHaveBeenCalledWith({ id: 'user-id' });
-    });
-
-    it('should throw Error when user is not found', async () => {
-      userRepository.findOne.mockResolvedValue(null);
-
-      await expect(service.getAccountId('missing-id')).rejects.toThrow(
-        'Usuário missing-id não encontrado',
-      );
-    });
-  });
-
-  // ─── assertIsPhysicianWithRegistry ───
 
   describe('assertIsPhysicianWithRegistry', () => {
     const comPerfil = (doctorProfile: object | null) =>
@@ -440,8 +496,6 @@ describe('AccessControlService', () => {
     });
   });
 
-  // ─── canIndicateSurgery ───
-
   describe('canIndicateSurgery', () => {
     const comPerfil = (doctorProfile: object | null) =>
       userRepository.findOneWithProfile.mockResolvedValue({
@@ -461,8 +515,6 @@ describe('AccessControlService', () => {
       await expect(service.canIndicateSurgery('u-1')).resolves.toBe(esperado);
     });
   });
-
-  // ─── assertCanIssueClinicalDocuments (CRM ou CRO) ───
 
   describe('assertCanIssueClinicalDocuments', () => {
     const comPerfil = (doctorProfile: object | null) =>
@@ -508,8 +560,6 @@ describe('AccessControlService', () => {
     });
   });
 
-  // ─── assertIsPhysician (MIG-02) ───
-
   describe('assertIsPhysician', () => {
     const comPerfil = (doctorProfile: object | null) =>
       userRepository.findOneWithProfile.mockResolvedValue({
@@ -535,7 +585,6 @@ describe('AccessControlService', () => {
       },
     );
 
-    // Estrito: perfil carregado sem a coluna não vira médico por omissão.
     it('bloqueia perfil sem council carregado', async () => {
       comPerfil({ id: 'p-1' });
 
@@ -560,8 +609,6 @@ describe('AccessControlService', () => {
       ).rejects.toThrow('mensagem própria');
     });
   });
-
-  // ─── assertIsDoctor ───
 
   describe('assertIsDoctor', () => {
     it('libera quem tem doctorProfile', async () => {
@@ -588,8 +635,6 @@ describe('AccessControlService', () => {
       );
     });
 
-    // Admin não é médico: quem administra a clínica sem doctorProfile também
-    // não assina prontuário.
     it('bloqueia admin sem doctorProfile', async () => {
       userRepository.findOneWithProfile.mockResolvedValue({
         id: 'admin-id',
@@ -610,32 +655,6 @@ describe('AccessControlService', () => {
       );
     });
   });
-
-  // ─── getEffectivePermissions ───
-
-  describe('getEffectivePermissions', () => {
-    it('deriva a permissão efetiva do usuário', async () => {
-      userRepository.findOneWithProfile.mockResolvedValue({
-        id: 'u-1',
-        role: UserRole.COLLABORATOR,
-        permissions: [Permission.AGENDA],
-        doctorProfile: null,
-      });
-
-      await expect(service.getEffectivePermissions('u-1')).resolves.toEqual([
-        Permission.AGENDA,
-      ]);
-    });
-
-    it('devolve lista vazia para usuário inexistente', async () => {
-      userRepository.findOneWithProfile.mockResolvedValue(null);
-
-      await expect(service.getEffectivePermissions('sumiu')).resolves.toEqual(
-        [],
-      );
-    });
-  });
-  // ─── getUsersWithAccessToDoctor ───
 
   describe('getUsersWithAccessToDoctor', () => {
     const medico = {
@@ -761,6 +780,29 @@ describe('AccessControlService', () => {
       );
 
       expect(result.map((u) => u.id)).toEqual(['doc-1']);
+    });
+
+    it('inclui o admin delegado (ADMINISTRACAO + SOLICITACOES) mesmo sem vínculo', async () => {
+      userRepository.findByOwnerId = jest.fn().mockResolvedValue([
+        medico,
+        {
+          id: 'delegado',
+          name: 'Gerente',
+          ownerId: 'owner-1',
+          role: UserRole.COLLABORATOR,
+          status: UserStatus.ACTIVE,
+          permissions: [Permission.ADMINISTRACAO, Permission.SOLICITACOES],
+          doctorProfile: null,
+        },
+      ] as any);
+      userDoctorAccessRepository.findActiveByDoctorUserId.mockResolvedValue([]);
+
+      const result = await service.getUsersWithAccessToDoctor(
+        'doc-1',
+        'owner-1',
+      );
+
+      expect(result.map((u) => u.id).sort()).toEqual(['delegado', 'doc-1']);
     });
 
     it('exclui usuários inativos', async () => {

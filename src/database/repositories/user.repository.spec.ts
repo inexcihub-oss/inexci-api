@@ -1,27 +1,11 @@
 import { UserRepository } from './user.repository';
 
-/**
- * Regressão do C1 (revisão final `feat/modulo-atendimento`): o assistente do
- * WhatsApp resolve o usuário via `findOneByPhone`, que por muito tempo
- * delegou para `findOne`. O `select` de `findOne` tem ~26 colunas e NÃO
- * inclui `permissions` — com `select` parcial o TypeORM devolve a
- * propriedade como `undefined`, então `resolveEffectivePermissions` recebia
- * `permissions: undefined` e qualquer colaborador não-médico perdia acesso a
- * todas as tools com `requiredPermission`.
- *
- * `findOneByPhone` agora delega para `findOneWithProfile` (que inclui
- * `permissions`). Este teste trava as duas pontas:
- *  - `findOneByPhone` usa o `select` de `findOneWithProfile` (com `permissions`).
- *  - `findOne` continua SEM `permissions` no `select` — não pode ser ampliado
- *    para incluir a coluna crua, porque tem dezenas de chamadores fora do
- *    módulo de IA (ex.: `UsersService.findOne`, que devolve o resultado
- *    direto numa resposta HTTP sem filtrar `permissions`/`isPlatformAdmin`)
- *    e ampliar o `select` vazaria a coluna crua fora das rotas gated por
- *    `ADMINISTRACAO` (ver I2 do PLANO-PERMISSOES-COLABORADORES).
- */
 describe('UserRepository', () => {
   function buildRepo() {
-    const mockRepository = { findOne: jest.fn().mockResolvedValue(null) };
+    const mockRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+      find: jest.fn().mockResolvedValue([]),
+    };
     const repo = new UserRepository(mockRepository as never);
     return { repo, mockRepository };
   }
@@ -35,6 +19,33 @@ describe('UserRepository', () => {
     const call = mockRepository.findOne.mock.calls[0][0];
     expect(call.where).toEqual({ phone: '+5511999999999' });
     expect(call.select).toMatchObject({ permissions: true });
+  });
+
+  it('findManyByPhones busca as grafias de uma vez, com o mesmo select do perfil, e traz até 2 para detectar ambiguidade', async () => {
+    const { repo, mockRepository } = buildRepo();
+
+    await repo.findManyByPhones([
+      '11987654321',
+      '',
+      '11987654321',
+      '+5511987654321',
+    ]);
+
+    expect(mockRepository.find).toHaveBeenCalledTimes(1);
+    const call = mockRepository.find.mock.calls[0][0];
+    expect(call.where.phone.value).toEqual(['11987654321', '+5511987654321']);
+    expect(call.take).toBe(2);
+    expect(call.select).toMatchObject({
+      permissions: true,
+      aiConsentAcceptedAt: true,
+    });
+  });
+
+  it('findManyByPhones sem telefone não consulta o banco', async () => {
+    const { repo, mockRepository } = buildRepo();
+
+    await expect(repo.findManyByPhones([''])).resolves.toEqual([]);
+    expect(mockRepository.find).not.toHaveBeenCalled();
   });
 
   it('findOne (genérico) NÃO inclui `permissions` no select', async () => {
@@ -55,13 +66,6 @@ describe('UserRepository', () => {
     expect(call.select).toMatchObject({ permissions: true });
   });
 
-  /**
-   * Sem `onboardingState` no select, `AuthService.me()` recebe
-   * `user.onboardingState === undefined` e `normalizeOnboardingState`
-   * devolve sempre o estado vazio (`not_started`) — bug silencioso que
-   * nenhum teste com repositório mockado à mão pega. Trava a regressão do
-   * mesmo jeito que o teste de `permissions` acima trava a dele.
-   */
   it('findOneWithProfile inclui onboardingState no select', async () => {
     const { repo, mockRepository } = buildRepo();
 
@@ -71,13 +75,6 @@ describe('UserRepository', () => {
     expect(call.select).toMatchObject({ onboardingState: true });
   });
 
-  /**
-   * `findMany` alimenta duas coisas: `GET /users` — o diretório do staff,
-   * liberado a qualquer área via `@RequireAnyArea()` — e a resolução de nomes
-   * de médico do assistente do WhatsApp, que lê só `id` e `name`. Nenhuma das
-   * duas precisa de CPF, gênero ou nascimento; a primeira entregava os três de
-   * todo colega do tenant a qualquer autenticado.
-   */
   it('findMany não traz CPF, gênero nem nascimento', async () => {
     const mockRepository = { find: jest.fn().mockResolvedValue([]) };
     const repo = new UserRepository(mockRepository as never);
@@ -88,13 +85,73 @@ describe('UserRepository', () => {
     for (const campo of ['cpf', 'gender', 'birthDate']) {
       expect(select).not.toHaveProperty(campo);
     }
-    // O que a rota realmente usa continua vindo.
     expect(select).toMatchObject({
       id: true,
       name: true,
       email: true,
       role: true,
       status: true,
+    });
+  });
+
+  describe('avisos ao paciente (patient_notification_settings)', () => {
+    it('conta sem configuração gravada fica com tudo ligado', async () => {
+      const { repo, mockRepository } = buildRepo();
+      mockRepository.findOne.mockResolvedValue({
+        id: 'dono',
+        patientNotificationSettings: null,
+      });
+
+      await expect(
+        repo.getPatientNotificationSettings('dono'),
+      ).resolves.toEqual({
+        appointmentScheduled: true,
+        appointmentReminder: true,
+        appointmentCancelled: true,
+      });
+      const call = mockRepository.findOne.mock.calls[0][0];
+      expect(call.where).toEqual({ id: 'dono' });
+      expect(call.select).toMatchObject({ patientNotificationSettings: true });
+    });
+
+    it('isPatientNotificationEnabled respeita o que foi desligado', async () => {
+      const { repo, mockRepository } = buildRepo();
+      mockRepository.findOne.mockResolvedValue({
+        id: 'dono',
+        patientNotificationSettings: { appointmentReminder: false },
+      });
+
+      await expect(
+        repo.isPatientNotificationEnabled('dono', 'appointmentReminder'),
+      ).resolves.toBe(false);
+      await expect(
+        repo.isPatientNotificationEnabled('dono', 'appointmentCancelled'),
+      ).resolves.toBe(true);
+    });
+
+    it('update mescla com o atual e grava o objeto completo', async () => {
+      const mockRepository = {
+        findOne: jest.fn().mockResolvedValue({
+          id: 'dono',
+          patientNotificationSettings: { appointmentScheduled: false },
+        }),
+        update: jest.fn().mockResolvedValue(undefined),
+      };
+      const repo = new UserRepository(mockRepository as never);
+
+      const result = await repo.updatePatientNotificationSettings('dono', {
+        appointmentCancelled: false,
+      });
+
+      const esperado = {
+        appointmentScheduled: false,
+        appointmentReminder: true,
+        appointmentCancelled: false,
+      };
+      expect(result).toEqual(esperado);
+      expect(mockRepository.update).toHaveBeenCalledWith('dono', {
+        patientNotificationSettings: esperado,
+      });
     });
   });
 });

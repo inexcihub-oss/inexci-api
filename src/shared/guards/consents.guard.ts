@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { IS_PUBLIC_KEY } from '../decorator/is-public.decorator';
+import { IS_PUBLIC_KEY } from '../decorators/is-public.decorator';
 
 export const SKIP_CONSENT_CHECK_KEY = 'skipConsentCheck';
 

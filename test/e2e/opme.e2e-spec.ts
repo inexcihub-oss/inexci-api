@@ -8,17 +8,6 @@ import {
 } from '../helpers/test-setup';
 import { getAuthHeader } from '../helpers/auth-helper';
 
-/**
- * Rotas reais de `OpmeController` (`surgery-requests/opme`): `POST /`,
- * `PUT /` e `DELETE /:id`. Só o `POST` é exercitado aqui — `PUT`/`DELETE`
- * seguem sem cobertura e2e.
- *
- * A versão anterior deste spec criava a SC por `POST /surgery-requests/simple`,
- * rota que não existe. O 404 do setup deixava `testSurgeryRequestId` indefinido
- * e o teste de criação retornava cedo com um `console.warn`, então o único
- * caminho feliz do módulo nunca era executado.
- */
-
 const MEDICO = {
   name: 'Dr. Teste OPME E2E',
   email: 'dr.opme.e2e@inexci.test',
@@ -30,12 +19,8 @@ const MEDICO = {
   specialty: 'Ortopedia',
 };
 
-/** UUID bem formado e sem linha correspondente — `surgery_requests.id` é `uuid`,
- *  então um id fora do formato faria o Postgres estourar (500) em vez de
- *  exercitar o 404 de negócio. */
 const ID_SC_INEXISTENTE = '00000000-0000-4000-8000-000000000000';
 
-/** `OpmeService` exige no mínimo 3 fabricantes e 3 fornecedores (MIN_OPME_OPTIONS). */
 const validOpmePayload = (surgeryRequestId: string) => ({
   surgeryRequestId,
   name: 'Prótese de quadril titanium',
@@ -56,9 +41,6 @@ describe('OPME - Órteses, Próteses e Materiais Especiais (e2e)', () => {
   beforeEach(async () => {
     await cleanDatabase(app);
 
-    // `isDoctor: true` cria o `doctor_profile`. Sem ele,
-    // `DoctorResolutionService.resolveDoctorId` não acha médico acessível e
-    // `POST /surgery-requests` responde 403 antes de criar qualquer coisa.
     await request(app.getHttpServer())
       .post('/auth/register')
       .send(MEDICO)
@@ -78,8 +60,6 @@ describe('OPME - Órteses, Próteses e Materiais Especiais (e2e)', () => {
       .send({ name: 'Paciente OPME E2E', cpf: '12345678900' })
       .expect(201);
 
-    // Rota real de criação: `POST /surgery-requests` (o "simple" do caminho
-    // antigo sobrevive apenas no nome do DTO, `CreateSurgeryRequestSimpleDto`).
     const surgeryRequest = await request(app.getHttpServer())
       .post('/surgery-requests')
       .set(getAuthHeader(authToken))
@@ -105,12 +85,8 @@ describe('OPME - Órteses, Próteses e Materiais Especiais (e2e)', () => {
       expect(response.body.surgeryRequestId).toBe(testSurgeryRequestId);
       expect(response.body.quantity).toBe(1);
       expect(response.body.authorizedQuantity).toBeNull();
-      // `brand` saiu do modelo quando OPME passou a ter N fabricantes — o
-      // assert é a trava contra o campo voltar pelo `CreateOpmeResponseDto`.
       expect(response.body).not.toHaveProperty('brand');
 
-      // Banco limpo a cada teste: os 3 nomes de cada lista viram cadastros
-      // novos no tenant, e é isso que `created*Names` reporta ao frontend.
       expect(response.body.manufacturers).toHaveLength(3);
       expect(response.body.suppliers).toHaveLength(3);
       expect(response.body.createdManufacturerNames).toEqual(
@@ -141,8 +117,6 @@ describe('OPME - Órteses, Próteses e Materiais Especiais (e2e)', () => {
     });
 
     it('recusa payload sem quantity e sem surgeryRequestId', async () => {
-      // Ambos são obrigatórios no `CreateOpmeDto` — barra na ValidationPipe
-      // global antes de chegar ao service.
       await request(app.getHttpServer())
         .post('/surgery-requests/opme')
         .set(getAuthHeader(authToken))
@@ -151,8 +125,6 @@ describe('OPME - Órteses, Próteses e Materiais Especiais (e2e)', () => {
     });
 
     it('recusa menos de 3 fabricantes', async () => {
-      // `validateMinManufacturers` roda antes da busca da SC: com menos de 3
-      // opções o service responde 400 mesmo com uma SC válida.
       await request(app.getHttpServer())
         .post('/surgery-requests/opme')
         .set(getAuthHeader(authToken))
@@ -164,9 +136,6 @@ describe('OPME - Órteses, Próteses e Materiais Especiais (e2e)', () => {
     });
 
     it('responde 404 para solicitação inexistente', async () => {
-      // O payload precisa passar pelos mínimos de fabricante/fornecedor para
-      // chegar ao `SurgeryRequestAccessValidator.validateAndFetch`, que é quem
-      // lança NotFoundException quando a SC não existe (ou é de outro tenant).
       await request(app.getHttpServer())
         .post('/surgery-requests/opme')
         .set(getAuthHeader(authToken))

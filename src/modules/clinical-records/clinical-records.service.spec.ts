@@ -36,6 +36,28 @@ describe('ClinicalRecordsService', () => {
     findByAppointment: jest.fn().mockResolvedValue([]),
   };
   const mockProcedureRepo = { findOne: jest.fn() };
+  const txClinicalUpdate = jest.fn(
+    async (where: { id: string }, data: unknown) => {
+      await mockClinicalRepo.update(where.id, data);
+      return { affected: 1 };
+    },
+  );
+  const txAppointmentUpdate = jest.fn(async (id: string, data: unknown) => {
+    await mockAppointmentRepo.update(id, data);
+    return { affected: 1 };
+  });
+  const mockManager = {
+    getRepository: jest.fn((entity: { name: string }) =>
+      entity.name === 'ClinicalRecord'
+        ? { update: txClinicalUpdate }
+        : { update: txAppointmentUpdate },
+    ),
+  };
+  const mockDataSource = {
+    transaction: jest.fn(async (cb: (m: unknown) => unknown) =>
+      cb(mockManager),
+    ),
+  };
 
   const ownerId = 'owner-1';
   const userId = 'user-1';
@@ -57,7 +79,6 @@ describe('ClinicalRecordsService', () => {
     mockClinicalRepo.create.mockImplementation((d) =>
       Promise.resolve({ id: 'cr-1', ...d }),
     );
-    // Consulta vinculada, ainda na agenda — o caso comum de `finalize`.
     mockAppointmentRepo.findOne.mockResolvedValue({
       id: 'a1',
       ownerId,
@@ -77,6 +98,7 @@ describe('ClinicalRecordsService', () => {
       mockSurgicalIndication as any,
       mockActivityRepo as any,
       mockProcedureRepo as any,
+      mockDataSource as any,
     );
   });
 
@@ -177,8 +199,6 @@ describe('ClinicalRecordsService', () => {
       expect(result).toMatchObject({ surgicalIndication: false });
     });
 
-    // MIG-02: SC é de médico. Ficha de profissional de outro conselho não
-    // indica cirurgia — a checagem é sobre o médico DA FICHA, não quem clica.
     it('recusa indicação cirúrgica em ficha de profissional que não é médico', async () => {
       mockAccess.assertIsPhysicianWithRegistry.mockRejectedValue(
         new ForbiddenException(),
@@ -208,8 +228,6 @@ describe('ClinicalRecordsService', () => {
       expect(mockClinicalRepo.create).not.toHaveBeenCalled();
     });
 
-    // Quem marca também precisa ser médico: um dentista vinculado a um médico
-    // CRM não indica cirurgia na ficha dele (a tela nem mostra a marcação).
     it('recusa indicação cirúrgica marcada por quem não é médico, mesmo em ficha de médico', async () => {
       mockAccess.assertIsPhysician.mockRejectedValue(new ForbiddenException());
 
@@ -467,8 +485,6 @@ describe('ClinicalRecordsService', () => {
       expect(mockAppointmentRepo.update).not.toHaveBeenCalled();
     });
 
-    // D-02: promover uma consulta cancelada para "realizada" mantinha o
-    // `cancellationReason` gravado — realizada e cancelada ao mesmo tempo.
     it.each([AppointmentStatus.CANCELLED, AppointmentStatus.NO_SHOW])(
       'não promove para realizada a consulta em %s',
       async (status) => {
@@ -493,8 +509,6 @@ describe('ClinicalRecordsService', () => {
 
         const result = await service.finalize('cr-1', userId);
 
-        // A ficha é finalizada assim mesmo: o registro clínico do médico não
-        // pode depender do status da agenda.
         expect(mockClinicalRepo.update).toHaveBeenCalledWith('cr-1', {
           finalizedAt: expect.any(Date),
         });
@@ -569,8 +583,6 @@ describe('ClinicalRecordsService', () => {
         'cr-1',
         userId,
       );
-      // A ficha é devolvida antes de a SC existir; o id é costurado na resposta
-      // para o frontend já poder linkar a solicitação.
       expect(result).toMatchObject({ surgeryRequestId: 'sc-1' });
     });
 
@@ -595,7 +607,6 @@ describe('ClinicalRecordsService', () => {
         expect.stringContaining('Desmarque a indicação cirúrgica'),
         expect.any(String),
       );
-      // Nada muda: a ficha segue editável para desmarcar a indicação.
       expect(mockClinicalRepo.update).not.toHaveBeenCalled();
       expect(mockAppointmentRepo.update).not.toHaveBeenCalled();
       expect(mockSurgicalIndication.createForRecord).not.toHaveBeenCalled();
@@ -653,8 +664,6 @@ describe('ClinicalRecordsService', () => {
       expect(mockSurgicalIndication.createForRecord).not.toHaveBeenCalled();
     });
 
-    // O ponto central do desenho: perder a SC é aceitável no curto prazo (o
-    // sweeper retoma), perder o atendimento do médico nunca é.
     it('finaliza o atendimento mesmo se a criação da SC falhar', async () => {
       mockClinicalRepo.findOne.mockResolvedValue({
         id: 'cr-1',
@@ -678,6 +687,53 @@ describe('ClinicalRecordsService', () => {
       expect(mockAppointmentRepo.update).toHaveBeenCalledWith('a1', {
         status: AppointmentStatus.COMPLETED,
       });
+    });
+  });
+
+  describe('finalize — atomicidade (ficha + consulta)', () => {
+    beforeEach(() => {
+      mockClinicalRepo.findOne.mockResolvedValue({
+        id: 'cr-1',
+        ownerId,
+        doctorId,
+        finalizedAt: null,
+        appointmentId: 'a1',
+        surgicalIndication: true,
+      });
+      mockClinicalRepo.update.mockResolvedValue({ id: 'cr-1' });
+    });
+
+    it('ficha e consulta são gravadas na mesma transação, com UPDATE condicional na ficha', async () => {
+      await service.finalize('cr-1', userId);
+
+      expect(mockDataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(txClinicalUpdate).toHaveBeenCalledWith(
+        { id: 'cr-1', finalizedAt: expect.anything() },
+        { finalizedAt: expect.any(Date) },
+      );
+      expect(txAppointmentUpdate).toHaveBeenCalledWith('a1', {
+        status: AppointmentStatus.COMPLETED,
+      });
+    });
+
+    it('falha ao concluir a consulta derruba a finalização inteira (sem SC, sem histórico)', async () => {
+      txAppointmentUpdate.mockRejectedValueOnce(new Error('deadlock'));
+
+      await expect(service.finalize('cr-1', userId)).rejects.toThrow(
+        'deadlock',
+      );
+      expect(mockSurgicalIndication.createForRecord).not.toHaveBeenCalled();
+      expect(mockActivityRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('clique duplo: ficha já finalizada por outra requisição vira 409 e não abre SC', async () => {
+      txClinicalUpdate.mockResolvedValueOnce({ affected: 0 });
+
+      await expect(service.finalize('cr-1', userId)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(txAppointmentUpdate).not.toHaveBeenCalled();
+      expect(mockSurgicalIndication.createForRecord).not.toHaveBeenCalled();
     });
   });
 
@@ -797,12 +853,6 @@ describe('ClinicalRecordsService', () => {
     });
   });
 
-  /**
-   * Atender é ato do médico. Quem não tem `doctor_profile` — secretária,
-   * assistente, admin não-médico — enxerga o prontuário dos médicos a que tem
-   * vínculo, mas não escreve nele: a ficha vira documento assinado em nome do
-   * médico da consulta.
-   */
   describe('somente médico atende', () => {
     const aberta = {
       id: 'cr-1',
@@ -843,10 +893,6 @@ describe('ClinicalRecordsService', () => {
     });
   });
 
-  /**
-   * O prontuário é dado clínico sensível: pertencer à mesma clínica não basta,
-   * é preciso ter vínculo com o médico da ficha (`user_doctor_access`).
-   */
   describe('fronteira de acesso por médico', () => {
     const alheia = {
       id: 'cr-alheia',
@@ -927,7 +973,6 @@ describe('ClinicalRecordsService', () => {
       expect(mockClinicalRepo.create).not.toHaveBeenCalled();
     });
   });
-  // MIG-03: sala de espera. A ficha move a consulta pela agenda.
   describe('status da consulta pela ficha (MIG-03)', () => {
     it('abrir a ficha da consulta leva a consulta para em atendimento', async () => {
       mockClinicalRepo.findOne.mockResolvedValue(null);

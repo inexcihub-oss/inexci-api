@@ -240,8 +240,6 @@ describe('ClinicalDocumentTemplatesService (MIG-06)', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
-    // Assistente com acesso a dois médicos não põe o texto do Dr. A num
-    // documento assinado pelo Dr. B.
     it('modelo de outro profissional que não o que assina → 400', async () => {
       await expect(
         service.getForUse('tpl-1', null, 'assistente', 'doc-2'),

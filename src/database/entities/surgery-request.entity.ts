@@ -25,49 +25,27 @@ import { SurgeryRequestTussItem } from './surgery-request-tuss-item.entity';
 import { SurgeryRequestActivity } from './surgery-request-activity.entity';
 import { ReportSection } from './report-section.entity';
 
-/**
- * Status da solicitação cirúrgica (9 valores — fluxo oficial)
- */
 export enum SurgeryRequestStatus {
-  PENDING = 1, // Pendente
-  SENT = 2, // Enviada
-  IN_ANALYSIS = 3, // Em Análise
-  IN_SCHEDULING = 4, // Em Agendamento
-  SCHEDULED = 5, // Agendada
-  PERFORMED = 6, // Realizada
-  INVOICED = 7, // Faturada
-  FINALIZED = 8, // Finalizada
-  CLOSED = 9, // Encerrada
+  PENDING = 1,
+  SENT = 2,
+  IN_ANALYSIS = 3,
+  IN_SCHEDULING = 4,
+  SCHEDULED = 5,
+  PERFORMED = 6,
+  INVOICED = 7,
+  FINALIZED = 8,
+  CLOSED = 9,
 }
 
-/**
- * Prioridade da solicitação cirúrgica
- */
 export enum SurgeryRequestPriority {
-  LOW = 1, // Baixa
-  MEDIUM = 2, // Média
-  HIGH = 3, // Alta
-  URGENT = 4, // Urgente
+  LOW = 1,
+  MEDIUM = 2,
+  HIGH = 3,
+  URGENT = 4,
 }
 
-/**
- * Opção de data para a cirurgia.
- * Persistida em dateOptions (jsonb).
- */
-/**
- * Opções de datas armazenadas em date_options (jsonb).
- *
- * Formato: array de timestamps ISO 8601 completos (data + hora + minuto, ex.:
- * "2026-03-01T07:30:00.000Z"), ordenados por preferência. Cada slot
- * representa um par dia + horário sugerido pelo médico ao convênio/hospital.
- * O índice escolhido pelo médico fica em `selected_date_index`.
- */
 export type SurgeryDateOptions = string[];
 
-/**
- * Documento requerido pendente de envio.
- * Persistido em required_documents (jsonb).
- */
 export interface RequiredDocumentSpec {
   type: string;
   name: string;
@@ -80,19 +58,14 @@ export interface RequiredDocumentSpec {
 @Index('idx_sr_health_plan_id', ['healthPlanId'])
 @Index('idx_sr_hospital_id', ['hospitalId'])
 @Index('idx_sr_status', ['status'])
-// Ordenação real é `last_activity_at DESC`; o decorator não expressa sort
-// order por coluna — a migration cria o índice com DESC explícito via SQL.
 @Index('idx_sr_doctor_last_activity', ['doctorId', 'lastActivityAt'])
 export class SurgeryRequest {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  // ============ RELACIONAMENTOS PRINCIPAIS ============
-
   @Column({ name: 'doctor_id', type: 'uuid' })
   doctorId: string;
 
-  /** ID do admin dono da clínica (denormalizado para tenant isolation). */
   @Column({ name: 'owner_id', type: 'uuid' })
   ownerId: string;
 
@@ -111,14 +84,8 @@ export class SurgeryRequest {
   @Column({ name: 'procedure_id', type: 'uuid', nullable: true })
   procedureId: string | null;
 
-  /**
-   * Código CID armazenado diretamente (ex: "A00", "K80.0").
-   * A tabela CID foi removida; os dados vêm de src/utils/cid.json.
-   */
   @Column({ name: 'cid_code', type: 'varchar', length: 10, nullable: true })
   cidCode: string | null;
-
-  // ============ STATUS E CONTROLE ============
 
   @Column({
     type: 'smallint',
@@ -135,14 +102,6 @@ export class SurgeryRequest {
   })
   priority: SurgeryRequestPriority;
 
-  // ============ OPME ============
-
-  /**
-   * Indica se a solicitação utiliza OPME.
-   * null = ainda não informado (pendência aberta)
-   * true = utiliza OPME (itens devem ser cadastrados)
-   * false = não utiliza OPME (pendência resolvida sem necessidade de itens)
-   */
   @Column({ name: 'has_opme', type: 'boolean', nullable: true, default: null })
   hasOpme: boolean | null;
 
@@ -154,8 +113,6 @@ export class SurgeryRequest {
   })
   requiredDocuments: RequiredDocumentSpec[] | null;
 
-  // ============ INDICAÇÃO ============
-
   @Column({ name: 'is_indication', type: 'boolean', default: false })
   isIndication: boolean;
 
@@ -166,8 +123,6 @@ export class SurgeryRequest {
     nullable: true,
   })
   indicationName: string | null;
-
-  // ============ DADOS DO CONVÊNIO ============
 
   @Column({
     name: 'health_plan_registration',
@@ -193,11 +148,6 @@ export class SurgeryRequest {
   })
   healthPlanProtocol: string | null;
 
-  // ============ DADOS MÉDICOS ============
-  // Conteúdo clínico do laudo vive em `report_sections` (relação reportSections).
-
-  // ============ DATAS ============
-
   @Column({ name: 'date_options', type: 'jsonb', nullable: true })
   dateOptions: SurgeryDateOptions | null;
 
@@ -213,8 +163,6 @@ export class SurgeryRequest {
   @Column({ name: 'date_call', type: 'timestamp', nullable: true })
   dateCall: Date | null;
 
-  // ============ PROTOCOLOS ============
-
   @Column({
     name: 'hospital_protocol',
     type: 'varchar',
@@ -223,20 +171,14 @@ export class SurgeryRequest {
   })
   hospitalProtocol: string | null;
 
-  // ============ ENVIO ============
-
   @Column({ name: 'sent_at', type: 'timestamp', nullable: true })
   sentAt: Date | null;
 
   @Column({ name: 'send_method', type: 'varchar', length: 20, nullable: true })
   sendMethod: string | null;
 
-  // ============ REALIZAÇÃO ============
-
   @Column({ name: 'surgery_performed_at', type: 'timestamp', nullable: true })
   surgeryPerformedAt: Date | null;
-
-  // ============ ENCERRAMENTO ============
 
   @Column({ name: 'closed_reason', type: 'text', nullable: true })
   closedReason: string | null;
@@ -251,22 +193,14 @@ export class SurgeryRequest {
   })
   lastStatusChangedAt: Date | null;
 
-  /**
-   * Última atividade relevante (materializada via trigger no banco).
-   * Usada na ordenação indexável da listagem (item 5.2).
-   */
   @Column({ name: 'last_activity_at', type: 'timestamptz', nullable: true })
   lastActivityAt: Date | null;
-
-  // ============ TIMESTAMPS ============
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
-
-  // ============ RELAÇÕES ============
 
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'doctor_id' })
@@ -276,12 +210,6 @@ export class SurgeryRequest {
   @JoinColumn({ name: 'owner_id' })
   owner: User;
 
-  /**
-   * `created_by_id` é NOT NULL, então `ON DELETE SET NULL` aqui nunca chegou a
-   * funcionar: apagar o usuário abortava por violação de not-null. Cascata é o
-   * que permite excluir a conta — e, como `owner_id` já cascateia, na prática
-   * ela só muda o caso de apagar um colaborador isolado por SQL.
-   */
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'created_by_id' })
   createdBy: User;

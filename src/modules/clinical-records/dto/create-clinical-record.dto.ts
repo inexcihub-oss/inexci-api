@@ -43,12 +43,10 @@ export class CreateClinicalRecordDto {
   @IsString()
   conduct?: string;
 
-  /** Marca o paciente como cirúrgico; a SC é criada ao finalizar. */
   @IsOptional()
   @IsBoolean()
   surgicalIndication?: boolean;
 
-  /** Procedimento escolhido (ou criado) para a SC que nasce da indicação. */
   @IsOptional()
   @IsUUID()
   procedureId?: string;

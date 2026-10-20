@@ -1,11 +1,5 @@
 import { SurgeryRequestsService } from './surgery-requests.service';
 
-/**
- * GET /surgery-requests/available-doctors alimenta a Agenda, o wizard de SC e
- * a tela de atendimento. Esta última decide os botões de receita/atestado/
- * pedido de exame por `canIssueClinicalDocuments` — sem o campo, o frontend
- * caía em `isPhysician` e desabilitava os documentos do dentista (CRO).
- */
 describe('SurgeryRequestsService.getAvailableDoctors', () => {
   function makeService(doctors: unknown[]) {
     const accessControlService = {
@@ -14,9 +8,6 @@ describe('SurgeryRequestsService.getAvailableDoctors', () => {
     const service = new SurgeryRequestsService(
       {} as never,
       accessControlService as never,
-      {} as never,
-      {} as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,

@@ -12,10 +12,6 @@ describe('PatientsController — permissões declaradas', () => {
       PatientsController.prototype[metodo],
     );
 
-  // Antes a classe não tinha decorator, o que liberava paciente (dado de saúde)
-  // a QUALQUER autenticado — inclusive colaborador com `permissions: []`.
-  // `@RequireAnyArea()` mantém a transversalidade (qualquer uma das 4 áreas)
-  // fechando o buraco do zero-permissão.
   it('exige ao menos uma área na classe (RequireAnyArea) — transversal, mas fail-closed', () => {
     expect(reflector.get(PERMISSIONS_KEY, PatientsController)).toEqual([
       ...ALL_PERMISSIONS,
@@ -29,8 +25,6 @@ describe('PatientsController — permissões declaradas', () => {
     },
   );
 
-  // findAll/findOne/create/update não têm decorator próprio: herdam o da classe
-  // (RequireAnyArea) — qualquer área passa, zero-permissão é bloqueado.
   it.each(['findAll', 'findOne', 'create', 'update'] as const)(
     'não sobrescreve a classe em %s (herda RequireAnyArea)',
     (metodo) => {
@@ -48,18 +42,50 @@ describe('PatientsController — resposta do cadastro', () => {
     };
     const controller = new PatientsController(service as never);
 
-    const resposta = await controller.create(
-      { name: 'Maria' } as never,
-      {
-        userId: 'user-1',
-      } as never,
-    );
+    const resposta = await controller.create({ name: 'Maria' }, {
+      userId: 'user-1',
+      permissions: ['agenda'],
+    } as never);
 
     expect(resposta).toBe(criado);
     expect(service.createWithPhoto).toHaveBeenCalledWith(
       { name: 'Maria' },
       'user-1',
+      ['agenda'],
     );
     expect(service.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('PatientsController — leitura repassa as permissões efetivas', () => {
+  it('GET /patients/:id envia as permissões ao service', async () => {
+    const service = { findOneWithPhoto: jest.fn().mockResolvedValue({}) };
+    const controller = new PatientsController(service as never);
+
+    await controller.findOne('pac-1', {
+      userId: 'user-1',
+      permissions: ['agenda'],
+    } as never);
+
+    expect(service.findOneWithPhoto).toHaveBeenCalledWith('pac-1', 'user-1', [
+      'agenda',
+    ]);
+  });
+
+  it('PATCH /patients/:id envia as permissões ao service', async () => {
+    const service = { updateWithPhoto: jest.fn().mockResolvedValue({}) };
+    const controller = new PatientsController(service as never);
+
+    await controller.update('pac-1', { name: 'X' }, {
+      userId: 'user-1',
+      permissions: ['atendimento'],
+    } as never);
+
+    expect(service.updateWithPhoto).toHaveBeenCalledWith(
+      'pac-1',
+      { name: 'X' },
+      'user-1',
+      ['atendimento'],
+    );
   });
 });

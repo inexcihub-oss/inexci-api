@@ -1,12 +1,5 @@
-/**
- * Mapeamento explícito de resposta para o detalhe da SC (P11 / item 3.6).
- *
- * Allowlist derivada do contrato tipado do frontend (`surgery-request.types.ts`
- * e `SurgeryRequestDetail`). Relações com escape hatch (`analysis`,
- * `contestations`) ficam pass-through.
- */
-
 import type { CidResponse } from '../cid/cid.service';
+import type { SurgeryRequestBilling } from 'src/database/entities/surgery-request-billing.entity';
 import { formatPatientAddressForLaudo } from '../utils/laudo-patient-fields.util';
 
 export interface DetailCidResponse {
@@ -333,7 +326,7 @@ function mapDetailCid(
 export function mapSurgeryRequestDetail(
   sc: SurgeryRequestDetailInput,
   doctor: DetailDoctorResponse | null,
-  receipt: Record<string, unknown> | null,
+  receipt: DetailReceipt | null,
   resolvedCid?: CidResponse | null,
 ) {
   const cidCode = sc.cidCode ?? null;
@@ -370,5 +363,41 @@ export function mapSurgeryRequestDetail(
     contestations: sc.contestations ?? [],
     doctor,
     receipt,
+  };
+}
+
+export interface DetailReceipt {
+  receivedValue: number;
+  receivedAt: Date | null;
+  receiptNotes: string | null;
+  isContested: boolean;
+  contestedReceivedValue: number | null;
+  contestedReceivedAt: Date | null;
+}
+
+export function mapReceipt(
+  billing:
+    | Pick<
+        SurgeryRequestBilling,
+        | 'receivedValue'
+        | 'receivedAt'
+        | 'receiptNotes'
+        | 'contestedReceivedValue'
+        | 'contestedReceivedAt'
+      >
+    | null
+    | undefined,
+): DetailReceipt | null {
+  if (billing?.receivedValue == null) return null;
+  const contested = billing.contestedReceivedValue != null;
+  return {
+    receivedValue: Number(billing.receivedValue),
+    receivedAt: billing.receivedAt ?? null,
+    receiptNotes: billing.receiptNotes ?? null,
+    isContested: contested,
+    contestedReceivedValue: contested
+      ? Number(billing.contestedReceivedValue)
+      : null,
+    contestedReceivedAt: billing.contestedReceivedAt ?? null,
   };
 }

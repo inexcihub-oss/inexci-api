@@ -8,10 +8,6 @@ import {
   IsOptional,
 } from 'class-validator';
 
-/**
- * PATCH /surgery-requests/:id/date-options
- * Atualiza opções de data sem mudar status (em IN_SCHEDULING) — 1 a 3 datas
- */
 export class UpdateDateOptionsDto {
   @IsOptional()
   @Transform(({ value }) => value === true || value === 'true')

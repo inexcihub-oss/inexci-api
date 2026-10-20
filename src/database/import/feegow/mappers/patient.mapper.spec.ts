@@ -1,11 +1,11 @@
 import { LinhaCsv } from '../../core/csv';
 import { contatosDoPaciente, matriculaDoConvenio } from './patient.mapper';
 
-const LONGO = `${'a'.repeat(95)}@clinica.com`; // 107 > patients.email (100)
+const LONGO = `${'a'.repeat(95)}@clinica.com`;
 
 describe('contatosDoPaciente — e-mail maior que a coluna', () => {
   it('descarta o e-mail longo, marca e guarda nas observações', () => {
-    const r = contatosDoPaciente({ id: '1', email: LONGO } as LinhaCsv);
+    const r = contatosDoPaciente({ id: '1', email: LONGO });
     expect(r.email).toBeNull();
     expect(r.emailLongo).toBe(true);
     expect(r.naoReconhecidos).toEqual([expect.stringContaining(LONGO)]);
@@ -17,14 +17,14 @@ describe('contatosDoPaciente — e-mail maior que a coluna', () => {
       id: '1',
       cpf: LONGO,
       fixo_1: 'ana@clinica.com',
-    } as LinhaCsv);
+    });
     expect(r.email).toBe('ana@clinica.com');
     expect(r.emailLongo).toBe(false);
     expect(r.naoReconhecidos).toEqual([`Outro e-mail no Feegow: ${LONGO}`]);
   });
 
   it('só e-mail deslocado longo: campo vazio e aviso', () => {
-    const r = contatosDoPaciente({ id: '1', cpf: LONGO } as LinhaCsv);
+    const r = contatosDoPaciente({ id: '1', cpf: LONGO });
     expect(r.email).toBeNull();
     expect(r.emailLongo).toBe(true);
     expect(r.deslocados).toEqual([]);
@@ -34,7 +34,7 @@ describe('contatosDoPaciente — e-mail maior que a coluna', () => {
     const r = contatosDoPaciente({
       id: '1',
       email: 'Ana@Clinica.com',
-    } as LinhaCsv);
+    });
     expect(r.email).toBe('ana@clinica.com');
     expect(r.emailLongo).toBe(false);
   });

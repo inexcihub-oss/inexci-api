@@ -180,12 +180,6 @@ describe('AllExceptionsFilter', () => {
     });
   });
 
-  /**
-   * `POST /billing/subscription/checkout` com um `gateway_price_id` que não
-   * existia na conta Stripe devolvia 500 "Erro interno do servidor": o
-   * `PaymentGatewayError` estende `Error`, não `HttpException`, e caía no
-   * `else` genérico. Toda falha de billing ficava indistinguível de crash.
-   */
   describe('erro vindo do gateway de pagamento', () => {
     function erroDaStripe(code = 'resource_missing', httpStatus = 400) {
       return new PaymentGatewayError(
@@ -212,11 +206,6 @@ describe('AllExceptionsFilter', () => {
       expect(capturado.body.gatewayCode).toBe('api_key_expired');
     });
 
-    /**
-     * O status da Stripe não é repassado de propósito: `No such price` é 400
-     * lá, mas a requisição do cliente estava correta — quem errou foi a nossa
-     * configuração. Um 400 culparia quem só clicou em "assinar".
-     */
     it('não repassa o status HTTP que a Stripe devolveu', () => {
       const { host, capturado } = criarHost('/billing/subscription/checkout');
 
@@ -281,13 +270,7 @@ describe('AllExceptionsFilter', () => {
     });
   });
 
-  /**
-   * D-16: `POST /clinical-records` com ~1 MB de anamnese devolvia 500 "Erro
-   * interno do servidor" e logava `Unhandled exception: PayloadTooLargeError`.
-   * O erro nasce no `body-parser`, antes do Nest, então não é `HttpException`.
-   */
   describe('corpo maior que o limite do body-parser', () => {
-    /** Mesma forma do erro que o `raw-body` lança via `http-errors`. */
     function erroDoBodyParser() {
       return Object.assign(new Error('request entity too large'), {
         name: 'PayloadTooLargeError',

@@ -12,10 +12,6 @@ import {
 export interface StartDraftOptions<T extends OperationDraftType> {
   conversationId: string;
   type: T;
-  /**
-   * Quando este é um sub-draft (ex.: `create_patient` aberto durante
-   * `create_sc`), referência ao pai para que ao commitar voltemos a ele.
-   */
   parent?: {
     type: OperationDraftType;
     returnField: string;
@@ -29,11 +25,6 @@ export interface DraftValidationResult<T extends OperationDraftType> {
   draft: OperationDraft<T> | null;
 }
 
-/**
- * Service que gerencia o ciclo de vida do `operation_draft` em
- * `whatsapp_conversations`. As tools `*_draft_set_*` chamam este service,
- * nunca tocam a entidade direto.
- */
 @Injectable()
 export class OperationDraftService {
   private readonly logger = new Logger(OperationDraftService.name);
@@ -42,12 +33,6 @@ export class OperationDraftService {
     private readonly conversationRepo: WhatsappConversationRepository,
   ) {}
 
-  /**
-   * Inicia um novo draft do tipo informado para a conversa. Se já houver
-   * draft ativo de outro tipo, ele é PRESERVADO como `parent.snapshot`
-   * somente quando `parent` foi explicitamente passado (sub-draft).
-   * Caso contrário, o draft antigo é descartado (assume troca de fluxo).
-   */
   async start<T extends OperationDraftType>(
     opts: StartDraftOptions<T>,
   ): Promise<OperationDraft<T>> {
@@ -63,24 +48,17 @@ export class OperationDraftService {
     };
     await this.conversationRepo.update(opts.conversationId, {
       operationDraft: draft,
-    } as any);
+    });
     return draft;
   }
 
-  /**
-   * Recupera o draft atual da conversa, sem assumir tipo.
-   */
   async getCurrent(conversationId: string): Promise<OperationDraft | null> {
     const conversation = await this.conversationRepo.findOne({
       id: conversationId,
-    } as any);
+    });
     return (conversation?.operationDraft as OperationDraft | undefined) ?? null;
   }
 
-  /**
-   * Recupera o draft atual da conversa esperando um tipo específico.
-   * Retorna `null` se não houver draft ou se o tipo não bater.
-   */
   async getCurrentOfType<T extends OperationDraftType>(
     conversationId: string,
     type: T,
@@ -91,27 +69,13 @@ export class OperationDraftService {
     return draft as OperationDraft<T>;
   }
 
-  /**
-   * Atualiza um campo do draft. Cria o draft se ainda não existir e
-   * `autoStartType` foi informado.
-   */
-  /**
-   * Versão sem tipagem estrita de `setField` — uso exclusivo de
-   * `draft-generic.tools.ts`, onde o campo já foi validado contra
-   * `VALID_FIELDS_BY_TYPE` em runtime.
-   */
   async setFieldUntyped(
     conversationId: string,
     type: OperationDraftType,
     field: string,
     value: unknown,
   ): Promise<void> {
-    await this.setField(
-      conversationId,
-      type,
-      field as keyof DraftFieldsByType[typeof type] & string,
-      value,
-    );
+    await this.setField(conversationId, type, field as never, value);
   }
 
   async setField<T extends OperationDraftType>(
@@ -125,7 +89,7 @@ export class OperationDraftService {
       draft = await this.start({ conversationId, type });
     }
     const updatedFields = {
-      ...(draft.fields as object),
+      ...draft.fields,
       [field]: value,
     } as DraftFieldsByType[T];
     const updated: OperationDraft<T> = {
@@ -136,13 +100,10 @@ export class OperationDraftService {
     };
     await this.conversationRepo.update(conversationId, {
       operationDraft: updated,
-    } as any);
+    });
     return updated;
   }
 
-  /**
-   * Atualiza múltiplos campos do draft de uma vez.
-   */
   async setFields<T extends OperationDraftType>(
     conversationId: string,
     type: T,
@@ -153,9 +114,9 @@ export class OperationDraftService {
       draft = await this.start({ conversationId, type });
     }
     const updatedFields = {
-      ...(draft.fields as object),
+      ...draft.fields,
       ...(patch as object),
-    } as DraftFieldsByType[T];
+    };
     const updated: OperationDraft<T> = {
       ...draft,
       fields: updatedFields,
@@ -164,14 +125,10 @@ export class OperationDraftService {
     };
     await this.conversationRepo.update(conversationId, {
       operationDraft: updated,
-    } as any);
+    });
     return updated;
   }
 
-  /**
-   * Define o status do draft (collecting → ready → pending_confirmation →
-   * committing). Não muda os campos.
-   */
   async setStatus(
     conversationId: string,
     type: OperationDraftType,
@@ -186,14 +143,10 @@ export class OperationDraftService {
     };
     await this.conversationRepo.update(conversationId, {
       operationDraft: updated,
-    } as any);
+    });
     return updated;
   }
 
-  /**
-   * Valida campos obrigatórios. Retorna `isReady=true` quando todos foram
-   * preenchidos.
-   */
   async validate<T extends OperationDraftType>(
     conversationId: string,
     type: T,
@@ -213,7 +166,7 @@ export class OperationDraftService {
       if (v === undefined || v === null) return true;
       if (typeof v === 'string' && v.trim() === '') return true;
       if (Array.isArray(v) && v.length === 0) return true;
-      if (typeof v === 'object' && Object.keys(v as object).length === 0) {
+      if (typeof v === 'object' && Object.keys(v).length === 0) {
         return true;
       }
       return false;
@@ -225,11 +178,6 @@ export class OperationDraftService {
     };
   }
 
-  /**
-   * Gera um preview textual em pt-BR do draft atual. Não muda o status.
-   * Quando `setPendingConfirmation=true` (default), também grava status
-   * `pending_confirmation`.
-   */
   async getPreview<T extends OperationDraftType>(
     conversationId: string,
     type: T,
@@ -262,20 +210,12 @@ export class OperationDraftService {
     return { text, draft: finalDraft };
   }
 
-  /**
-   * Cancela o draft atual (remove operation_draft).
-   */
   async cancel(conversationId: string): Promise<void> {
     await this.conversationRepo.update(conversationId, {
       operationDraft: null,
-    } as any);
+    });
   }
 
-  /**
-   * Após commit, libera o draft. Se havia `parent`, retomamos o pai com o
-   * `returnField` populado pelo valor commitado (`commitResult.id` por
-   * convenção).
-   */
   async finalizeCommit(
     conversationId: string,
     commitResult: { id?: string; label?: string },
@@ -289,7 +229,7 @@ export class OperationDraftService {
         const updatedParent: OperationDraft = {
           ...parentSnapshot,
           fields: {
-            ...(parentSnapshot.fields as object),
+            ...parentSnapshot.fields,
             [draft.parent.returnField]: commitResult.id,
             ...(commitResult.label
               ? {
@@ -297,20 +237,20 @@ export class OperationDraftService {
                     commitResult.label,
                 }
               : {}),
-          } as any,
+          },
           status: 'collecting',
           updatedAt: new Date().toISOString(),
         };
         await this.conversationRepo.update(conversationId, {
           operationDraft: updatedParent,
-        } as any);
+        });
         return updatedParent;
       }
     }
 
     await this.conversationRepo.update(conversationId, {
       operationDraft: null,
-    } as any);
+    });
     return null;
   }
 }

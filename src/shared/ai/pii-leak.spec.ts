@@ -4,8 +4,6 @@ describe('Vazamento de PII na camada de IA', () => {
       require.resolve('./services/tool-executor.service'),
       'utf8',
     );
-    // JSON.stringify(args) no log despejava laudo, diagnostico e nome de
-    // paciente no Grafana.
     expect(fonte).not.toMatch(/Executando tool.*JSON\.stringify\(args\)/);
   });
 

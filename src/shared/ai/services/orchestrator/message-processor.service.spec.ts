@@ -20,7 +20,11 @@ describe('MessageProcessorService', () => {
   let service: MessageProcessorService;
   let aiQueue: { add: jest.Mock };
   let configService: { get: jest.Mock };
-  let aiRedis: { isAvailable: boolean; checkRateLimit: jest.Mock };
+  let aiRedis: {
+    isAvailable: boolean;
+    checkRateLimit: jest.Mock;
+    claimOnce: jest.Mock;
+  };
   let whatsappService: { sendMessage: jest.Mock };
   let openaiService: { chatCompletion: jest.Mock };
   let ragService: { search: jest.Mock; formatContext: jest.Mock };
@@ -29,14 +33,18 @@ describe('MessageProcessorService', () => {
     endSession: jest.Mock;
     preprocessUserInput: jest.Mock;
   };
-  let userRepository: { findOneByPhone: jest.Mock };
+  let userRepository: { findManyByPhones: jest.Mock };
   let phoneNormalizer: PhoneNormalizerService;
   let responseNormalizer: ResponseNormalizerService;
 
   beforeEach(() => {
     aiQueue = { add: jest.fn().mockResolvedValue(undefined) };
     configService = { get: jest.fn().mockReturnValue(undefined) };
-    aiRedis = { isAvailable: false, checkRateLimit: jest.fn() };
+    aiRedis = {
+      isAvailable: false,
+      checkRateLimit: jest.fn(),
+      claimOnce: jest.fn().mockResolvedValue(true),
+    };
     whatsappService = { sendMessage: jest.fn().mockResolvedValue(undefined) };
     openaiService = { chatCompletion: jest.fn() };
     ragService = {
@@ -48,7 +56,7 @@ describe('MessageProcessorService', () => {
       endSession: jest.fn(),
       preprocessUserInput: jest.fn((_id, t) => t),
     };
-    userRepository = { findOneByPhone: jest.fn() };
+    userRepository = { findManyByPhones: jest.fn() };
     phoneNormalizer = new PhoneNormalizerService(userRepository as any);
     responseNormalizer = new ResponseNormalizerService();
 
@@ -84,11 +92,37 @@ describe('MessageProcessorService', () => {
           _otelCarrier: expect.any(Object),
         }),
         expect.objectContaining({
+          jobId: 'inbound:sid-1',
           attempts: 2,
           backoff: { type: 'exponential', delay: 3000 },
           removeOnComplete: true,
         }),
       );
+    });
+  });
+
+  describe('claimInboundMessage', () => {
+    it('registra o MessageSid com SET NX e TTL de 24h', async () => {
+      await expect(service.claimInboundMessage('SM-1')).resolves.toBe(true);
+      expect(aiRedis.claimOnce).toHaveBeenCalledWith(
+        'inbound:sid:SM-1',
+        24 * 60 * 60,
+      );
+    });
+
+    it('devolve false quando o MessageSid já foi visto', async () => {
+      aiRedis.claimOnce.mockResolvedValue(false);
+      await expect(service.claimInboundMessage('SM-1')).resolves.toBe(false);
+    });
+
+    it('não bloqueia quando o Redis falha (fail-open)', async () => {
+      aiRedis.claimOnce.mockRejectedValue(new Error('boom'));
+      await expect(service.claimInboundMessage('SM-1')).resolves.toBe(true);
+    });
+
+    it('sem MessageSid não deduplica', async () => {
+      await expect(service.claimInboundMessage('')).resolves.toBe(true);
+      expect(aiRedis.claimOnce).not.toHaveBeenCalled();
     });
   });
 
@@ -99,11 +133,13 @@ describe('MessageProcessorService', () => {
         if (k === 'AI_RATELIMIT_WINDOW_SEC') return 60;
         return def;
       });
-      userRepository.findOneByPhone.mockResolvedValue({
-        id: 'user-1',
-        status: UserStatus.ACTIVE,
-        aiConsentAcceptedAt: new Date(),
-      });
+      userRepository.findManyByPhones.mockResolvedValue([
+        {
+          id: 'user-1',
+          status: UserStatus.ACTIVE,
+          aiConsentAcceptedAt: new Date(),
+        },
+      ]);
 
       const input = {
         phone: '+5511999999999',
@@ -148,7 +184,7 @@ describe('MessageProcessorService', () => {
 
   describe('runPreflight — unknown user', () => {
     it('returns unknown_user and triggers handleUnknownUser', async () => {
-      userRepository.findOneByPhone.mockResolvedValue(null);
+      userRepository.findManyByPhones.mockResolvedValue([]);
       openaiService.chatCompletion.mockResolvedValue({
         choices: [{ message: { content: 'cadastre-se' } }],
       });
@@ -174,14 +210,6 @@ describe('MessageProcessorService', () => {
     });
   });
 
-  /**
-   * Tarefa 14 (revisão 4): espelha a `JwtStrategy` do caminho web
-   * (`user.status !== ACTIVE` → `UnauthorizedException`). Sem isto, um
-   * colaborador desativado ou ainda pendente de primeiro acesso continuava
-   * conversando com o assistente e criando SC por mensagem indefinidamente
-   * — a invalidação de cache (rodada 3) só cobria a IDENTIDADE/PERMISSÃO
-   * ficarem obsoletas, não a AUTORIZAÇÃO de usar o canal.
-   */
   describe('runPreflight — gate de status (INACTIVE/PENDING)', () => {
     const buildInput = (overrides: Partial<any> = {}) => ({
       phone: '+5511999999999',
@@ -194,11 +222,13 @@ describe('MessageProcessorService', () => {
     });
 
     it('recusa colaborador INACTIVE com mensagem em português, sem revelar o status', async () => {
-      userRepository.findOneByPhone.mockResolvedValue({
-        id: 'user-1',
-        status: UserStatus.INACTIVE,
-        aiConsentAcceptedAt: new Date(),
-      });
+      userRepository.findManyByPhones.mockResolvedValue([
+        {
+          id: 'user-1',
+          status: UserStatus.INACTIVE,
+          aiConsentAcceptedAt: new Date(),
+        },
+      ]);
 
       const result = await service.runPreflight(buildInput(), buildHooks());
 
@@ -213,11 +243,13 @@ describe('MessageProcessorService', () => {
     });
 
     it('recusa colaborador PENDING (primeiro acesso não concluído)', async () => {
-      userRepository.findOneByPhone.mockResolvedValue({
-        id: 'user-1',
-        status: UserStatus.PENDING,
-        aiConsentAcceptedAt: null,
-      });
+      userRepository.findManyByPhones.mockResolvedValue([
+        {
+          id: 'user-1',
+          status: UserStatus.PENDING,
+          aiConsentAcceptedAt: null,
+        },
+      ]);
 
       const result = await service.runPreflight(buildInput(), buildHooks());
 
@@ -226,11 +258,13 @@ describe('MessageProcessorService', () => {
     });
 
     it('libera colaborador ACTIVE normalmente', async () => {
-      userRepository.findOneByPhone.mockResolvedValue({
-        id: 'user-1',
-        status: UserStatus.ACTIVE,
-        aiConsentAcceptedAt: new Date(),
-      });
+      userRepository.findManyByPhones.mockResolvedValue([
+        {
+          id: 'user-1',
+          status: UserStatus.ACTIVE,
+          aiConsentAcceptedAt: new Date(),
+        },
+      ]);
 
       const result = await service.runPreflight(buildInput(), buildHooks());
 
@@ -238,11 +272,13 @@ describe('MessageProcessorService', () => {
     });
 
     it('não cacheia usuário INACTIVE/PENDING — próxima mensagem relê o banco', async () => {
-      userRepository.findOneByPhone.mockResolvedValue({
-        id: 'user-1',
-        status: UserStatus.INACTIVE,
-        aiConsentAcceptedAt: new Date(),
-      });
+      userRepository.findManyByPhones.mockResolvedValue([
+        {
+          id: 'user-1',
+          status: UserStatus.INACTIVE,
+          aiConsentAcceptedAt: new Date(),
+        },
+      ]);
 
       await service.runPreflight(
         buildInput({ messageSid: 'sid-1' }),
@@ -253,62 +289,44 @@ describe('MessageProcessorService', () => {
         buildHooks(),
       );
 
-      // Duas mensagens, duas idas ao banco — nenhuma serviu do cache, porque
-      // usuário não-ACTIVE nunca é gravado em `userCache`.
-      expect(userRepository.findOneByPhone).toHaveBeenCalledTimes(2);
+      expect(userRepository.findManyByPhones).toHaveBeenCalledTimes(2);
     });
 
-    /**
-     * O ponto central do pedido: um usuário ACTIVE fica cacheado (`userCache`,
-     * 10 min) e é desativado depois. Dentro do MESMO processo, o combo
-     * "invalidação por evento" (rodada 3: `toggleCollaboratorStatus` →
-     * `user.access_changed` → `invalidateUserCacheByPhone`) + "gate de
-     * status" (esta rodada) fecha o ciclo: a mensagem seguinte à
-     * desativação já vem barrada, porque a invalidação força reconsulta e a
-     * reconsulta já não devolve mais ACTIVE. Sem o gate desta rodada, a
-     * invalidação sozinha só forçaria reconsulta — o `user` INACTIVE
-     * recarregado ainda seria liberado, porque nada checava `status`.
-     */
     it('cache quente + invalidação (evento) + gate: desativação some com o acesso na mensagem seguinte', async () => {
       const activeUser = {
         id: 'user-1',
         status: UserStatus.ACTIVE,
         aiConsentAcceptedAt: new Date(),
       };
-      userRepository.findOneByPhone.mockResolvedValue(activeUser);
+      userRepository.findManyByPhones.mockResolvedValue([activeUser]);
 
-      // 1ª mensagem: ACTIVE, cacheia e segue.
       const first = await service.runPreflight(
         buildInput({ messageSid: 'sid-1' }),
         buildHooks(),
       );
       expect(first.status).toBe('continue');
 
-      // 2ª mensagem: cache quente, nem consulta o banco de novo.
       const second = await service.runPreflight(
         buildInput({ messageSid: 'sid-2' }),
         buildHooks(),
       );
       expect(second.status).toBe('continue');
-      expect(userRepository.findOneByPhone).toHaveBeenCalledTimes(1);
+      expect(userRepository.findManyByPhones).toHaveBeenCalledTimes(1);
 
-      // Admin desativa o colaborador: banco muda e o evento (simulado aqui
-      // via `invalidateUserCacheByPhone`, o que `onUserAccessChanged` chama)
-      // limpa o cache.
-      userRepository.findOneByPhone.mockResolvedValue({
-        ...activeUser,
-        status: UserStatus.INACTIVE,
-      });
+      userRepository.findManyByPhones.mockResolvedValue([
+        {
+          ...activeUser,
+          status: UserStatus.INACTIVE,
+        },
+      ]);
       service.invalidateUserCacheByPhone('whatsapp:+5511999999999');
 
-      // 3ª mensagem: cache frio, reconsulta o banco, vê INACTIVE e barra —
-      // e o usuário barrado não fica cacheado para a próxima.
       const third = await service.runPreflight(
         buildInput({ messageSid: 'sid-3' }),
         buildHooks(),
       );
       expect(third.status).toBe('access_blocked');
-      expect(userRepository.findOneByPhone).toHaveBeenCalledTimes(2);
+      expect(userRepository.findManyByPhones).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -325,7 +343,7 @@ describe('MessageProcessorService', () => {
     } as any;
 
     it('returns consent_block(notice) when no consent and FAQ skipped (PII)', async () => {
-      userRepository.findOneByPhone.mockResolvedValue(userWithoutConsent);
+      userRepository.findManyByPhones.mockResolvedValue([userWithoutConsent]);
       piiVault.preprocessUserInput.mockReturnValue('texto com {{cpf_1}}');
 
       const result = await service.runPreflight(
@@ -349,7 +367,7 @@ describe('MessageProcessorService', () => {
     });
 
     it('returns consent_block(suppressed) when notice already sent within cooldown', async () => {
-      userRepository.findOneByPhone.mockResolvedValue(userWithoutConsent);
+      userRepository.findManyByPhones.mockResolvedValue([userWithoutConsent]);
       piiVault.preprocessUserInput.mockReturnValue('texto sem pii');
       ragService.search.mockResolvedValue([]);
 
@@ -373,7 +391,7 @@ describe('MessageProcessorService', () => {
     });
 
     it('returns consent_block(limited_faq) when FAQ answers the question', async () => {
-      userRepository.findOneByPhone.mockResolvedValue(userWithoutConsent);
+      userRepository.findManyByPhones.mockResolvedValue([userWithoutConsent]);
       piiVault.preprocessUserInput.mockReturnValue('como ativar IA?');
       ragService.search.mockResolvedValue([{ id: 'r1' }]);
       openaiService.chatCompletion.mockResolvedValue({
@@ -401,7 +419,7 @@ describe('MessageProcessorService', () => {
     });
 
     it('returns continue when consent valid', async () => {
-      userRepository.findOneByPhone.mockResolvedValue(userWithConsent);
+      userRepository.findManyByPhones.mockResolvedValue([userWithConsent]);
 
       const result = await service.runPreflight(
         {
@@ -624,7 +642,6 @@ describe('MessageProcessorService', () => {
         minScore: 0.7,
       });
 
-      // Garante que NÃO foi chamado com a sobrecarga posicional legacy (3 args)
       const call = ragService.search.mock.calls[0];
       expect(call).toHaveLength(2);
       expect(typeof call[1]).toBe('object');
@@ -638,9 +655,9 @@ describe('MessageProcessorService', () => {
         status: UserStatus.ACTIVE,
         aiConsentAcceptedAt: new Date(),
       } as any;
-      userRepository.findOneByPhone
-        .mockResolvedValueOnce(userWithConsent)
-        .mockResolvedValueOnce(null);
+      userRepository.findManyByPhones
+        .mockResolvedValueOnce([userWithConsent])
+        .mockResolvedValueOnce([]);
 
       const input = {
         phone: '+5511999999999',
@@ -656,8 +673,6 @@ describe('MessageProcessorService', () => {
 
       service.invalidateUserCacheByPhone('whatsapp:+5511999999999');
 
-      // After invalidation, lookup is called again (returning null this time)
-      // hence subsequent flow goes to unknown_user.
       openaiService.chatCompletion.mockResolvedValue({
         choices: [{ message: { content: 'cadastre-se' } }],
       });

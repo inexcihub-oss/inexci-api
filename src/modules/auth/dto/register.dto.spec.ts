@@ -2,10 +2,6 @@ import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { RegisterDto } from './register.dto';
 
-/**
- * PRD: Reformulação Usuários/Permissões — US-003 e US-007
- * Valida que o RegisterDto aceita campos de médico opcionais.
- */
 describe('RegisterDto', () => {
   it('deve validar com dados mínimos obrigatórios (incluindo telefone)', async () => {
     const dto = plainToInstance(RegisterDto, {
@@ -179,7 +175,6 @@ describe('RegisterDto', () => {
       password: 'Senha@123',
       phone: '(11) 98888-7777',
       isDoctor: true,
-      // crm ausente
       crmState: 'SP',
     });
 
@@ -196,7 +191,6 @@ describe('RegisterDto', () => {
       phone: '(11) 98888-7777',
       isDoctor: true,
       crm: '123456',
-      // crmState ausente
     });
 
     const errors = await validate(dto);

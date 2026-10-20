@@ -14,7 +14,7 @@ describe('assertTrustedTwilioMediaUrl (anti-SSRF)', () => {
   });
 
   it.each([
-    'http://169.254.169.254/latest/meta-data/', // metadata endpoint
+    'http://169.254.169.254/latest/meta-data/',
     'http://localhost:6379/',
     'https://attacker.example.com/api.twilio.com/x',
     'https://api.twilio.com.attacker.com/x',

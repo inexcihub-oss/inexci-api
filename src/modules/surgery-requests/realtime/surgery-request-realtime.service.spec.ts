@@ -1,11 +1,6 @@
 import { UserRole } from 'src/database/entities/user.entity';
 import { SurgeryRequestRealtimeService } from './surgery-request-realtime.service';
 
-/**
- * O destinatário do evento de kanban é "todo usuário da conta que enxerga o
- * médico da SC". Esse recorte é o requisito, não um detalhe: um colaborador com
- * acesso ao médico precisa ver a coluna Pendente mudar sem recarregar.
- */
 describe('SurgeryRequestRealtimeService', () => {
   const surgeryRequestRepository = {
     findOneSimple: jest.fn(),

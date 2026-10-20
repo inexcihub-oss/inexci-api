@@ -1,38 +1,39 @@
 import {
   IsIn,
   IsNotEmpty,
+  IsNotIn,
   IsOptional,
   IsString,
   IsUUID,
 } from 'class-validator';
-import { STORAGE_FOLDERS } from 'src/config/storage.config';
+import { PASTAS_DE_DOCUMENTO } from 'src/shared/storage/tipo-arquivo';
+import { TIPOS_DOCUMENTO_EMITIDO } from '../clinical-documents.constants';
 
 export class CreateClinicalDocumentDto {
   @IsUUID()
   @IsNotEmpty()
   patientId: string;
 
-  /** Vínculo opcional com a ficha de atendimento que originou o documento. */
   @IsUUID()
   @IsOptional()
   clinicalRecordId?: string;
 
-  /** Tipo do documento (ex.: 'exam_report'). Default no banco: 'additional_document'. */
   @IsString()
   @IsOptional()
+  @IsNotIn(TIPOS_DOCUMENTO_EMITIDO)
   type?: string;
 
   @IsString()
   @IsNotEmpty()
+  @IsNotIn(TIPOS_DOCUMENTO_EMITIDO)
   key: string;
 
   @IsString()
   @IsNotEmpty()
   name: string;
 
-  /** Pasta de destino no bucket. */
   @IsString()
   @IsNotEmpty()
-  @IsIn(Object.values(STORAGE_FOLDERS))
+  @IsIn(PASTAS_DE_DOCUMENTO)
   folder: string;
 }

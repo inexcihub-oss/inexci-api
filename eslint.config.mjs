@@ -9,12 +9,6 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
-/**
- * Fase 9 do `PLANO-SANITIZACAO-CLEAN-CODE-IA.md` — guardrails permanentes.
- * Plugin inline com regras locais:
- *  - `inexci/no-as-any`: proíbe `as any` sem justificativa em produção de /shared/ai/
- *  - `inexci/max-file-lines`: limita tamanho de arquivos de produção
- */
 const inexciPlugin = {
   rules: {
     'no-as-any': require('./eslint-rules/no-as-any'),
@@ -36,7 +30,7 @@ export default tseslint.config(
     ],
   },
   eslint.configs.recommended,
-  ...tseslint.configs.recommended,
+  ...tseslint.configs.recommendedTypeChecked,
   prettierConfig,
   {
     plugins: {
@@ -54,10 +48,16 @@ export default tseslint.config(
     rules: {
       'prettier/prettier': 'error',
       'prefer-const': 'warn',
+      'no-empty': ['error', { allowEmptyCatch: true }],
       '@typescript-eslint/interface-name-prefix': 'off',
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/explicit-module-boundary-types': 'off',
-      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
       '@typescript-eslint/no-unused-vars': [
         'warn',
         {
@@ -72,15 +72,9 @@ export default tseslint.config(
     },
   },
   {
-    // Guardrail: produção de /shared/ai/ — sinaliza `as any` livre e arquivos grandes.
-    // Nível `warn` enquanto as violações legadas são corrigidas gradualmente.
-    // TODO(audit-ai-code): promover para `error` quando `yarn audit:ai-code` reportar
-    //   < 50 as any e 0 arquivos > 600 linhas em /shared/ai/.
     files: ['src/shared/ai/**/*.ts'],
     ignores: ['**/*.spec.ts', '**/*.e2e-spec.ts'],
     rules: {
-      // Temporariamente desabilitado para zerar warning legado do domínio IA.
-      // A auditoria continua disponível via script `audit:ai-code:check`.
       'inexci/no-as-any': 'off',
       'inexci/max-file-lines': 'off',
     },
@@ -102,6 +96,9 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/no-unused-vars': 'off',
       '@typescript-eslint/no-require-imports': 'off',
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/unbound-method': 'off',
+      '@typescript-eslint/require-await': 'off',
     },
   },
 );

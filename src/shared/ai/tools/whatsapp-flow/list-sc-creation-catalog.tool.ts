@@ -1,11 +1,17 @@
-import OpenAI from 'openai';
 import { In } from 'typeorm';
 import { AiTool } from '../tool.interface';
-import { Permission } from 'src/shared/permissions';
+import { ALL_PERMISSIONS, Permission } from 'src/shared/permissions';
 import { resolveOwnerIdFromContext } from '../catalog.helpers';
-import { PiiCategory } from '../../services/pii-vault.service';
 import { WhatsappFlowToolDeps } from './_types';
-import { asNonEmptyString } from './_helpers';
+import { asNonEmptyString } from '../helpers/arg-parsers';
+import { auditProntuarioAccess } from 'src/shared/logging/audit';
+
+interface CatalogItem {
+  id?: string;
+  name?: string | null;
+  title?: string | null;
+  tussCode?: string | null;
+}
 
 export function buildListScCreationCatalogTool(
   deps: WhatsappFlowToolDeps,
@@ -21,15 +27,7 @@ export function buildListScCreationCatalogTool(
   } = deps;
   return {
     name: 'list_sc_creation_catalog',
-    // NÃO cacheable: a categoria `templates` é omitida para quem não tem
-    // Permission.SOLICITACOES (ver `hasSolicitacoes` abaixo), mas a chave de
-    // cache do `ToolExecutorService` (`buildCacheKey`) só considera
-    // `ownerId` + args — não o `context.permissions` do chamador. Cachear
-    // aqui deixaria a resposta de um usuário (com ou sem a permissão)
-    // vazar/sumir para outro usuário do mesmo owner dentro do TTL. As demais
-    // categorias (pacientes, hospitais, convênios, procedimentos, TUSS,
-    // médicos) não têm esse problema, mas a tool inteira perde o cache por
-    // simplicidade — é uma listagem leve, sem N+1.
+    requiredPermission: ALL_PERMISSIONS,
     definition: {
       type: 'function',
       function: {
@@ -52,14 +50,10 @@ export function buildListScCreationCatalogTool(
           required: [],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 
-      // `templates` é modelo de solicitação cirúrgica — dado da área
-      // Solicitações, não catálogo neutro (o próprio `GET
-      // /surgery-requests/templates` herda `@RequirePermission(SOLICITACOES)`
-      // de classe no HTTP). As outras seis categorias continuam livres.
       const hasSolicitacoes = (context.permissions ?? []).includes(
         Permission.SOLICITACOES,
       );
@@ -77,90 +71,79 @@ export function buildListScCreationCatalogTool(
           ? Math.min(Math.max(Math.floor(args.limit), 1), 100)
           : 20;
 
-      const doctorWhere = context.accessibleDoctorIds.length
-        ? ({ doctorId: In(context.accessibleDoctorIds) } as any)
-        : ({ doctorId: '__none__' } as any);
+      const doctorWhere = {
+        doctorId: context.accessibleDoctorIds.length
+          ? In(context.accessibleDoctorIds)
+          : '__none__',
+      };
 
       const ownerIdForLookup = await resolveOwnerIdFromContext(
         context,
         userRepo,
       );
-      const ownerWhere = ownerIdForLookup
-        ? ({ ownerId: ownerIdForLookup } as any)
-        : ({} as any);
+      if (!ownerIdForLookup) return 'Acesso negado.';
+      const ownerWhere = { ownerId: ownerIdForLookup };
 
-      const [
-        patients,
-        hospitals,
-        healthPlans,
-        procedures,
-        tussCatalog,
-        doctors,
-        templates,
-      ] = await Promise.all([
-        patientRepo
-          ? patientRepo.findMany(doctorWhere, 0, limit)
-          : Promise.resolve([] as any[]),
-        hospitalRepo
-          ? hospitalRepo.findMany(ownerWhere, 0, limit)
-          : Promise.resolve([] as any[]),
-        healthPlanRepo
-          ? healthPlanRepo.findMany(ownerWhere, 0, limit)
-          : Promise.resolve([] as any[]),
-        procedureRepo
-          ? procedureRepo.findMany({} as any, 0, limit)
-          : Promise.resolve([] as any[]),
-        tussService
-          ? tussService.search(undefined, limit)
-          : Promise.resolve([] as any[]),
-        userRepo && context.accessibleDoctorIds.length
-          ? userRepo.findMany(
-              { id: In(context.accessibleDoctorIds) } as any,
-              0,
-              limit,
-            )
-          : Promise.resolve([] as any[]),
-        hasSolicitacoes
-          ? surgeryRequestsService.getTemplates(
-              context.userId as string,
-              ownerIdForLookup,
-            )
-          : Promise.resolve([] as any[]),
-      ]);
+      const [patients, hospitals, healthPlans, procedures, doctors, templates] =
+        await Promise.all([
+          patientRepo.findMany(doctorWhere, 0, limit),
+          hospitalRepo.findMany(ownerWhere, 0, limit),
+          healthPlanRepo.findMany(ownerWhere, 0, limit),
+          procedureRepo.findMany(ownerWhere, 0, limit),
+          context.accessibleDoctorIds.length
+            ? userRepo.findMany(
+                { id: In(context.accessibleDoctorIds) },
+                0,
+                limit,
+              )
+            : Promise.resolve([]),
+          hasSolicitacoes
+            ? surgeryRequestsService.getTemplates(
+                context.userId,
+                ownerIdForLookup,
+              )
+            : Promise.resolve([]),
+        ]);
+      const tussCatalog = tussService.search(undefined, limit);
 
-      const categoryMap: Record<string, { label: string; items: any[] }> = {
-        patients: { label: 'Pacientes', items: patients as any[] },
+      if (
+        (!normalizedCategory || normalizedCategory === 'patients') &&
+        patients.length > 0
+      ) {
+        auditProntuarioAccess({
+          resource: 'patient',
+          action: 'list',
+          actorUserId: context.userId,
+          tenantId: ownerIdForLookup,
+          origin: 'ai',
+        });
+      }
+
+      const categoryMap: Record<
+        string,
+        { label: string; items: CatalogItem[] }
+      > = {
+        patients: { label: 'Pacientes', items: patients },
         procedures: {
           label: 'Procedimentos cirúrgicos',
-          items: procedures as any[],
+          items: procedures,
         },
         tuss_codes: {
           label: 'Códigos TUSS (faturamento)',
-          items: tussCatalog as any[],
+          items: tussCatalog,
         },
-        health_plans: { label: 'Convênios', items: healthPlans as any[] },
-        hospitals: { label: 'Hospitais', items: hospitals as any[] },
-        doctors: { label: 'Médicos', items: doctors as any[] },
-        templates: { label: 'Modelos', items: (templates as any[]) || [] },
-      };
-
-      const CATEGORY_TO_PII: Record<string, PiiCategory | null> = {
-        patients: 'patient_name',
-        hospitals: 'hospital_name',
-        health_plans: 'health_plan_name',
-        doctors: 'doctor_name',
-        procedures: null,
-        tuss_codes: null,
-        templates: null,
+        health_plans: { label: 'Convênios', items: healthPlans },
+        hospitals: { label: 'Hospitais', items: hospitals },
+        doctors: { label: 'Médicos', items: doctors },
+        templates: { label: 'Modelos', items: templates ?? [] },
       };
 
       const formatItems = (
         categoryKey: string,
         label: string,
-        items: any[],
+        items: CatalogItem[],
       ): string => {
         if (!items.length) return `• ${label}: nenhum cadastrado`;
-        const piiCategory = CATEGORY_TO_PII[categoryKey] ?? null;
         const lines = items.slice(0, limit).map((item) => {
           const rawName = item.name || item.title || 'Sem nome';
           if (categoryKey === 'tuss_codes') {
@@ -169,7 +152,6 @@ export function buildListScCreationCatalogTool(
               ? `  - ${rawName} (Código TUSS: ${tussCode})`
               : `  - ${rawName}`;
           }
-          void piiCategory;
           return `  - ${rawName} (id: ${item.id})`;
         });
         return [`• ${label} (${items.length}):`, ...lines].join('\n');
@@ -207,8 +189,6 @@ export function buildListScCreationCatalogTool(
         ),
         formatItems('hospitals', 'Hospitais', categoryMap.hospitals.items),
         formatItems('doctors', 'Médicos', categoryMap.doctors.items),
-        // `templates` fica de fora do resumo geral para quem não tem
-        // Permission.SOLICITACOES — ver comentário no topo do `execute`.
         ...(hasSolicitacoes
           ? [formatItems('templates', 'Modelos', categoryMap.templates.items)]
           : []),

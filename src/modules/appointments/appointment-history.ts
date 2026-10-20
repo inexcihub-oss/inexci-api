@@ -11,12 +11,6 @@ export interface RegistroDeHistorico {
   content?: string | null;
 }
 
-/**
- * Grava uma linha no histórico da consulta. Best-effort de propósito: o
- * histórico é auxiliar, e uma falha ao registrá-lo não pode desfazer nem
- * devolver erro para a operação que já aconteceu (agendar, mudar status,
- * abrir a ficha). A falha fica no log.
- */
 export async function registrarNoHistorico(
   repository: AppointmentActivityRepository,
   logger: Logger,

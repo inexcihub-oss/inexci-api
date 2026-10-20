@@ -1,8 +1,6 @@
 import { Logger } from '@nestjs/common';
-import {
-  ResponseNormalizerService,
-  WHATSAPP_TARGET_LENGTH,
-} from './response-normalizer.service';
+import { ResponseNormalizerService } from './response-normalizer.service';
+import { WHATSAPP_TARGET_LENGTH } from '../../constants/ai.constants';
 
 describe('ResponseNormalizerService', () => {
   let service: ResponseNormalizerService;

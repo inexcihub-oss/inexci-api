@@ -103,7 +103,6 @@ describe('AiEfficiencyService', () => {
         { calls: 2, turns: 4 },
         { calls: 3, turns: 2 },
       ],
-      // Fase 7: métricas RAG
       [
         overrides.rag ?? {
           totalTurnsWithRagData: 8,
@@ -127,10 +126,8 @@ describe('AiEfficiencyService', () => {
     expect(report.p50LatencyMs).toBe(3500);
     expect(report.p95LatencyMs).toBe(9000);
     expect(report.avgCallsPerTurn).toBe(2.4);
-    // 6000 / 20000 = 30 %
     expect(report.cacheHitRate).toBe(30);
     expect(report.totalCachedTokens).toBe(6000);
-    // 3 / 10 = 30 %
     expect(report.rewriteRate).toBe(30);
     expect(report.summaryStageRate).toBe(20);
     expect(report.totalCostCents).toBe(120);
@@ -148,7 +145,6 @@ describe('AiEfficiencyService', () => {
       turns: 6,
       avgPromptTokens: 5500,
       avgTotalTokens: 5800,
-      // 4000 / 12000 = 33.3 %
       cacheHitRate: 33.3,
     });
     expect(report.byDraftType[1].cacheHitRate).toBe(25);
@@ -181,16 +177,7 @@ describe('AiEfficiencyService', () => {
     }
   });
 
-  // ─── bindNamed (via getReport + query spy) ───────────────────────────────
-
   describe('bindNamed — robustez contra casts e strings SQL', () => {
-    /**
-     * Acessa `bindNamed` de forma indireta: injetamos um SQL fabricado como
-     * sobrecarga de mock e inspecionamos o SQL que chega ao `repo.query`.
-     * Como `bindNamed` é privado, testamos via caixa-preta (getReport).
-     * Para contornar isso, instanciamos o service e chamamos o método
-     * protegido via cast deliberado — aceitável em contexto de teste unitário.
-     */
     it('não substitui casts :: como ::int, ::vector, ::float', () => {
       const svc = service as any;
       const { sql } = svc.bindNamed(

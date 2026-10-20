@@ -44,18 +44,12 @@ describe('SuppliersService', () => {
     );
   });
 
-  /**
-   * "Outro" é o fornecedor genérico da conta — a resposta para "nenhum dos
-   * cadastrados", não um cadastro. Ele aparece nos itens OPME, mas não é do
-   * usuário: deixá-lo no catálogo o convida a editar ou excluir uma linha que
-   * a plataforma usa como conceito.
-   */
   describe('opção genérica "Outro"', () => {
     it('fica fora da listagem do catálogo', async () => {
       mockSupplierRepository.total.mockResolvedValue(0);
       mockSupplierRepository.findMany.mockResolvedValue([]);
 
-      await service.findAll({} as never, userId);
+      await service.findAll({}, userId);
 
       expect(mockSupplierRepository.findMany.mock.calls[0][0]).toMatchObject({
         ownerId,
@@ -74,7 +68,7 @@ describe('SuppliersService', () => {
       });
 
       await expect(
-        service.update('gen-1', { name: 'Meu Fornecedor' } as never, userId),
+        service.update('gen-1', { name: 'Meu Fornecedor' }, userId),
       ).rejects.toThrow(ForbiddenException);
       expect(mockSupplierRepository.update).not.toHaveBeenCalled();
     });

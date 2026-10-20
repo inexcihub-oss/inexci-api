@@ -4,6 +4,14 @@ import {
   TOOL_DISPLAY_LABELS,
 } from './confirmation-manager.service';
 import { buildToolResult } from '../../tools/tool-result';
+import { ToolRegistryService } from '../tool-registry.service';
+
+const mutationRegistryStub = {
+  getTool: (name: string) =>
+    Object.prototype.hasOwnProperty.call(TOOL_DISPLAY_LABELS, name)
+      ? { name, mutates: true }
+      : undefined,
+} as unknown as ToolRegistryService;
 
 describe('ConfirmationManagerService', () => {
   const conversationRepoMock = {
@@ -21,6 +29,7 @@ describe('ConfirmationManagerService', () => {
     service = new ConfirmationManagerService(
       conversationRepoMock as any,
       conversationServiceMock as any,
+      mutationRegistryStub,
     );
   });
 
@@ -128,7 +137,7 @@ describe('ConfirmationManagerService', () => {
       );
     });
 
-    it('aceita tools mapeadas em TOOL_DISPLAY_LABELS (ex.: upload_doctor_signature)', () => {
+    it('aceita tools marcadas com mutates no registro (ex.: upload_doctor_signature)', () => {
       expect(service.isMutationConfirmableTool('upload_doctor_signature')).toBe(
         true,
       );
@@ -251,10 +260,6 @@ describe('ConfirmationManagerService', () => {
       expect(conversationRepoMock.update).not.toHaveBeenCalled();
     });
 
-    // Regressão 2026-05-14: tools de leitura como `query_surgery_requests`
-    // devolvem string crua (não envelope ToolResult), e o
-    // `trackPendingConfirmation` logava warning `envelope_missing` em toda
-    // consulta, poluindo o log. Solução: pular cedo se não for confirmável.
     it('NÃO loga warning envelope_missing quando tool de leitura devolve string crua', async () => {
       const warnSpy = jest
         .spyOn((service as any).logger, 'warn')
@@ -468,7 +473,6 @@ describe('ConfirmationManagerService', () => {
 
       const out = await service.buildPendingConfirmationHint('conv-1', 'sim');
       expect(out).toBeNull();
-      // E limpa o pending expirado.
       expect(conversationRepoMock.update).toHaveBeenCalledWith(
         'conv-1',
         expect.objectContaining({

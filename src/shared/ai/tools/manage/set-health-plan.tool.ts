@@ -1,15 +1,15 @@
-import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { detokenizeArg, tokenizePii } from '../../pii/tool-pii-helpers';
 import { buildToolResult } from '../tool-result';
 import { ManageToolDeps } from './_types';
+import { asNonEmptyString, asScalarArg } from '../helpers/arg-parsers';
+import { HealthPlan } from '../../../../database/entities/health-plan.entity';
 import {
-  asNonEmptyString,
   ensurePendingForMutation,
   getAuthorizedRequest,
-} from './_helpers';
+  recordAiActivity,
+} from '../helpers/surgery-request-access';
 
 export function buildSetHealthPlanTool(deps: ManageToolDeps): AiTool {
   const {
@@ -22,6 +22,8 @@ export function buildSetHealthPlanTool(deps: ManageToolDeps): AiTool {
   return {
     name: 'set_health_plan',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {
@@ -56,7 +58,7 @@ export function buildSetHealthPlanTool(deps: ManageToolDeps): AiTool {
           required: ['surgeryRequestId'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
@@ -103,12 +105,12 @@ export function buildSetHealthPlanTool(deps: ManageToolDeps): AiTool {
             message: `Erro ao remover convênio: ${err instanceof Error ? err.message : 'erro desconhecido'}.`,
           });
         }
-        await activityRepo.create({
-          surgeryRequestId: auth.request.id,
-          userId: context.userId as string,
-          type: ActivityType.SYSTEM,
-          content: '[WhatsApp IA] Convênio removido da solicitação.',
-        });
+        await recordAiActivity(
+          activityRepo,
+          context,
+          auth.request.id,
+          'Convênio removido da solicitação.',
+        );
         return buildToolResult({
           status: 'ok',
           message: `Convênio removido com sucesso da solicitação SC-${protocolToken}.`,
@@ -118,7 +120,7 @@ export function buildSetHealthPlanTool(deps: ManageToolDeps): AiTool {
 
       const healthPlanId = asNonEmptyString(args.healthPlanId);
       const healthPlanName = asNonEmptyString(
-        detokenizeArg(context, args.health_plan_name),
+        detokenizeArg(context, asScalarArg(args.health_plan_name)),
       );
 
       if (!healthPlanId && !healthPlanName) {
@@ -130,12 +132,12 @@ export function buildSetHealthPlanTool(deps: ManageToolDeps): AiTool {
         });
       }
 
-      let selected: any = null;
+      let selected: HealthPlan | null = null;
       if (healthPlanId) {
         selected = await healthPlanRepo.findOne({
           id: healthPlanId,
           ownerId: auth.request.ownerId,
-        } as any);
+        });
         if (!selected) {
           return buildToolResult({
             status: 'blocked',
@@ -147,18 +149,18 @@ export function buildSetHealthPlanTool(deps: ManageToolDeps): AiTool {
         selected = await healthPlanRepo.findOne({
           name: healthPlanName,
           ownerId: auth.request.ownerId,
-        } as any);
-        if (!selected && entityResolver) {
+        });
+        if (!selected) {
           const candidates = await healthPlanRepo.findMany(
-            { ownerId: auth.request.ownerId } as any,
+            { ownerId: auth.request.ownerId },
             0,
             200,
           );
-          const result = entityResolver.resolve<any>({
+          const result = entityResolver.resolve({
             query: healthPlanName,
             candidates,
-            getName: (h: any) => String(h.name ?? ''),
-            getId: (h: any) => String(h.id),
+            getName: (h) => String(h.name ?? ''),
+            getId: (h) => String(h.id),
           });
           if (result.status === 'resolved' && result.resolved) {
             selected = result.resolved.data;
@@ -180,6 +182,15 @@ export function buildSetHealthPlanTool(deps: ManageToolDeps): AiTool {
             message: `Convênio "${healthPlanName}" não encontrado para essa clínica. Cadastre-o antes ou informe o \`healthPlanId\`.`,
           });
         }
+      }
+
+      if (!selected) {
+        return buildToolResult({
+          status: 'needs_input',
+          message:
+            'Para definir o convênio, informe `healthPlanId` ou `health_plan_name`. Para remover, use `clear=true`.',
+          nextRequiredFields: ['healthPlanId'],
+        });
       }
 
       const previewName = String(selected.name);
@@ -209,12 +220,12 @@ export function buildSetHealthPlanTool(deps: ManageToolDeps): AiTool {
         });
       }
 
-      await activityRepo.create({
-        surgeryRequestId: auth.request.id,
-        userId: context.userId as string,
-        type: ActivityType.SYSTEM,
-        content: `[WhatsApp IA] Convênio definido para ${selected.name}.`,
-      });
+      await recordAiActivity(
+        activityRepo,
+        context,
+        auth.request.id,
+        `Convênio definido para ${selected.name}.`,
+      );
 
       return buildToolResult({
         status: 'ok',

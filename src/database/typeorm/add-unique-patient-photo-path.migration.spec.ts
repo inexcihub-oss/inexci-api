@@ -8,11 +8,6 @@ import {
 import { Patient } from '../entities/patient.entity';
 import { UQ_PATIENTS_PHOTO_PATH } from '../../modules/patients/patients.service';
 
-/**
- * O índice fecha a corrida do `fotoEmUso` (check-then-write). Dado legado com
- * a mesma foto em dois pacientes derrubaria o `CREATE UNIQUE INDEX` sem dizer
- * quais colidem — a migration confere antes, com a verificação do pré-flight.
- */
 describe('AddUniquePatientPhotoPath1755801100000', () => {
   function criarQueryRunner(conflitos: Record<string, unknown>[] = []) {
     const query = jest.fn((sql: string) =>

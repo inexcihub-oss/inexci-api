@@ -13,21 +13,20 @@ const buildCompletion = (
   usage: Partial<OpenAI.CompletionUsage> & {
     prompt_tokens_details?: { cached_tokens?: number };
   } = {},
-): OpenAI.ChatCompletion =>
-  ({
-    id: 'cmpl-1',
-    object: 'chat.completion',
-    created: 0,
-    model: 'gpt-4o',
-    choices: [],
-    usage: {
-      prompt_tokens: 100,
-      completion_tokens: 50,
-      total_tokens: 150,
-      ...usage,
-    } as any,
-    ...overrides,
-  }) as OpenAI.ChatCompletion;
+): OpenAI.ChatCompletion => ({
+  id: 'cmpl-1',
+  object: 'chat.completion',
+  created: 0,
+  model: 'gpt-4o',
+  choices: [],
+  usage: {
+    prompt_tokens: 100,
+    completion_tokens: 50,
+    total_tokens: 150,
+    ...usage,
+  },
+  ...overrides,
+});
 
 describe('OrchestratorTelemetryService', () => {
   let service: OrchestratorTelemetryService;
@@ -125,7 +124,7 @@ describe('OrchestratorTelemetryService', () => {
       service.captureUsageSnapshot(snapshots, 'initial', {
         ...buildCompletion(),
         usage: undefined,
-      } as OpenAI.ChatCompletion);
+      });
       expect(snapshots).toHaveLength(0);
     });
 
@@ -164,7 +163,6 @@ describe('OrchestratorTelemetryService', () => {
     });
 
     it('estimates cost using MODEL_COST_PER_1K (gpt-4o)', () => {
-      // gpt-4o: input 0.25¢/1K, output 1.0¢/1K -> (1*0.25 + 0.5*1) = 0.75 -> Math.round = 1
       const result = service.estimateCostCents([
         {
           stage: 'initial',
@@ -201,7 +199,6 @@ describe('OrchestratorTelemetryService', () => {
           model: 'unknown',
         },
       ]);
-      // 2*0.25 + 1*0.06 = 0.56 -> Math.round = 1
       expect(result).toBe(1);
     });
   });

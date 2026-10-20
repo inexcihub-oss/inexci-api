@@ -1,26 +1,37 @@
-import OpenAI from 'openai';
 import { AiTool } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { tokenizePii } from '../../pii/tool-pii-helpers';
 import { STORAGE_FOLDERS } from '../../../../config/storage.config';
 import { translateServiceError } from '../helpers/service-error-translator';
 import { buildToolResult } from '../tool-result';
 import { WhatsappFlowToolDeps } from './_types';
+import { asNonEmptyString } from '../helpers/arg-parsers';
 import {
-  asNonEmptyString,
   documentTypeKeyToLabel,
-  getAuthorizedRequest,
   SUPPORTED_ATTACH_DOCUMENT_TYPES,
-} from './_helpers';
+} from '../helpers/documents';
+import {
+  getAuthorizedRequest,
+  recordAiActivity,
+} from '../helpers/surgery-request-access';
+import { errorMessage } from '../../../utils/error-message.util';
+import { Document } from '../../../../database/entities/document.entity';
 
 export function buildAttachDocumentFromWhatsappTool(
   deps: WhatsappFlowToolDeps,
 ): AiTool {
-  const { surgeryRequestRepo, activityRepo, documentDeps } = deps;
+  const {
+    surgeryRequestRepo,
+    activityRepo,
+    documentDispatcher,
+    storageService,
+    documentsService,
+  } = deps;
   return {
     name: 'attach_document_from_whatsapp',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {
@@ -54,17 +65,8 @@ export function buildAttachDocumentFromWhatsappTool(
           required: ['surgeryRequestId', 'documentType'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context): Promise<string> {
-      const { documentDispatcher, storageService, documentsService } =
-        documentDeps;
-      if (!documentDispatcher || !storageService) {
-        return buildToolResult({
-          status: 'blocked',
-          message:
-            'Anexar documentos via WhatsApp ainda está sendo finalizado pela equipe.',
-        });
-      }
       if (!context.userId || !context.phone) {
         return buildToolResult({
           status: 'blocked',
@@ -139,37 +141,37 @@ export function buildAttachDocumentFromWhatsappTool(
           pending.storagePath,
           STORAGE_FOLDERS.DOCUMENTS,
         );
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
-          message: `Erro ao mover o arquivo para o storage definitivo: ${err?.message || 'erro desconhecido'}.`,
+          message: `Erro ao mover o arquivo para o storage definitivo: ${errorMessage(err) || 'erro desconhecido'}.`,
         });
       }
 
-      let document: any;
+      let document: Document;
       try {
         document = await documentsService.createFromPath({
           surgeryRequestId: auth.request.id,
-          createdById: context.userId as string,
+          createdById: context.userId,
           type: documentType,
           key: documentType,
           name: documentName,
           storagePath: finalPath,
           contentType: pending.contentType,
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
           message: `Anexei o arquivo, mas não consegui registrá-lo no histórico: ${translateServiceError(err)}.`,
         });
       }
 
-      await activityRepo.create({
-        surgeryRequestId: auth.request.id,
-        userId: context.userId as string,
-        type: ActivityType.SYSTEM,
-        content: `[WhatsApp IA] Documento anexado via WhatsApp (${documentTypeKeyToLabel(documentType)}: ${documentName}).`,
-      });
+      await recordAiActivity(
+        activityRepo,
+        context,
+        auth.request.id,
+        `Documento anexado via WhatsApp (${documentTypeKeyToLabel(documentType)}: ${documentName}).`,
+      );
 
       await documentDispatcher.clearPending(context.phone);
 

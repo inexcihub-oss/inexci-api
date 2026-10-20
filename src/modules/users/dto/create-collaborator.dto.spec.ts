@@ -3,10 +3,6 @@ import { plainToInstance } from 'class-transformer';
 import { CreateCollaboratorDto } from './create-collaborator.dto';
 import { Permission } from 'src/shared/permissions';
 
-/**
- * PRD: Reformulação Usuários/Permissões — US-004
- * Testa validação do DTO de criação de colaborador.
- */
 describe('CreateCollaboratorDto', () => {
   it('deve validar com dados mínimos (name + email + phone)', async () => {
     const dto = plainToInstance(CreateCollaboratorDto, {
@@ -135,7 +131,6 @@ describe('CreateCollaboratorDto', () => {
     expect(errors).toHaveLength(0);
   });
 
-  // ─── Tarefa 13: permissions ─────
   describe('permissions', () => {
     it('deve aceitar valores válidos do enum Permission', async () => {
       const dto = plainToInstance(CreateCollaboratorDto, {
@@ -174,10 +169,6 @@ describe('CreateCollaboratorDto', () => {
       expect(permissionsError?.constraints).toHaveProperty('isEnum');
     });
 
-    /**
-     * `null` explícito não pode passar como se fosse "omitido" — vira erro
-     * de validação (400), não segue adiante para a coluna `text[] NOT NULL`.
-     */
     it('deve falhar com permissions null explícito', async () => {
       const dto = plainToInstance(CreateCollaboratorDto, {
         name: 'Ana',

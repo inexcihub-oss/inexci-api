@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- SDK Stripe usa namespace CJS com errors.StripeError
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import StripeLib = require('stripe');
 import type { Customer as StripeCustomer } from 'stripe/cjs/resources/Customers';
 import type { DeletedCustomer as StripeDeletedCustomer } from 'stripe/cjs/resources/Customers';
@@ -28,12 +28,6 @@ import {
 
 type StripeInstance = StripeLib.Stripe;
 type StripeSubStatus = StripeSubscription['status'];
-type CheckoutSessionCreateParams = NonNullable<
-  Parameters<StripeInstance['checkout']['sessions']['create']>[0]
->;
-type StripeCheckoutSubscriptionData = NonNullable<
-  CheckoutSessionCreateParams['subscription_data']
->;
 type BillingPortalSessionCreateParams = NonNullable<
   Parameters<StripeInstance['billingPortal']['sessions']['create']>[0]
 >;
@@ -63,8 +57,6 @@ export class StripeProvider implements PaymentGateway {
     });
   }
 
-  // ───── Customers ─────
-
   async createCustomer(input: CreateCustomerInput): Promise<GatewayCustomer> {
     try {
       const customer = await this.stripe.customers.create({
@@ -90,8 +82,6 @@ export class StripeProvider implements PaymentGateway {
     }
   }
 
-  // ───── Checkout / Portal ─────
-
   async createCheckoutSession(
     input: CreateCheckoutSessionInput,
   ): Promise<GatewayCheckoutSession> {
@@ -112,7 +102,7 @@ export class StripeProvider implements PaymentGateway {
         line_items: [{ price: input.priceId, quantity: 1 }],
         success_url: input.successUrl,
         cancel_url: input.cancelUrl,
-        subscription_data: subscriptionData as StripeCheckoutSubscriptionData,
+        subscription_data: subscriptionData,
       });
 
       return { id: session.id, url: session.url ?? '', raw: session };
@@ -142,10 +132,6 @@ export class StripeProvider implements PaymentGateway {
     }
   }
 
-  /**
-   * A Stripe exige o **item** da assinatura (não só o preço) para montar o
-   * fluxo de troca, então a assinatura precisa ser lida antes.
-   */
   private async buildSubscriptionUpdateFlow(update: {
     subscriptionId: string;
     priceId: string;
@@ -169,8 +155,6 @@ export class StripeProvider implements PaymentGateway {
       },
     };
   }
-
-  // ───── Subscriptions ─────
 
   async getSubscription(
     subscriptionId: string,
@@ -227,8 +211,6 @@ export class StripeProvider implements PaymentGateway {
       throw this.wrapError(err);
     }
   }
-
-  // ───── Webhooks ─────
 
   verifyWebhook(input: VerifyWebhookInput): void {
     if (!this.webhookSecret) {
@@ -290,8 +272,6 @@ export class StripeProvider implements PaymentGateway {
     };
   }
 
-  // ───── Normalização ─────
-
   private toGatewayCustomer(c: StripeCustomer): GatewayCustomer {
     return {
       id: c.id,
@@ -308,7 +288,6 @@ export class StripeProvider implements PaymentGateway {
     const interval = item?.price?.recurring?.interval;
     const nextDueDateTs = s.billing_cycle_anchor ?? null;
 
-    // API 2026-04-22.dahlia moved current_period_start/end to the item level.
     const rawItem = item as unknown as Record<string, unknown>;
     const rawSub = s as unknown as Record<string, unknown>;
     const periodStartTs =
@@ -390,7 +369,6 @@ export class StripeProvider implements PaymentGateway {
     const obj = event.data.object as unknown as Record<string, unknown>;
     const id = (obj['id'] as string) ?? '';
 
-    // Checkout session events
     if (event.type === 'checkout.session.completed') {
       return {
         resourceId: id,
@@ -406,7 +384,6 @@ export class StripeProvider implements PaymentGateway {
       };
     }
 
-    // Subscription events
     if (event.type.startsWith('customer.subscription.')) {
       return {
         resourceId: id,
@@ -417,7 +394,6 @@ export class StripeProvider implements PaymentGateway {
       };
     }
 
-    // Invoice events
     if (event.type.startsWith('invoice.')) {
       return {
         resourceId: id,

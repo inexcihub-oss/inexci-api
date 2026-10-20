@@ -1,10 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Histórico da consulta (MIG-04). Tabela nova: as chaves estrangeiras nascem
- * com ela, sem dado legado para conferir. `type` em `varchar(20)` (não enum do
- * Postgres), como `appointments.status`: tipo novo não exige migration.
- */
 export class CreateAppointmentActivities1755800500000 implements MigrationInterface {
   name = 'CreateAppointmentActivities1755800500000';
 

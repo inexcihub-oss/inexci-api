@@ -1,9 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Grade por profissional, bloqueios de agenda e feriados (MIG-05). Tabelas
- * novas, sem dado legado: chaves estrangeiras e CHECK nascem com elas.
- */
 export class CreateAvailabilityTables1755800700000 implements MigrationInterface {
   name = 'CreateAvailabilityTables1755800700000';
 

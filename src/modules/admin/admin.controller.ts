@@ -63,12 +63,6 @@ export class AdminController {
     });
   }
 
-  /**
-   * Métricas agregadas de eficiência da IA do WhatsApp: tokens médios,
-   * latência p50/p95, hit rate de prompt caching, distribuição de
-   * iterations por turno e custo médio. Fase 0 do
-   * `PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA.md`.
-   */
   @Get('ai-efficiency/report')
   @ApiOperation({
     summary:
@@ -83,11 +77,6 @@ export class AdminController {
     });
   }
 
-  /**
-   * Lista paginada de envios (e-mail + WhatsApp). Body/errorMessage já
-   * chegam truncados em VARCHAR(600); o cron `LogRetentionService` apaga
-   * registros após `LOG_RETENTION_NOTIFICATION_DAYS` dias.
-   */
   @Get('notification-logs')
   @ApiOperation({
     summary: 'Lista logs de envio (e-mail + WhatsApp) — somente admin',

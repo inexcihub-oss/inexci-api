@@ -1,21 +1,3 @@
-/**
- * Fase 2 do `PLANO-OBSERVABILIDADE-GRAFANA.md`.
- *
- * Métricas custom da INEXCI (histogramas de duração + contadores de negócio),
- * exportadas via OTLP quando `OTEL_METRICS_ENABLED=true` (ver `otel.ts`).
- * Quando o SDK de métricas não está inicializado, `metrics.getMeter()` do
- * `@opentelemetry/api` devolve um meter no-op — os `record`/`add` abaixo são
- * seguros de chamar incondicionalmente, mesmo com o pipeline desligado.
- *
- * IMPORTANTE: os instrumentos abaixo são criados uma única vez, na carga do
- * módulo (`createHistogram`/`createCounter` no topo). A API de métricas do
- * OTel (diferente da de traces) NÃO tem delegação tardia: se este módulo for
- * carregado antes de `initOtel()` registrar o MeterProvider global (via
- * `sdk.start()`), os instrumentos ficam presos ao provider noop para sempre.
- * Por isso `otel.ts` NÃO importa este arquivo — só `meter-name.const.ts`
- * (sem side effects). Este módulo só deve ser importado por código que roda
- * depois do bootstrap (services do Nest, carregados via `AppModule`).
- */
 import { metrics } from '@opentelemetry/api';
 import { METER_NAME } from './meter-name.const';
 

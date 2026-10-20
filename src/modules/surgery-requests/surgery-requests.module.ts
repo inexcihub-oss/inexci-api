@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DoctorHeader } from 'src/database/entities/doctor-header.entity';
 import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
@@ -18,6 +18,8 @@ import { SendAnalysisHandler } from './services/workflow/send-analysis.handler';
 import { AuthorizationHandler } from './services/workflow/authorization.handler';
 import { SchedulingHandler } from './services/workflow/scheduling.handler';
 import { ExecutionHandler } from './services/workflow/execution.handler';
+import { SchedulingSelectionStore } from './services/workflow/scheduling-selection.store';
+import { PhoneNormalizerService } from 'src/shared/ai/services/orchestrator/phone-normalizer.service';
 import { SurgeryRequestReportService } from './services/surgery-request-report.service';
 import { SurgeryRequestTemplateService } from './services/surgery-request-template.service';
 import { SurgeryRequestMutationService } from './services/surgery-request-mutation.service';
@@ -45,7 +47,7 @@ import { OpmeModule } from './opme/opme.module';
 import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { BillingModule } from '../billing/billing.module';
-import { AiModule } from 'src/shared/ai/ai.module';
+import { OcrModule } from 'src/shared/ai/ocr/ocr.module';
 import { TussModule } from '../tuss/tuss.module';
 import { CidModule } from './cid/cid.module';
 
@@ -80,7 +82,7 @@ import { CidModule } from './cid/cid.module';
     NotificationsModule,
     BillingModule,
     SurgeryRequestRealtimeModule,
-    forwardRef(() => AiModule),
+    OcrModule,
   ],
   controllers: [SurgeryRequestsController],
   providers: [
@@ -91,6 +93,8 @@ import { CidModule } from './cid/cid.module';
     AuthorizationHandler,
     SchedulingHandler,
     ExecutionHandler,
+    SchedulingSelectionStore,
+    PhoneNormalizerService,
     SurgeryRequestReportService,
     SurgeryRequestTemplateService,
     SurgeryRequestNotificationService,
@@ -107,6 +111,7 @@ import { CidModule } from './cid/cid.module';
   exports: [
     SurgeryRequestsService,
     SurgeryRequestWorkflowService,
+    SchedulingHandler,
     SurgeryRequestMutationService,
     SurgeryRequestNotificationService,
     SurgeryRequestAssemblyService,

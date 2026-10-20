@@ -46,4 +46,18 @@ export class ProcedureRepository extends BaseRepository<Procedure> {
       },
     });
   }
+
+  findActiveByOwnerAndName(
+    ownerId: string,
+    name: string,
+    excludeId?: string,
+  ): Promise<Procedure | null> {
+    const qb = this.repository
+      .createQueryBuilder('procedure')
+      .where('procedure.owner_id = :ownerId', { ownerId })
+      .andWhere('LOWER(procedure.name) = LOWER(:name)', { name })
+      .andWhere('procedure.deleted_at IS NULL');
+    if (excludeId) qb.andWhere('procedure.id <> :excludeId', { excludeId });
+    return qb.getOne();
+  }
 }

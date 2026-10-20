@@ -22,6 +22,9 @@ import {
   CurrentUser,
 } from '../../shared/decorators/current-user.decorator';
 import { MAX_STORAGE_FILE_SIZE } from '../../config/storage.config';
+import { limitesDeUpload } from '../../shared/storage/limites-upload';
+
+export const UPLOAD_MULTIPLO_MAX_ARQUIVOS = 5;
 
 @ApiTags('Upload')
 @ApiBearerAuth()
@@ -29,14 +32,9 @@ import { MAX_STORAGE_FILE_SIZE } from '../../config/storage.config';
 export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
 
-  /**
-   * Upload de um único arquivo
-   * POST /upload/single
-   * Body: folder (obrigatório) — deve ser um dos valores de STORAGE_FOLDERS
-   */
   @Post('single')
   @UseInterceptors(
-    FileInterceptor('file', { limits: { fileSize: MAX_STORAGE_FILE_SIZE } }),
+    FileInterceptor('file', limitesDeUpload(MAX_STORAGE_FILE_SIZE)),
   )
   @ApiOperation({ summary: 'Upload de um único arquivo' })
   @ApiConsumes('multipart/form-data')
@@ -57,10 +55,6 @@ export class UploadController {
     };
   }
 
-  /**
-   * Gera URL assinada para um arquivo existente
-   * GET /upload/signed-url?path=avatars/uuid.png
-   */
   @Get('signed-url')
   @ApiOperation({ summary: 'Gerar URL assinada para arquivo armazenado' })
   async getSignedUrl(
@@ -73,6 +67,7 @@ export class UploadController {
     const result = await this.uploadService.getSignedUrl(
       filePath,
       user.ownerId,
+      user.userId,
     );
     return { data: result };
   }
@@ -81,9 +76,11 @@ export class UploadController {
   @ApiOperation({ summary: 'Upload de múltiplos arquivos' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    FilesInterceptor('files', 10, {
-      limits: { fileSize: MAX_STORAGE_FILE_SIZE },
-    }),
+    FilesInterceptor(
+      'files',
+      UPLOAD_MULTIPLO_MAX_ARQUIVOS,
+      limitesDeUpload(MAX_STORAGE_FILE_SIZE, UPLOAD_MULTIPLO_MAX_ARQUIVOS),
+    ),
   )
   async uploadMultiple(
     @UploadedFiles() files: Express.Multer.File[],

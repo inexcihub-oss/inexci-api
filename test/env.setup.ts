@@ -2,16 +2,11 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 import { comBancoDeTeste } from '../src/shared/testing/e2e-database-guard';
 
-// Carrega as variáveis de ambiente ANTES de qualquer módulo ser avaliado
 config({ path: resolve(__dirname, '../.env') });
 
-// Definir NODE_ENV=test para desabilitar rate limiting
 process.env.NODE_ENV = 'test';
 
-// Suprimir erros de teardown do Bull/Redis durante fechamento do app
-// Estes erros ocorrem quando workers do Bull tentam se desconectar
 process.on('unhandledRejection', (reason) => {
-  // Ignorar erros de stream do Redis durante shutdown e rejeições com undefined
   if (reason === undefined) return;
   if (
     reason instanceof Error &&
@@ -22,14 +17,9 @@ process.on('unhandledRejection', (reason) => {
   }
 });
 
-// Valores padrão para testes
 if (!process.env.JWT_SECRET) {
   process.env.JWT_SECRET = 'test-jwt-secret-key-for-e2e-tests-123456789';
 }
-// O banco é sempre o de teste, nunca o do `.env`: `cleanDatabase` trunca todas
-// as tabelas a cada teste. Este arquivo é `setupFiles` do Jest — roda antes de
-// qualquer módulo da aplicação ser avaliado, que é o único momento em que dá
-// para trocar a connection string com segurança.
 process.env.DATABASE_URL = comBancoDeTeste(
   process.env.DATABASE_URL ??
     'postgresql://inexci:inexci123@localhost:5432/inexci',

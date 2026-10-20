@@ -22,6 +22,19 @@ export class FasterWhisperProvider implements TranscriptionProvider {
       30000,
     );
 
+    const sharedToken = this.configService
+      .get<string>('AI_STT_SHARED_TOKEN', '')
+      .trim();
+
+    const headers: Record<string, string> = {
+      'content-type': input.mimeType,
+      'x-file-name': input.fileName || 'audio.ogg',
+      'x-language': input.language || 'pt',
+    };
+    if (sharedToken) {
+      headers['x-stt-token'] = sharedToken;
+    }
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     const startedAt = Date.now();
@@ -29,11 +42,7 @@ export class FasterWhisperProvider implements TranscriptionProvider {
     try {
       const response = await fetch(`${baseUrl}/transcribe`, {
         method: 'POST',
-        headers: {
-          'content-type': input.mimeType,
-          'x-file-name': input.fileName || 'audio.ogg',
-          'x-language': input.language || 'pt',
-        },
+        headers,
         body: input.audioBuffer as unknown as BodyInit,
         signal: controller.signal,
       });

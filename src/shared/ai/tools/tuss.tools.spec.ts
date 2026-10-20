@@ -22,8 +22,6 @@ function makeTussService(overrides: {
 }
 
 function fakeMatch(digits: string, name: string): TussResponse {
-  // Replica o `formatTussCode` interno do TussService (10 dígitos →
-  // `XX.XX.XX.XXX-X`). Garante que o teste reflete o que a tool real recebe.
   const padded = digits.padStart(10, '0');
   const formatted = `${padded.slice(0, 2)}.${padded.slice(2, 4)}.${padded.slice(4, 6)}.${padded.slice(6, 9)}-${padded.slice(9)}`;
   return { id: padded, tussCode: formatted, name, active: true };
@@ -32,7 +30,7 @@ function fakeMatch(digits: string, name: string): TussResponse {
 describe('search_tuss_codes', () => {
   it('exige query com pelo menos 2 caracteres', async () => {
     const service = makeTussService({});
-    const [tool] = buildTussTools(service);
+    const [tool] = buildTussTools({ tussService: service });
 
     const result = await tool.execute({ query: 'a' }, baseContext);
     expect(result).toContain('ao menos 2 caracteres');
@@ -41,7 +39,7 @@ describe('search_tuss_codes', () => {
 
   it('rejeita usuário sem userId no contexto', async () => {
     const service = makeTussService({});
-    const [tool] = buildTussTools(service);
+    const [tool] = buildTussTools({ tussService: service });
 
     const result = await tool.execute(
       { query: 'artroscopia' },
@@ -56,14 +54,13 @@ describe('search_tuss_codes', () => {
     const exactMatch = fakeMatch('30713153', 'Artroscopia diag');
     const findByExactCode = jest.fn().mockReturnValue(exactMatch);
     const service = makeTussService({ findByExactCode });
-    const [tool] = buildTussTools(service);
+    const [tool] = buildTussTools({ tussService: service });
 
     const result = await tool.execute({ query: '30713153' }, baseContext);
 
     expect(findByExactCode).toHaveBeenCalledWith('30713153');
     expect(result).toContain(exactMatch.tussCode);
     expect(result).toContain('Artroscopia diag');
-    // Quando o match exato é encontrado, lookup não precisa ser chamado.
     expect(service.lookup).not.toHaveBeenCalled();
   });
 
@@ -77,7 +74,7 @@ describe('search_tuss_codes', () => {
       findByExactCode: jest.fn().mockReturnValue(null),
       lookup,
     });
-    const [tool] = buildTussTools(service);
+    const [tool] = buildTussTools({ tussService: service });
 
     const result = await tool.execute({ query: '30713' }, baseContext);
 
@@ -90,7 +87,7 @@ describe('search_tuss_codes', () => {
     const match = fakeMatch('30713153', 'Artroscopia diagnóstica');
     const lookup = jest.fn().mockReturnValue([match]);
     const service = makeTussService({ lookup });
-    const [tool] = buildTussTools(service);
+    const [tool] = buildTussTools({ tussService: service });
 
     const result = await tool.execute(
       { query: 'artroscopia', limit: 5 },
@@ -106,7 +103,7 @@ describe('search_tuss_codes', () => {
   it('respeita limite máximo de 30 e mínimo de 1', async () => {
     const lookup = jest.fn().mockReturnValue([]);
     const service = makeTussService({ lookup });
-    const [tool] = buildTussTools(service);
+    const [tool] = buildTussTools({ tussService: service });
 
     await tool.execute({ query: 'biopsia', limit: 999 }, baseContext);
     expect(lookup).toHaveBeenLastCalledWith('biopsia', 30);
@@ -119,7 +116,7 @@ describe('search_tuss_codes', () => {
     const service = makeTussService({
       lookup: jest.fn().mockReturnValue([]),
     });
-    const [tool] = buildTussTools(service);
+    const [tool] = buildTussTools({ tussService: service });
 
     const result = await tool.execute({ query: 'xyzwxyz' }, baseContext);
 

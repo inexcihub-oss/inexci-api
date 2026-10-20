@@ -5,7 +5,7 @@ import {
   AuthenticatedUser,
   CurrentUser,
 } from '../../shared/decorators/current-user.decorator';
-import { Public } from '../../shared/decorator/is-public.decorator';
+import { Public } from '../../shared/decorators/is-public.decorator';
 import { ConsentService } from './consent.service';
 import { LegalDocumentsService } from './legal-documents.service';
 import { SkipConsentCheck } from '../../shared/decorators/skip-consent-check.decorator';
@@ -19,8 +19,6 @@ export class PrivacyController {
     private readonly legalDocsService: LegalDocumentsService,
   ) {}
 
-  // ============ ENDPOINTS PÚBLICOS ============
-
   @Public()
   @Get('policy/:slug')
   @ApiOperation({
@@ -30,8 +28,6 @@ export class PrivacyController {
   async getCurrentDocument(@Param('slug') slug: string) {
     return this.legalDocsService.getCurrent(slug);
   }
-
-  // ============ ENDPOINTS AUTENTICADOS ============
 
   @Get('consent/status')
   @ApiBearerAuth()

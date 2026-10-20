@@ -2,12 +2,49 @@ import { Global, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   Repository,
+  FindOptionsSelect,
   FindOptionsWhere,
   QueryDeepPartialEntity,
   In,
 } from 'typeorm';
-import { User } from '../entities/user.entity';
+import { User, UserRole } from '../entities/user.entity';
 import { BaseRepository } from './base.repository';
+import { OnboardingState } from '../../modules/onboarding/onboarding.types';
+import {
+  PatientNotificationKind,
+  PatientNotificationSettings,
+  resolvePatientNotificationSettings,
+} from '../../common/patient-notification-settings';
+
+const SELECT_COM_PERFIL: FindOptionsSelect<User> = {
+  id: true,
+  role: true,
+  status: true,
+  email: true,
+  name: true,
+  phone: true,
+  cpf: true,
+  gender: true,
+  birthDate: true,
+  avatarUrl: true,
+  emailVerified: true,
+  privacyPolicyAcceptedAt: true,
+  termsOfUseAcceptedAt: true,
+  aiConsentAcceptedAt: true,
+  ownerId: true,
+  isPlatformAdmin: true,
+  tokenVersion: true,
+  permissions: true,
+  cep: true,
+  address: true,
+  addressNumber: true,
+  addressComplement: true,
+  city: true,
+  state: true,
+  createdAt: true,
+  updatedAt: true,
+  onboardingState: true,
+};
 
 @Global()
 @Injectable()
@@ -45,7 +82,7 @@ export class UserRepository extends BaseRepository<User> {
         emailVerifiedAt: true,
         password: selectPassword,
         ownerId: true,
-        adminId: true,
+        tokenVersion: true,
         cep: true,
         address: true,
         addressNumber: true,
@@ -67,46 +104,10 @@ export class UserRepository extends BaseRepository<User> {
     return await this.repository.findOne({
       where,
       relations: ['doctorProfile'],
-      select: {
-        id: true,
-        role: true,
-        status: true,
-        email: true,
-        name: true,
-        phone: true,
-        cpf: true,
-        gender: true,
-        birthDate: true,
-        avatarUrl: true,
-        emailVerified: true,
-        privacyPolicyAcceptedAt: true,
-        termsOfUseAcceptedAt: true,
-        aiConsentAcceptedAt: true,
-        ownerId: true,
-        adminId: true,
-        isPlatformAdmin: true,
-        permissions: true,
-        cep: true,
-        address: true,
-        addressNumber: true,
-        addressComplement: true,
-        city: true,
-        state: true,
-        createdAt: true,
-        updatedAt: true,
-        onboardingState: true,
-      },
+      select: SELECT_COM_PERFIL,
     });
   }
 
-  /**
-   * Carrega vários usuários (com doctorProfile) em uma única query (WHERE id IN),
-   * evitando o N+1 de buscar um a um. Select mais enxuto que o de
-   * `findOneWithProfile` — não inclui `isPlatformAdmin`, `permissions` nem
-   * `onboardingState`, que passaram a fazer parte daquele desde que
-   * `onboardingState` foi adicionado; ajuste os dois juntos se um consumidor
-   * futuro desta função precisar de algum desses campos.
-   */
   async findManyWithProfileByIds(ids: string[]): Promise<User[]> {
     if (ids.length === 0) return [];
     return await this.repository.find({
@@ -128,7 +129,6 @@ export class UserRepository extends BaseRepository<User> {
         termsOfUseAcceptedAt: true,
         aiConsentAcceptedAt: true,
         ownerId: true,
-        adminId: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -145,10 +145,6 @@ export class UserRepository extends BaseRepository<User> {
       skip,
       take,
       relations: ['doctorProfile'],
-      // Sem CPF, gênero e nascimento de propósito: `GET /users` é o diretório
-      // do staff, liberado a qualquer área autenticada, e nenhum consumidor
-      // usa esses três (a camada de IA lê só `id`/`name`). Quem precisa do
-      // cadastro completo de uma pessoa usa a rota por id.
       select: {
         id: true,
         role: true,
@@ -158,7 +154,6 @@ export class UserRepository extends BaseRepository<User> {
         phone: true,
         avatarUrl: true,
         ownerId: true,
-        adminId: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -198,31 +193,200 @@ export class UserRepository extends BaseRepository<User> {
     return await this.findOne({ id });
   }
 
-  /**
-   * Lookup por telefone usado exclusivamente pelo preflight do assistente do
-   * WhatsApp (`PhoneNormalizerService`/`MessageProcessorService`). Usa
-   * `findOneWithProfile` (não `findOne`) DE PROPÓSITO: `findOne` tem um
-   * `select` de ~26 colunas que **não inclui `permissions`** — com `select`
-   * parcial o TypeORM devolve a propriedade como `undefined`, então o
-   * orquestrador de IA calculava a permissão efetiva do usuário sobre um
-   * array vazio (`resolveEffectivePermissions({ permissions: undefined })`),
-   * recusando todas as tools com `requiredPermission` para qualquer
-   * colaborador não-médico. Ampliar o `select` de `findOne` para incluir
-   * `permissions` NÃO é a correção certa: `findOne` tem dezenas de
-   * chamadores fora deste módulo (ex.: `UsersService.findOne`, que devolve o
-   * resultado direto numa resposta HTTP sem filtrar `permissions`/
-   * `isPlatformAdmin`) — vazaria a coluna crua em rotas que não são
-   * gated por `ADMINISTRACAO`. `findOneWithProfile` já filtra esse uso a um
-   * conjunto controlado de chamadores que sabem descartar o campo quando
-   * necessário (ver `UsersService.getProfile`/`findCollaboratorById`).
-   */
+  async incrementTokenVersion(id: string): Promise<void> {
+    await this.repository.increment({ id }, 'tokenVersion', 1);
+  }
+
   findOneByPhone(phone: string): Promise<User | null> {
     return this.findOneWithProfile({ phone });
+  }
+
+  async findManyByPhones(phones: string[]): Promise<User[]> {
+    const distintos = [...new Set(phones.filter(Boolean))];
+    if (distintos.length === 0) return [];
+    return await this.repository.find({
+      where: { phone: In(distintos) },
+      relations: ['doctorProfile'],
+      select: SELECT_COM_PERFIL,
+      take: 2,
+    });
   }
 
   async findOneWithDeleted(
     where: FindOptionsWhere<User>,
   ): Promise<User | null> {
     return await this.repository.findOne({ where, withDeleted: true });
+  }
+
+  async getPatientNotificationSettings(
+    ownerId: string,
+  ): Promise<PatientNotificationSettings> {
+    const owner = await this.repository.findOne({
+      where: { id: ownerId },
+      select: { id: true, patientNotificationSettings: true },
+    });
+    return resolvePatientNotificationSettings(
+      owner?.patientNotificationSettings,
+    );
+  }
+
+  async isPatientNotificationEnabled(
+    ownerId: string,
+    kind: PatientNotificationKind,
+  ): Promise<boolean> {
+    const settings = await this.getPatientNotificationSettings(ownerId);
+    return settings[kind];
+  }
+
+  async updatePatientNotificationSettings(
+    ownerId: string,
+    patch: Partial<PatientNotificationSettings>,
+  ): Promise<PatientNotificationSettings> {
+    const atual = await this.getPatientNotificationSettings(ownerId);
+    const proximo = resolvePatientNotificationSettings({ ...atual, ...patch });
+    await this.repository.update(ownerId, {
+      patientNotificationSettings: proximo,
+    });
+    return proximo;
+  }
+
+  async mutateOnboardingStateLocked(
+    userId: string,
+    mutate: (atual: OnboardingState | null) => OnboardingState,
+  ): Promise<OnboardingState | null> {
+    return this.repository.manager.transaction(async (manager) => {
+      const user = await manager.findOne(User, {
+        where: { id: userId },
+        select: ['id', 'onboardingState'],
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!user) return null;
+
+      const proximo = mutate(user.onboardingState);
+      await manager.update(User, userId, { onboardingState: proximo });
+      return proximo;
+    });
+  }
+
+  findCollaboratorsByIds(
+    ids: string[],
+    ownerId: string,
+  ): Promise<Array<Pick<User, 'id' | 'email' | 'ownerId' | 'phone'>>> {
+    if (ids.length === 0) return Promise.resolve([]);
+    return this.repository.find({
+      where: { id: In(ids), ownerId, role: UserRole.COLLABORATOR },
+      select: { id: true, email: true, ownerId: true, phone: true },
+    });
+  }
+
+  findMfaState(userId: string): Promise<User | null> {
+    return this.repository.findOne({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        status: true,
+        emailVerified: true,
+        tokenVersion: true,
+        mfaSecret: true,
+        mfaPendingSecret: true,
+        mfaEnabledAt: true,
+        mfaRecoveryCodes: true,
+        mfaLastUsedStep: true,
+      },
+    });
+  }
+
+  async isMfaEnabled(userId: string): Promise<boolean> {
+    const user = await this.repository.findOne({
+      where: { id: userId },
+      select: { id: true, mfaEnabledAt: true },
+    });
+    return !!user?.mfaEnabledAt;
+  }
+
+  async savePendingMfaSecret(userId: string, secret: string): Promise<void> {
+    await this.repository.update(userId, { mfaPendingSecret: secret });
+  }
+
+  async enableMfa(
+    userId: string,
+    data: { secret: string; recoveryCodeHashes: string[]; usedStep: number },
+  ): Promise<boolean> {
+    const result = await this.repository
+      .createQueryBuilder()
+      .update(User)
+      .set({
+        mfaSecret: data.secret,
+        mfaPendingSecret: null,
+        mfaEnabledAt: () => 'now()',
+        mfaRecoveryCodes: data.recoveryCodeHashes,
+        mfaLastUsedStep: data.usedStep,
+      })
+      .where('id = :userId', { userId })
+      .andWhere('mfa_enabled_at IS NULL')
+      .execute();
+    return (result.affected ?? 0) > 0;
+  }
+
+  async consumeMfaStep(userId: string, step: number): Promise<boolean> {
+    const result = await this.repository
+      .createQueryBuilder()
+      .update(User)
+      .set({ mfaLastUsedStep: step })
+      .where('id = :userId', { userId })
+      .andWhere('mfa_enabled_at IS NOT NULL')
+      .andWhere('(mfa_last_used_step IS NULL OR mfa_last_used_step < :step)', {
+        step,
+      })
+      .execute();
+    return (result.affected ?? 0) > 0;
+  }
+
+  async consumeMfaRecoveryCode(
+    userId: string,
+    codeHash: string,
+  ): Promise<boolean> {
+    const result = await this.repository
+      .createQueryBuilder()
+      .update(User)
+      .set({
+        mfaRecoveryCodes: () => 'array_remove(mfa_recovery_codes, :codeHash)',
+      })
+      .where('id = :userId', { userId })
+      .andWhere('mfa_enabled_at IS NOT NULL')
+      .andWhere(':codeHash = ANY(mfa_recovery_codes)')
+      .setParameter('codeHash', codeHash)
+      .execute();
+    return (result.affected ?? 0) > 0;
+  }
+
+  async replaceMfaRecoveryCodes(
+    userId: string,
+    recoveryCodeHashes: string[],
+  ): Promise<boolean> {
+    const result = await this.repository
+      .createQueryBuilder()
+      .update(User)
+      .set({ mfaRecoveryCodes: recoveryCodeHashes })
+      .where('id = :userId', { userId })
+      .andWhere('mfa_enabled_at IS NOT NULL')
+      .execute();
+    return (result.affected ?? 0) > 0;
+  }
+
+  async disableMfa(userId: string): Promise<void> {
+    await this.repository
+      .createQueryBuilder()
+      .update(User)
+      .set({
+        mfaSecret: null,
+        mfaPendingSecret: null,
+        mfaEnabledAt: null,
+        mfaRecoveryCodes: null,
+        mfaLastUsedStep: null,
+      })
+      .where('id = :userId', { userId })
+      .execute();
   }
 }

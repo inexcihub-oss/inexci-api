@@ -1,9 +1,3 @@
-/**
- * Normalizadores dos campos vindos de sistemas de origem. Todos devolvem
- * `null` quando o valor não é aproveitável — nunca string vazia nem um valor
- * "consertado" por chute.
- */
-
 const UFS = new Set([
   'AC',
   'AL',
@@ -37,7 +31,6 @@ const UFS = new Set([
 export const soDigitos = (v: string | null | undefined): string =>
   (v ?? '').replace(/\D/g, '');
 
-/** Dígitos verificadores do CPF. */
 export function cpfValido(cpf: string): boolean {
   if (!/^\d{11}$/.test(cpf) || /^(\d)\1{10}$/.test(cpf)) return false;
   const dv = (base: string, pesoInicial: number) => {
@@ -53,16 +46,6 @@ export function cpfValido(cpf: string): boolean {
   );
 }
 
-/**
- * CPF só com dígitos e válido (11 dígitos, com ou sem máscara).
- *
- * Com 10 dígitos, só recupera o zero à esquerda quando o valor é um número
- * cru (só dígitos, sem máscara) — a cara de CPF que a planilha de origem leu
- * como número. Completar qualquer valor curto deixa passar ~1 em 100 RGs ou
- * números aleatórios como o CPF de outra pessoa (o dígito verificador por
- * acaso bate); 9 dígitos (dois zeros comidos) e valor mascarado curto nunca
- * são completados.
- */
 export function normalizarCpf(valor: string | null | undefined): string | null {
   const bruto = (valor ?? '').trim();
   const d = soDigitos(bruto);
@@ -74,11 +57,6 @@ export function normalizarCpf(valor: string | null | undefined): string | null {
   return null;
 }
 
-/**
- * Telefone brasileiro só com dígitos: 10 (fixo) ou 11 (celular) com DDD.
- * Com o 55 do país na frente, remove. Qualquer outra coisa (e-mail digitado no
- * campo, número sem DDD) vira `null`.
- */
 export function normalizarTelefone(
   valor: string | null | undefined,
 ): string | null {
@@ -89,7 +67,6 @@ export function normalizarTelefone(
   return d.length === 10 || d.length === 11 ? d : null;
 }
 
-/** Primeiros telefones válidos e distintos, na ordem de preferência. */
 export function telefonesDistintos(
   valores: (string | null | undefined)[],
 ): string[] {
@@ -101,7 +78,6 @@ export function telefonesDistintos(
   return vistos;
 }
 
-/** CEP no formato `99999-999`; 7 dígitos ganham o zero à esquerda. */
 export function normalizarCep(valor: string | null | undefined): string | null {
   const d = soDigitos(valor);
   if (d.length < 7 || d.length > 8) return null;
@@ -114,7 +90,6 @@ export function normalizarUf(valor: string | null | undefined): string | null {
   return UFS.has(uf) ? uf : null;
 }
 
-/** Feegow: `1` masculino, `2` feminino; `0`, `3` (indefinido) e vazio → null. */
 export function normalizarSexo(
   valor: string | null | undefined,
 ): 'M' | 'F' | null {
@@ -123,12 +98,6 @@ export function normalizarSexo(
   return null;
 }
 
-/**
- * E-mail válido em minúsculas, ou `null`. Com `max` (tamanho da coluna de
- * destino), o que passar dele também vira `null`: cortar mudaria o endereço e
- * gravar inteiro estoura o varchar e derruba a fase. Quem chama confere com
- * `emailLongoDemais` para avisar no relatório.
- */
 export function normalizarEmail(
   valor: string | null | undefined,
   max = Infinity,
@@ -138,7 +107,6 @@ export function normalizarEmail(
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? e : null;
 }
 
-/** E-mail válido que só foi descartado por passar de `max` caracteres. */
 export function emailLongoDemais(
   valor: string | null | undefined,
   max: number,
@@ -147,10 +115,8 @@ export function emailLongoDemais(
   return !!e && e.length > max;
 }
 
-/** Tamanho de `email` nas colunas de destino (varchar). */
 export const EMAIL_MAX = { paciente: 100, usuario: 160, clinica: 100 } as const;
 
-/** Texto livre: colapsa espaços e corta no tamanho da coluna. */
 export function normalizarTexto(
   valor: string | null | undefined,
   max: number,
@@ -159,10 +125,6 @@ export function normalizarTexto(
   return t ? t.slice(0, max) : null;
 }
 
-/**
- * Data `YYYY-MM-DD` (ou `DD/MM/YYYY`) → `YYYY-MM-DD`. `0000-00-00`, datas
- * impossíveis e vazias → null.
- */
 export function normalizarData(
   valor: string | null | undefined,
 ): string | null {
@@ -199,7 +161,6 @@ const formatadorSaoPaulo = new Intl.DateTimeFormat('en-US', {
   second: '2-digit',
 });
 
-/** Diferença (ms) entre o relógio de São Paulo e o UTC no instante dado. */
 function offsetSaoPaulo(instante: number): number {
   const p: Record<string, number> = {};
   for (const parte of formatadorSaoPaulo.formatToParts(new Date(instante))) {
@@ -216,17 +177,6 @@ function offsetSaoPaulo(instante: number): number {
   return relogio - Math.floor(instante / 1000) * 1000;
 }
 
-/**
- * Data + hora locais de `America/Sao_Paulo` → instante UTC, com as regras
- * reais do fuso (tz database via `Intl`): até 2019 havia horário de verão
- * (-02:00), e um offset fixo de -03:00 erraria em 1 h as consultas de verão.
- *
- * Sem hora (ou hora vazia) → meia-noite local. Hora presente mas ilegível
- * (`9h`, `25:00`) → `null`, para o chamador rejeitar/avisar em vez de gravar
- * meia-noite calado. Aceita hora com 1 ou 2 dígitos (`9:00`). Horário que não
- * existe (o relógio pulava de 00:00 para 01:00 no início do horário de verão)
- * cai no primeiro instante válido depois.
- */
 export function dataHoraSaoPaulo(
   data: string | null | undefined,
   hora?: string | null,
@@ -245,7 +195,6 @@ export function dataHoraSaoPaulo(
   }
   const [a, mes, dia] = d.split('-').map(Number);
   const relogio = Date.UTC(a, mes - 1, dia, hh, mm, ss);
-  // Duas passadas: o offset depende do instante, que depende do offset.
   const palpite = relogio - offsetSaoPaulo(relogio);
   const offset = offsetSaoPaulo(palpite);
   const instante = relogio - offset;
@@ -257,10 +206,6 @@ export function dataHoraSaoPaulo(
   return Number.isNaN(resultado.getTime()) ? null : resultado;
 }
 
-/**
- * `YYYY-MM-DD HH:MM:SS` (como `sys_date`) → instante, em São Paulo. Hora
- * presente mas ilegível → `null` (ver `dataHoraSaoPaulo`).
- */
 export function dataHoraCompleta(
   valor: string | null | undefined,
 ): Date | null {
@@ -280,12 +225,6 @@ const ENTIDADES_HTML: Record<string, string> = {
   ordf: 'ª',
 };
 
-/**
- * Entidades HTML (`&ccedil;`, `&atilde;`, `&#231;`…) → caractere. O Feegow
- * gravou parte dos textos de log já escapados. Letras acentuadas são
- * montadas pela regra do nome (`&Xacute;` = X + acento agudo); entidade
- * desconhecida fica como está.
- */
 export function decodificarEntidadesHtml(texto: string): string {
   const acentos: Record<string, string> = {
     acute: '́',
@@ -309,11 +248,6 @@ export function decodificarEntidadesHtml(texto: string): string {
     });
 }
 
-/**
- * Caractere do código numérico de uma entidade. Fora do Unicode (> 0x10FFFF,
- * que faria o `String.fromCodePoint` lançar), NUL ou metade de par substituto
- * → a entidade fica como está.
- */
 function caractereDoCodigo(codigo: number, original: string): string {
   if (
     !Number.isInteger(codigo) ||
@@ -335,20 +269,12 @@ const ENTIDADES_EM_MAIUSCULAS: Record<string, string> = {
   HYPHEN: '-',
 };
 
-/**
- * Nome que o export do Feegow cortou numa entidade HTML em maiúsculas sem o
- * `;` (`JOS&EACUTE`, `GON&CCEDIL`): devolve o caractere (`JOSÉ`, `GONÇ`) e se
- * houve corte. O resto do nome não veio no export — só dá para avisar.
- */
 export function repararNomeCortado(nome: string): {
   nome: string;
   cortado: boolean;
 } {
   let cortado = false;
   const reparado = nome.replace(/&([A-Z]{2,8});?/g, (inteiro, ent: string) => {
-    // Com o `;` a entidade veio completa (`JOS&EACUTE; SILVA`): só decodifica.
-    // Cortado é a que perdeu o `;` — o export parou ali, às vezes no meio do
-    // nome da entidade (`&EAC`, que nem se decodifica).
     if (!inteiro.endsWith(';')) cortado = true;
     const letra =
       ENTIDADES_EM_MAIUSCULAS[ent] ??

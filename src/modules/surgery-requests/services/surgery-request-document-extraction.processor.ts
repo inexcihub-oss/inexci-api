@@ -8,6 +8,7 @@ import {
 } from './surgery-request-document-extraction-jobs.service';
 import { requestContextStorage } from 'src/shared/logging/request-context';
 import { randomUUID } from 'crypto';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 const DOCUMENT_EXTRACTION_QUEUE = 'document-extraction';
 const DOCUMENT_EXTRACTION_JOB = 'extract-from-document';
@@ -54,9 +55,6 @@ export class SurgeryRequestDocumentExtractionProcessor {
         userId,
       );
 
-      // `notifyOnCompletion` explicitamente `undefined` cai no default do
-      // service (`= true`) — jobs enfileirados antes da flag existir também
-      // não a possuem e continuam se comportando como antes.
       await this.jobsService.markDone(
         jobId,
         userId,
@@ -65,9 +63,9 @@ export class SurgeryRequestDocumentExtractionProcessor {
         notifyOnCompletion,
         surgeryRequestId,
       );
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `[DOC_EXTRACT_JOB] falha jobId=${jobId} attempt=${job.attemptsMade + 1} userId=${userId} err=${err?.message}`,
+        `[DOC_EXTRACT_JOB] falha jobId=${jobId} attempt=${job.attemptsMade + 1} userId=${userId} err=${errorMessage(err)}`,
       );
       throw err;
     }

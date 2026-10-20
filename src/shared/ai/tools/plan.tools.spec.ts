@@ -25,7 +25,7 @@ describe('plan_actions tool', () => {
     draftService = new OperationDraftService(mockRepo);
   });
 
-  const getTool = () => buildPlanTools(draftService)[0];
+  const getTool = () => buildPlanTools({ draftService })[0];
 
   it('abre draft de create_sc para intent create_sc', async () => {
     const tool = getTool();

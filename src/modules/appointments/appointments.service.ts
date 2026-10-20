@@ -33,7 +33,6 @@ import {
 } from 'src/database/entities/appointment-activity.entity';
 import { registrarNoHistorico } from './appointment-history';
 import { AvailabilityService } from '../availability/availability.service';
-import { PatientNotificationSettingsService } from '../notifications/patient-settings/patient-notification-settings.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { UpdateAppointmentStatusDto } from './dto/update-appointment-status.dto';
@@ -41,18 +40,12 @@ import {
   APPOINTMENTS_MAX_TAKE,
   FindAppointmentsDto,
 } from './dto/find-appointments.dto';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
-/**
- * Consulta como a tela a recebe: com a situação da ficha vinculada
- * (`null` = sem ficha). É o que decide "Iniciar" × "Continuar" × "Ver
- * atendimento" — o status da agenda sozinho não basta, porque pode ser mexido
- * à mão (e a ficha pode ser excluída) sem que um acompanhe o outro.
- */
 export type AppointmentComFicha = Appointment & {
   clinicalRecordStatus: ClinicalRecordStatus | null;
 };
 
-/** Mesma mensagem do pré-check e da exclusion constraint do banco. */
 const MENSAGEM_CONFLITO_DE_HORARIO =
   'Já existe uma consulta para este médico neste horário.';
 
@@ -72,7 +65,6 @@ export class AppointmentsService {
     private readonly healthPlanRepository: HealthPlanRepository,
     private readonly activityRepository: AppointmentActivityRepository,
     private readonly availabilityService: AvailabilityService,
-    private readonly patientNotificationSettings: PatientNotificationSettingsService,
   ) {}
 
   private registrar(
@@ -93,7 +85,6 @@ export class AppointmentsService {
     });
   }
 
-  /** Linha do tempo da consulta, com o mesmo recorte de acesso do `findOne`. */
   async findActivities(
     id: string,
     userId: string,
@@ -102,14 +93,11 @@ export class AppointmentsService {
     return this.activityRepository.findByAppointment(id);
   }
 
-  /** Comentário livre no histórico da consulta. */
   async addComment(
     id: string,
     content: string,
     userId: string,
   ): Promise<AppointmentActivity> {
-    // O DTO já apara e recusa vazio; a checagem aqui protege outros
-    // chamadores de gravar um comentário em branco.
     const texto = content?.trim();
     if (!texto) {
       throw new BadRequestException('Escreva o comentário.');
@@ -123,10 +111,6 @@ export class AppointmentsService {
     });
   }
 
-  /**
-   * Sala tem que ser da conta, da clínica da consulta e estar ativa. Consulta
-   * sem clínica não tem sala. 404 pelo mesmo motivo da clínica.
-   */
   private async assertSalaDaClinica(
     roomId: string,
     clinicId: string | null,
@@ -156,15 +140,10 @@ export class AppointmentsService {
     }
   }
 
-  /** Fim da consulta = início + duração. */
   private endOf(start: Date, durationMinutes: number): Date {
     return new Date(start.getTime() + durationMinutes * 60_000);
   }
 
-  /**
-   * Valida que a clínica escolhida é da mesma conta. 404 (e não 403) pelo
-   * mesmo motivo do paciente: não confirmar a existência de id de outra conta.
-   */
   private async assertClinicaDaConta(
     clinicId: string,
     ownerId: string,
@@ -182,11 +161,6 @@ export class AppointmentsService {
     ]);
     if (doctorIds.length === 0) return { total: 0, records: [] };
 
-    // Filtro por médico fail-closed: um `doctorId` fora do conjunto acessível
-    // devolve lista vazia, nunca a agenda inteira. Ignorar o filtro em silêncio
-    // fazia a tela responder "as consultas do médico X" mostrando as de todos.
-    // Lista vazia (e não 403) também evita enumerar ids de médicos. Vale o
-    // mesmo para `doctorIds`: só os acessíveis entram; nenhum = lista vazia.
     const pedidos = [
       ...(query.doctorId ? [query.doctorId] : []),
       ...(query.doctorIds ?? []),
@@ -201,16 +175,10 @@ export class AppointmentsService {
       statuses: query.status,
     };
 
-    // As contagens do filtro de profissionais valem para o recorte inteiro e
-    // para todos os médicos acessíveis — não só para os já filtrados nem só
-    // para a página carregada. Independem da página: rodam em paralelo.
     const contagem = query.withDoctorCounts
       ? this.appointmentRepository.countByDoctor(ownerId, doctorIds, filtros)
       : Promise.resolve(undefined);
 
-    // `total` é a contagem real no banco, não o tamanho da página: quando a
-    // página (ou o teto de `APPOINTMENTS_MAX_TAKE`) corta a lista,
-    // `total > skip + records.length` é o sinal de que há mais para carregar.
     const pagina = scopedDoctorIds.length
       ? this.appointmentRepository.findAgenda(ownerId, scopedDoctorIds, {
           ...filtros,
@@ -235,7 +203,6 @@ export class AppointmentsService {
     };
   }
 
-  /** Histórico completo de consultas de um paciente (aba Consultas / timeline). */
   async findByPatient(patientId: string, userId: string) {
     const [doctorIds, ownerId] = await Promise.all([
       this.accessControlService.getAccessibleDoctorIds(userId),
@@ -253,7 +220,6 @@ export class AppointmentsService {
     return { total: records.length, records };
   }
 
-  /** Consulta por id para a tela (`GET /appointments/:id`), com a ficha. */
   async findOneComFicha(
     id: string,
     userId: string,
@@ -264,7 +230,6 @@ export class AppointmentsService {
     return consulta;
   }
 
-  /** Anota em cada consulta a situação da ficha vinculada (uma query só). */
   private async comSituacaoDaFicha(
     consultas: Appointment[],
   ): Promise<AppointmentComFicha[]> {
@@ -277,12 +242,6 @@ export class AppointmentsService {
     );
   }
 
-  /**
-   * Consulta por id. Escopa por clínica **e** por médico acessível: sem o
-   * segundo recorte, um colaborador vinculado só ao médico A leria, reagendaria,
-   * cancelaria ou excluiria a agenda do médico B — o mesmo recorte que
-   * `findAgenda`/`findByPatient` e `create` já aplicam.
-   */
   async findOne(id: string, userId: string): Promise<Appointment> {
     const appointment = await this.appointmentRepository.findOneComRelacoes(id);
     if (!appointment) throw new NotFoundException('Consulta não encontrada');
@@ -334,15 +293,9 @@ export class AppointmentsService {
     const end = this.endOf(start, durationMinutes);
     const isWalkIn = data.isWalkIn ?? false;
 
-    // Encaixe é marcado de propósito em cima de outro horário. Já a consulta
-    // normal nova não entra em cima de um encaixe existente (aqui o encaixe
-    // conta como ocupando, de propósito — mais estrito que a constraint do
-    // banco, que ignora encaixes): a recepção marca outro encaixe ou escolhe
-    // outro horário.
     if (!isWalkIn) {
       await this.assertNoOverlap(data.doctorId, start, end);
     }
-    // Bloqueio e feriado valem também para encaixe: o profissional não está.
     await this.availabilityService.assertNaoBloqueado({
       ownerId,
       doctorId: data.doctorId,
@@ -374,10 +327,9 @@ export class AppointmentsService {
       content: `Consulta agendada para ${formatAppointmentWhen(start)}${isWalkIn ? ' (encaixe)' : ''}`,
     });
 
-    // `patient` já veio da validação de conta acima — sem query extra.
     await this.avisarPacienteDoAgendamento(
-      ownerId,
       patient,
+      ownerId,
       data.doctorId,
       start,
     );
@@ -404,17 +356,8 @@ export class AppointmentsService {
     const durationMinutes = data.durationMinutes ?? appointment.durationMinutes;
     const isWalkIn = data.isWalkIn ?? appointment.isWalkIn;
 
-    // Conflito e bloqueio só valem para consulta que ocupa o horário (em aberto
-    // ou realizada — mesmo critério de `hasOverlap` e da exclusion constraint).
-    // Cancelada/falta não ocupa: mexer no horário dela não disputa nada; se ela
-    // for reativada, `updateStatus` revalida o slot novo. A realizada continua
-    // checada porque continua ocupando — e o banco recusaria de qualquer forma.
     const ocupa = AppointmentsService.ocupaAgenda(appointment.status);
 
-    // Só revalida conflito se o horário/duração mudou — ou se deixou de ser
-    // encaixe, porque aí passa a disputar o horário como consulta normal.
-    // Consulta já existente usa o critério do banco (encaixes não disputam):
-    // um encaixe posto sobre ela não pode impedir editá-la.
     const deixouDeSerEncaixe = appointment.isWalkIn && data.isWalkIn === false;
     if (
       ocupa &&
@@ -432,7 +375,6 @@ export class AppointmentsService {
       );
     }
 
-    // Clínica de outra conta → 404 antes de qualquer checagem que dependa dela.
     if (data.clinicId) {
       await this.assertClinicaDaConta(data.clinicId, appointment.ownerId);
     }
@@ -462,8 +404,6 @@ export class AppointmentsService {
     if (data.clinicId !== undefined)
       updateData.clinicId = data.clinicId ?? null;
 
-    // A sala segue a clínica: trocando a clínica sem mandar sala, a sala
-    // antiga (de outra clínica) cai em vez de ficar inconsistente.
     const clinicaFinal =
       data.clinicId !== undefined
         ? (data.clinicId ?? null)
@@ -482,8 +422,6 @@ export class AppointmentsService {
       clinicaFinal !== appointment.clinicId &&
       appointment.roomId
     ) {
-      // Só quando a clínica muda de fato: reenviar a mesma clínica (PATCH com
-      // o formulário inteiro) não pode derrubar a sala.
       updateData.roomId = null;
     }
 
@@ -497,9 +435,6 @@ export class AppointmentsService {
       updateData.healthPlanId = data.healthPlanId ?? null;
     }
 
-    // Reagendou de fato: o lembrete já enviado era da data antiga, então a
-    // marca de idempotência precisa cair — senão o paciente nunca é avisado do
-    // novo horário. Reenviar o mesmo horário (ou mexer em notas/tipo) não zera.
     const remarcou =
       data.scheduledAt !== undefined &&
       start.getTime() !== new Date(appointment.scheduledAt).getTime();
@@ -513,22 +448,18 @@ export class AppointmentsService {
 
     await this.registrarEdicao(appointment, updateData, userId);
 
-    // Aviso de "agendada" só para consulta em aberto: remarcar uma cancelada,
-    // uma falta ou uma realizada não é um agendamento para o paciente.
     if (remarcou && isActiveAppointmentStatus(appointment.status)) {
       const patient = await this.patientRepository.findOne({
         id: appointment.patientId,
       });
       await this.avisarPacienteDoAgendamento(
-        appointment.ownerId,
         patient,
+        appointment.ownerId,
         appointment.doctorId,
         start,
       );
     }
 
-    // A grade depende da clínica (grade de uma unidade só cobre consultas
-    // nela), então trocar de clínica também reavalia o aviso.
     return mudouHorario || data.clinicId !== undefined
       ? this.comAvisos(
           atualizada,
@@ -547,16 +478,6 @@ export class AppointmentsService {
   ): Promise<Appointment> {
     const appointment = await this.findOne(id, userId);
 
-    // Ficha finalizada é imutável (correção vira adendo), e ela atesta que o
-    // atendimento aconteceu: a consulta não pode deixar de ser "realizada"
-    // depois disso — virar cancelada/falta/agendada contradiria o prontuário.
-    // Marcar como realizada sem ficha continua permitido (a recepção fecha a
-    // consulta pela agenda; a ficha é que a completa sozinha ao finalizar).
-    //
-    // Além disso, consulta com ficha vinculada (rascunho ou finalizada) não
-    // vira cancelada nem falta: a ficha registra que o paciente foi atendido,
-    // e marcar a consulta como "não aconteceu" deixaria um prontuário
-    // pendurado numa consulta que, para a agenda, não existiu.
     const saiDeRealizada =
       appointment.status === AppointmentStatus.COMPLETED &&
       data.status !== AppointmentStatus.COMPLETED;
@@ -582,19 +503,10 @@ export class AppointmentsService {
       }
     }
 
-    // Voltar a ocupar o horário (cancelada/falta → em aberto ou realizada)
-    // devolve a consulta à agenda, e o horário pode ter sido ocupado — ou
-    // bloqueado — enquanto ela estava fora. O critério é "ocupa", não "ativa":
-    // realizada também ocupa o slot (`OCCUPYING_APPOINTMENT_STATUSES`), então
-    // cancelada → realizada também revalida. Transições entre status que já
-    // ocupam ou saídas da agenda (→ cancelada/falta) não passam por aqui.
     const voltaAOcupar =
       !AppointmentsService.ocupaAgenda(appointment.status) &&
       AppointmentsService.ocupaAgenda(data.status);
 
-    // Encaixes alheios não disputam (mesmo critério da exclusion constraint):
-    // um encaixe marcado sobre a consulta enquanto ela estava cancelada não
-    // pode impedir reativá-la.
     if (voltaAOcupar && !appointment.isWalkIn) {
       await this.assertNoOverlap(
         appointment.doctorId,
@@ -605,7 +517,6 @@ export class AppointmentsService {
       );
     }
 
-    // Bloqueio e feriado valem também para encaixe (como em `create`).
     if (voltaAOcupar) {
       await this.availabilityService.assertNaoBloqueado({
         ownerId: appointment.ownerId,
@@ -622,9 +533,6 @@ export class AppointmentsService {
         ? data.cancellationReason?.trim() || null
         : null;
 
-    // Reativação: a consulta voltou a ficar em aberto. O lembrete enviado
-    // antes do cancelamento (se houve) era de uma consulta que o paciente
-    // considera desmarcada — a marca cai para o cron lembrá-lo de novo.
     const reativou =
       voltaAOcupar && AppointmentsService.isActiveStatus(data.status);
     if (reativou) {
@@ -643,8 +551,6 @@ export class AppointmentsService {
       });
     }
 
-    // Só o cancelamento vindo de um status ativo é novidade para o paciente:
-    // recancelar uma consulta já cancelada repetiria o mesmo aviso.
     if (
       data.status === AppointmentStatus.CANCELLED &&
       AppointmentsService.isActiveStatus(appointment.status)
@@ -652,10 +558,6 @@ export class AppointmentsService {
       await this.avisarPacienteDoCancelamento(appointment);
     }
 
-    // O paciente foi avisado do cancelamento; a reativação precisa do aviso
-    // oposto, o mesmo da criação. Só para agendada/confirmada no futuro:
-    // "aguardando"/"em atendimento" é o paciente já na clínica, e consulta no
-    // passado não tem o que avisar.
     if (
       reativou &&
       (data.status === AppointmentStatus.SCHEDULED ||
@@ -666,8 +568,8 @@ export class AppointmentsService {
         id: appointment.patientId,
       });
       await this.avisarPacienteDoAgendamento(
-        appointment.ownerId,
         patient,
+        appointment.ownerId,
         appointment.doctorId,
         new Date(appointment.scheduledAt),
       );
@@ -676,30 +578,20 @@ export class AppointmentsService {
     return atualizada;
   }
 
-  /**
-   * Avisa o paciente que a consulta foi marcada — ou remarcada — para uma data.
-   *
-   * Best-effort: a consulta já está gravada, e uma falha de WhatsApp (ou um
-   * paciente sem telefone) não pode desfazê-la nem devolver erro para a tela.
-   * A conta pode ter desligado o aviso (Configurações → Notificações).
-   */
   private async avisarPacienteDoAgendamento(
-    ownerId: string,
     patient: { name: string; phone: string | null } | null,
+    ownerId: string,
     doctorId: string,
     scheduledAt: Date,
   ): Promise<void> {
     if (!patient?.phone) return;
 
     try {
-      if (
-        !(await this.patientNotificationSettings.isEnabled(
-          ownerId,
-          'appointmentScheduled',
-        ))
-      ) {
-        return;
-      }
+      const habilitado = await this.userRepository.isPatientNotificationEnabled(
+        ownerId,
+        'appointmentScheduled',
+      );
+      if (!habilitado) return;
 
       const doctor = await this.userRepository.findOne({ id: doctorId });
       await this.whatsappService.sendAppointmentScheduled(patient.phone, {
@@ -707,33 +599,22 @@ export class AppointmentsService {
         doctorName: formatDoctorName(doctor?.name),
         when: formatAppointmentWhen(scheduledAt),
       });
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `Falha ao avisar paciente do agendamento da consulta: ${err?.message}`,
+        `Falha ao avisar paciente do agendamento da consulta: ${errorMessage(err)}`,
       );
     }
   }
 
-  /**
-   * Avisa o paciente, pelo template aprovado, que a consulta foi cancelada.
-   *
-   * Best-effort de ponta a ponta: o cancelamento já está gravado, e uma falha
-   * de WhatsApp (ou um paciente sem telefone) não pode desfazê-lo. O telefone
-   * é buscado no cadastro porque a agenda só carrega id e nome do paciente.
-   * A conta pode ter desligado o aviso (Configurações → Notificações).
-   */
   private async avisarPacienteDoCancelamento(
     appointment: Appointment,
   ): Promise<void> {
     try {
-      if (
-        !(await this.patientNotificationSettings.isEnabled(
-          appointment.ownerId,
-          'appointmentCancelled',
-        ))
-      ) {
-        return;
-      }
+      const habilitado = await this.userRepository.isPatientNotificationEnabled(
+        appointment.ownerId,
+        'appointmentCancelled',
+      );
+      if (!habilitado) return;
 
       const [patient, doctor] = await Promise.all([
         this.patientRepository.findOne({ id: appointment.patientId }),
@@ -746,9 +627,9 @@ export class AppointmentsService {
         doctorName: formatDoctorName(doctor?.name),
         when: formatAppointmentWhen(appointment.scheduledAt),
       });
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `Falha ao avisar paciente do cancelamento da consulta ${appointment.id}: ${err?.message}`,
+        `Falha ao avisar paciente do cancelamento da consulta ${appointment.id}: ${errorMessage(err)}`,
       );
     }
   }
@@ -756,9 +637,6 @@ export class AppointmentsService {
   async delete(id: string, userId: string): Promise<void> {
     await this.findOne(id, userId);
 
-    // Dado clínico não pode ficar órfão: a ficha aponta para a consulta, e sem
-    // a consulta a tela `/atendimento/[appointmentId]` não abre mais — o
-    // rascunho continuaria na timeline do paciente, inalcançável pela UI.
     const record = await this.clinicalRecordRepository.findOne({
       appointmentId: id,
     });
@@ -771,17 +649,12 @@ export class AppointmentsService {
     await this.appointmentRepository.delete(id);
   }
 
-  /**
-   * Remarcação (data ou duração mudou) vira uma linha própria, com o antes e o
-   * depois; as demais mudanças viram uma linha "alterou: …" com os campos.
-   * Reenviar o mesmo valor não registra nada.
-   */
   private async registrarEdicao(
     antes: Appointment,
     mudancas: Partial<Appointment>,
     userId: string,
   ): Promise<void> {
-    const mudou = <K extends keyof Appointment>(campo: K) =>
+    const mudou = (campo: CampoComparavel) =>
       campo in mudancas &&
       String(mudancas[campo] ?? '') !== String(antes[campo] ?? '');
 
@@ -809,7 +682,7 @@ export class AppointmentsService {
       );
     }
 
-    const rotulos: [keyof Appointment, string][] = [
+    const rotulos: [CampoComparavel, string][] = [
       ['type', 'tipo'],
       ['clinicId', 'clínica'],
       ['roomId', 'sala'],
@@ -825,33 +698,19 @@ export class AppointmentsService {
     }
   }
 
-  /**
-   * Status em aberto: agendada, confirmada, aguardando e em atendimento.
-   * Recebem lembrete e avisos ao paciente.
-   */
   private static isActiveStatus(status: AppointmentStatus): boolean {
     return isActiveAppointmentStatus(status);
   }
 
-  /**
-   * Status que ocupam o horário (contam para conflito e bloqueio): os em
-   * aberto mais a realizada. Mesmo critério de `hasOverlap` e da exclusion
-   * constraint `EX_appointments_doctor_no_overlap`.
-   */
   private static ocupaAgenda(status: AppointmentStatus): boolean {
     return OCCUPYING_APPOINTMENT_STATUSES.includes(status);
   }
 
-  /**
-   * O pré-check de `assertNoOverlap` não fecha a corrida (duas requisições
-   * passam por ele antes de qualquer uma gravar); quem fecha é a exclusion
-   * constraint. A violação dela (`23P01`) vira a mesma 409 do pré-check.
-   */
   private async traduzirConflitoDeHorario<T>(operacao: Promise<T>): Promise<T> {
     try {
       return await operacao;
-    } catch (err: any) {
-      const code = err?.code ?? err?.driverError?.code;
+    } catch (err) {
+      const code = codigoDoErroDoBanco(err);
       if (code === PG_EXCLUSION_VIOLATION) {
         throw new ConflictException(MENSAGEM_CONFLITO_DE_HORARIO);
       }
@@ -859,12 +718,6 @@ export class AppointmentsService {
     }
   }
 
-  /**
-   * Fora da grade não é erro (como fora do horário da clínica): a consulta é
-   * gravada e a resposta leva `warnings: ['fora_da_grade']` para a tela avisar.
-   * `clinicId` (null = sem unidade) porque grade de uma clínica só cobre
-   * consultas naquela clínica.
-   */
   private async comAvisos(
     consulta: Appointment,
     doctorId: string,
@@ -903,3 +756,23 @@ export class AppointmentsService {
     }
   }
 }
+
+function codigoDoErroDoBanco(err: unknown): unknown {
+  if (typeof err !== 'object' || err === null) return undefined;
+  const { code, driverError } = err as {
+    code?: unknown;
+    driverError?: { code?: unknown } | null;
+  };
+  return code ?? driverError?.code;
+}
+
+type CampoComparavel = keyof Pick<
+  Appointment,
+  | 'durationMinutes'
+  | 'type'
+  | 'clinicId'
+  | 'roomId'
+  | 'healthPlanId'
+  | 'isWalkIn'
+  | 'notes'
+>;

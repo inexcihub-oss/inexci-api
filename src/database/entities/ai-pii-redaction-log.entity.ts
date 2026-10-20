@@ -6,10 +6,6 @@ import {
   Index,
 } from 'typeorm';
 
-/**
- * Auditoria de incidentes de PII residual detectada antes da chamada à IA externa.
- * Não armazena o valor original — apenas categoria + hash + flag de bloqueio.
- */
 @Entity('ai_pii_redaction_logs')
 @Index('idx_ai_pii_log_category_created', ['category', 'createdAt'])
 @Index('idx_ai_pii_log_conversation', ['conversationId'])

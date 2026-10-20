@@ -7,10 +7,6 @@ import {
 import { ProfessionalCouncil } from 'src/database/entities/doctor-profile.entity';
 
 export class UpdateDoctorProfileDto {
-  /**
-   * Conselho profissional. Só quem tem Administração na conta altera — o
-   * próprio profissional não se promove a médico (CRM).
-   */
   @IsEnum(ProfessionalCouncil)
   @IsOptional()
   council?: ProfessionalCouncil;
@@ -27,11 +23,6 @@ export class UpdateDoctorProfileDto {
   @IsOptional()
   specialty?: string;
 
-  /**
-   * Caminho devolvido pelo `POST /upload/single` (pasta `signatures`/`stamps`);
-   * `null` remove. Mesma regra do `UpdateProfileDto.signatureUrl`; o service
-   * ainda exige que o caminho seja da pasta da conta do profissional-alvo.
-   */
   @IsOptional()
   @Transform(({ value }) => value ?? null)
   @IsString()

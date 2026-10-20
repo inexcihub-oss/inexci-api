@@ -1,18 +1,30 @@
-import OpenAI from 'openai';
 import { In } from 'typeorm';
 import { AiTool } from '../tool.interface';
 import { detokenizeArg, tokenizePii } from '../../pii/tool-pii-helpers';
 import { translateServiceError } from '../helpers/service-error-translator';
 import { buildToolResult } from '../tool-result';
 import { WhatsappFlowToolDeps } from './_types';
-import { asValidDateString, normalizeCpf, normalizePhone } from './_helpers';
+import {
+  argToString,
+  asScalarArg,
+  asValidDateString,
+} from '../helpers/arg-parsers';
+import { Patient } from '../../../../database/entities/patient.entity';
+import {
+  normalizeCpfSimple as normalizeCpf,
+  normalizePhoneDigits as normalizePhone,
+} from '../helpers/normalizers';
+import { ALL_PERMISSIONS } from 'src/shared/permissions';
 
 export function buildCreatePatientFromDocumentTool(
   deps: WhatsappFlowToolDeps,
 ): AiTool {
-  const { patientRepo, userRepo, patientsService, documentDeps } = deps;
+  const { patientRepo, userRepo, patientsService, documentDispatcher } = deps;
   return {
     name: 'create_patient_from_document',
+    requiredPermission: ALL_PERMISSIONS,
+    mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {
@@ -63,15 +75,8 @@ export function buildCreatePatientFromDocumentTool(
           required: ['name', 'cpf'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context): Promise<string> {
-      const { documentDispatcher } = documentDeps;
-      if (!patientsService || !patientRepo || !userRepo) {
-        return buildToolResult({
-          status: 'blocked',
-          message: 'Cadastro de paciente indisponível no momento.',
-        });
-      }
       if (!context.userId) {
         return buildToolResult({
           status: 'blocked',
@@ -80,7 +85,9 @@ export function buildCreatePatientFromDocumentTool(
       }
 
       const TOOL = 'create_patient_from_document';
-      const name = String(detokenizeArg(context, args.name) ?? '').trim();
+      const name = String(
+        detokenizeArg(context, asScalarArg(args.name)) ?? '',
+      ).trim();
       if (!name || name.length < 2) {
         return buildToolResult({
           status: 'needs_input',
@@ -90,7 +97,9 @@ export function buildCreatePatientFromDocumentTool(
         });
       }
 
-      const cpfDigits = normalizeCpf(detokenizeArg(context, args.cpf));
+      const cpfDigits = normalizeCpf(
+        detokenizeArg(context, asScalarArg(args.cpf)),
+      );
       if (!cpfDigits) {
         return buildToolResult({
           status: 'needs_input',
@@ -106,7 +115,9 @@ export function buildCreatePatientFromDocumentTool(
         args.phone !== null &&
         args.phone !== ''
       ) {
-        phoneDigits = normalizePhone(detokenizeArg(context, args.phone));
+        phoneDigits = normalizePhone(
+          detokenizeArg(context, asScalarArg(args.phone)),
+        );
         if (!phoneDigits) {
           return buildToolResult({
             status: 'needs_input',
@@ -123,7 +134,7 @@ export function buildCreatePatientFromDocumentTool(
         args.email !== null &&
         args.email !== ''
       ) {
-        const emailRaw = detokenizeArg(context, args.email);
+        const emailRaw = detokenizeArg(context, asScalarArg(args.email));
         email =
           typeof emailRaw === 'string' && /\S+@\S+\.\S+/.test(emailRaw.trim())
             ? emailRaw.trim().toLowerCase()
@@ -144,7 +155,7 @@ export function buildCreatePatientFromDocumentTool(
         args.birth_date !== null &&
         args.birth_date !== ''
       ) {
-        const raw = detokenizeArg(context, args.birth_date);
+        const raw = detokenizeArg(context, asScalarArg(args.birth_date));
         const validated = asValidDateString(raw);
         if (!validated) {
           return buildToolResult({
@@ -163,7 +174,7 @@ export function buildCreatePatientFromDocumentTool(
         args.gender !== null &&
         args.gender !== ''
       ) {
-        const raw = String(args.gender).trim().toUpperCase();
+        const raw = argToString(args.gender).trim().toUpperCase();
         if (raw !== 'M' && raw !== 'F') {
           return buildToolResult({
             status: 'needs_input',
@@ -186,15 +197,15 @@ export function buildCreatePatientFromDocumentTool(
       let doctorName: string | null = null;
       if (accessibleDoctorIds.length === 1) {
         doctorId = accessibleDoctorIds[0];
-        const doctor = await userRepo.findOne({ id: doctorId } as any);
+        const doctor = await userRepo.findOne({ id: doctorId });
         doctorName = doctor?.name || null;
       } else {
         const hint = String(
-          detokenizeArg(context, args.doctor_name_or_id) ?? '',
+          detokenizeArg(context, asScalarArg(args.doctor_name_or_id)) ?? '',
         ).trim();
         if (!hint) {
           const doctors = await userRepo.findMany(
-            { id: In(accessibleDoctorIds) } as any,
+            { id: In(accessibleDoctorIds) },
             0,
             10,
           );
@@ -206,7 +217,7 @@ export function buildCreatePatientFromDocumentTool(
           });
         }
         const doctors = await userRepo.findMany(
-          { id: In(accessibleDoctorIds) } as any,
+          { id: In(accessibleDoctorIds) },
           0,
           50,
         );
@@ -230,7 +241,7 @@ export function buildCreatePatientFromDocumentTool(
 
       const requestingUser = await userRepo.findOne({
         id: context.userId,
-      } as any);
+      });
       if (!requestingUser) {
         return buildToolResult({
           status: 'blocked',
@@ -243,7 +254,7 @@ export function buildCreatePatientFromDocumentTool(
         const existing = await patientRepo.findMany({
           ownerId,
           cpf: cpfDigits,
-        } as any);
+        });
         if (existing.length > 0) {
           const existingNameToken = tokenizePii(
             context,
@@ -281,7 +292,7 @@ export function buildCreatePatientFromDocumentTool(
         });
       }
 
-      let created: any;
+      let created: Patient;
       try {
         created = await patientsService.create(
           {
@@ -301,7 +312,7 @@ export function buildCreatePatientFromDocumentTool(
         });
       }
 
-      if (documentDispatcher && context.phone) {
+      if (context.phone) {
         const pending = await documentDispatcher.getPending(context.phone);
         if (pending) {
           await documentDispatcher.deleteStoragePath(pending.storagePath);

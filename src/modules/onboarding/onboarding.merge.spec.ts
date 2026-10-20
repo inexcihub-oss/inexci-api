@@ -42,11 +42,6 @@ describe('mergeOnboardingState', () => {
     expect(proximo.checklistDismissedAt).toBe('2026-08-02T00:00:00.000Z');
   });
 
-  /**
-   * O caso que justifica a função existir: dois dispositivos abertos, cada um
-   * marcando um passo diferente. Substituir o objeto inteiro perderia um dos
-   * dois.
-   */
   it('funde completedSteps em vez de substituir', () => {
     const atual = {
       ...emptyOnboardingState(),
@@ -94,11 +89,6 @@ describe('mergeOnboardingState', () => {
     });
   });
 
-  /**
-   * O patch chega como JSON de um cliente: o `Omit<…, 'version'>` do tipo não
-   * existe em runtime. O teste precisa mesmo carregar um `version` conflitante,
-   * senão passa igual com ou sem a defesa.
-   */
   it('não deixa o cliente rebaixar a versão do estado', () => {
     const atual = { ...emptyOnboardingState(), version: 1 };
 
@@ -110,13 +100,6 @@ describe('mergeOnboardingState', () => {
     expect(proximo.version).toBe(1);
   });
 
-  /**
-   * `@IsOptional()` do DTO trata `null` como "campo ausente" e deixa
-   * `{ status: null }` passar pela validação — sem normalizar o resultado do
-   * merge, esse `null` (fora da união `OnboardingStatus`) seria gravado na
-   * coluna e devolvido ao cliente, divergindo do que o próximo GET diria
-   * (`not_started`, via `normalizeOnboardingState`).
-   */
   it('normaliza status: null em vez de persistir um valor fora do enum', () => {
     const atual = { ...emptyOnboardingState(), status: 'in_progress' as const };
 

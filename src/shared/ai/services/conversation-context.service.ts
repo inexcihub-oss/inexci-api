@@ -10,18 +10,10 @@ import {
   ConversationMemory,
 } from '../../../database/entities/whatsapp-conversation.entity';
 import { SYSTEM_PROMPT } from '../prompts/system-prompt';
+import { stringifyValue } from '../utils/stringify-value.util';
 
 const SUMMARY_FAILURE_LIMIT = 3;
 
-/**
- * Estratégia efetivamente aplicada na montagem do contexto.
- *
- * - `hybrid`: caminho normal — system + summary + memory + RAG + janela curta.
- * - `history_only`: estado degradado quando o circuit breaker disparou
- *   (>= 3 falhas consecutivas do sumarizador na mesma conversa). Apenas
- *   `system + RAG + janela curta` são enviados; summary/memory são ignorados
- *   até a próxima sumarização bem-sucedida.
- */
 export type ContextStrategy = 'history_only' | 'hybrid';
 
 export interface ContextBlockBreakdown {
@@ -46,11 +38,6 @@ export interface UserContextInfo {
   role?: string | null;
   isDoctor?: boolean;
   ownerId?: string | null;
-  /**
-   * Lista resumida de médicos acessíveis ao usuário (id + nome). Permite
-   * que a IA cite o médico correto quando o usuário pedir "criar SC para
-   * o Dr. Fulano" sem precisar consultar a base.
-   */
   accessibleDoctors?: Array<{ id: string; name?: string | null }>;
 }
 
@@ -58,16 +45,10 @@ export interface BuildContextOptions {
   conversation: WhatsappConversation;
   ragContext?: string | null;
   systemPromptBase?: string;
-  /** Override do número de mensagens recentes (default = AI_MAX_RECENT_MESSAGES). */
   recentLimit?: number;
-  /** Dados do usuário atual injetados como bloco no system. */
   userInfo?: UserContextInfo | null;
 }
 
-/**
- * Estima tokens via heurística simples (text.length / 4). Suficiente para
- * decisões de orçamento; não tenta ser exata como tiktoken.
- */
 export function estimateTokens(text: string | null | undefined): number {
   if (!text) return 0;
   return Math.max(1, Math.ceil(text.length / 4));
@@ -111,38 +92,17 @@ export class ConversationContextService {
     return Math.max(100, Math.floor(Number(value) || 450));
   }
 
-  /**
-   * Monta a lista final de mensagens para o LLM:
-   *   `system + summary + memory + RAG + janela curta`
-   * respeitando `AI_CONTEXT_TOKEN_BUDGET` (corta na ordem rag → recent → summary).
-   *
-   * Circuit breaker: se o sumarizador acumulou >= SUMMARY_FAILURE_LIMIT falhas
-   * consecutivas neste `conversationId`, summary/memory são ignorados até a
-   * próxima sumarização bem-sucedida (estratégia retornada como `history_only`).
-   */
-
-  /**
-   * Constrói um bloco system curto e imperativo com as entidades que o
-   * usuário já forneceu para a SC em construção (paciente, procedimento,
-   * hospital, convênio, prioridade). Esse bloco é incluído em TODOS os
-   * turnos, mesmo no modo `history_only`, para evitar que o LLM esqueça
-   * informações dadas em turnos anteriores e fique repetindo perguntas.
-   */
   private buildSurgeryRequestBuildingBlock(
-    memory: Record<string, unknown> | null | undefined,
+    memory: ConversationMemory | null | undefined,
   ): string | null {
     if (!memory) return null;
-    const filled = (memory as any).filled_slots as
-      | Record<string, unknown>
-      | undefined;
-    const sr = (memory as any).surgeryRequest as
-      | Record<string, unknown>
-      | undefined;
+    const filled = memory.filled_slots;
+    const sr = memory.surgeryRequest;
 
     const items: string[] = [];
     const pushIfPresent = (label: string, value: unknown) => {
       if (value === null || value === undefined) return;
-      const text = String(value).trim();
+      const text = stringifyValue(value).trim();
       if (!text) return;
       items.push(`- ${label}: ${text}`);
     };
@@ -156,7 +116,7 @@ export class ConversationContextService {
       pushIfPresent('Hospital', sr.hospital);
       pushIfPresent('Convênio', sr.healthPlan);
       pushIfPresent('Médico responsável (doctorId)', sr.doctorId);
-      if (sr.id) items.push(`- SC já criada (id): ${String(sr.id)}`);
+      if (sr.id) items.push(`- SC já criada (id): ${sr.id}`);
     }
     if (!items.length) return null;
 
@@ -206,9 +166,6 @@ export class ConversationContextService {
     breakdown.system_tokens = estimateTokens(systemBase);
 
     if (conversation.userId) {
-      // Tokeniza o telefone do usuário (LGPD/T0.7): preserva o número como
-      // placeholder para a IA usar (em vez de ser redigido por máscara
-      // genérica pelo `redactResidualPii`).
       const phoneToken = conversation.phone
         ? this.piiVault.tokenize(conversation.id, conversation.phone, 'phone')
         : '';
@@ -254,10 +211,6 @@ export class ConversationContextService {
       }
     }
 
-    // SC EM CONSTRUÇÃO — bloco SEMPRE incluído (qualquer strategy) quando
-    // houver entidades já mencionadas/coletadas em turnos anteriores. Sem
-    // isso, o LLM "esquece" o procedimento que o usuário falou três turnos
-    // atrás e volta a perguntar, causando o loop.
     const scBuildingBlock = this.buildSurgeryRequestBuildingBlock(
       conversation.conversationMemory,
     );
@@ -287,8 +240,6 @@ export class ConversationContextService {
 
     let usage = computeUsage();
 
-    // Ordem de corte (3.4 do plano): rag → recent older → summary.
-    // Memória estruturada e system prompt nunca são cortados.
     while (usage.used > budget && ragBlock) {
       ragBlock = null;
       usage = computeUsage();
@@ -315,7 +266,9 @@ export class ConversationContextService {
       breakdown.rag_tokens = usage.ragTokens;
     }
     for (const msg of trimmedRecent) {
-      messages.push({ role: msg.role as any, content: msg.content });
+      if (msg.role === 'user' || msg.role === 'assistant') {
+        messages.push({ role: msg.role, content: msg.content });
+      }
     }
     breakdown.recent_tokens = usage.recentTokens;
     breakdown.totalTokens =
@@ -333,13 +286,6 @@ export class ConversationContextService {
     };
   }
 
-  /**
-   * Decide se vale a pena rodar `updateSummaryAndMemory` agora.
-   * Gatilhos (qualquer um disparar):
-   *   - mensagens novas desde o último summary >= AI_SUMMARY_TRIGGER_EVERY_MESSAGES;
-   *   - janela recente acumulou > 1200 tokens;
-   *   - mudança de intent (memory.intent != intent novo).
-   */
   async shouldRefreshSummary(
     conversation: WhatsappConversation,
     newIntentHint?: string,
@@ -376,12 +322,6 @@ export class ConversationContextService {
     return false;
   }
 
-  /**
-   * Gera/atualiza summary + memory para a conversa. Usa modelo barato e prompt
-   * compacto. Em caso de falha, incrementa contador `summary_failures` da
-   * memória; ao atingir `SUMMARY_FAILURE_LIMIT`, o orchestrator cai para
-   * `history_only` automaticamente (lido por shouldRefreshSummary/buildContext).
-   */
   async updateSummaryAndMemory(conversationId: string): Promise<void> {
     const conv = await this.conversationRepo.findOne({ id: conversationId });
     if (!conv) return;
@@ -442,8 +382,6 @@ export class ConversationContextService {
         return;
       }
 
-      // Bloqueia resíduos de PII estruturada não tokenizada (defesa em
-      // profundidade). Tokens {{cat_n}} permanecem.
       const residual = this.piiVault.detectResidualPii(parsed.summary || '');
       if (residual.length) {
         await this.recordSummaryFailure(conv);
@@ -463,7 +401,7 @@ export class ConversationContextService {
 
       await this.conversationRepo.update(conversationId, {
         conversationSummary: parsed.summary || null,
-        conversationMemory: newMemory as any,
+        conversationMemory: newMemory,
         summaryUpdatedAt: new Date(),
       });
 
@@ -480,7 +418,6 @@ export class ConversationContextService {
     }
   }
 
-  /** Limita janela recente. Sempre preserva par user→assistant mais recente. */
   trimRecentMessages<T extends { role: string; content: string }>(
     messages: T[],
     max: number,
@@ -489,60 +426,11 @@ export class ConversationContextService {
     return messages.slice(-max);
   }
 
-  /**
-   * Aplica orçamento de tokens manualmente sobre blocos pré-formatados.
-   * Útil para chamadas externas (testes ou integração customizada).
-   */
-  enforceTokenBudget(
-    blocks: {
-      kind: 'system' | 'summary' | 'memory' | 'rag' | 'recent';
-      content: string;
-    }[],
-    budget: number,
-  ): {
-    blocks: typeof blocks;
-    droppedKinds: Array<'rag' | 'recent' | 'summary'>;
-  } {
-    const droppedKinds: Array<'rag' | 'recent' | 'summary'> = [];
-    const totalTokens = (b: typeof blocks) =>
-      b.reduce((acc, item) => acc + estimateTokens(item.content), 0);
-    const current = [...blocks];
-    let tokens = totalTokens(current);
-
-    while (tokens > budget) {
-      const ragIndex = current.findIndex((b) => b.kind === 'rag');
-      if (ragIndex >= 0) {
-        current.splice(ragIndex, 1);
-        droppedKinds.push('rag');
-        tokens = totalTokens(current);
-        continue;
-      }
-      const recentIndex = current.findIndex((b) => b.kind === 'recent');
-      if (recentIndex >= 0) {
-        current.splice(recentIndex, 1);
-        droppedKinds.push('recent');
-        tokens = totalTokens(current);
-        continue;
-      }
-      const summaryIndex = current.findIndex((b) => b.kind === 'summary');
-      if (summaryIndex >= 0) {
-        current.splice(summaryIndex, 1);
-        droppedKinds.push('summary');
-        tokens = totalTokens(current);
-        continue;
-      }
-      break;
-    }
-
-    return { blocks: current, droppedKinds };
-  }
-
   private safeParseSummary(
     raw: string,
   ): { summary: string; memory: ConversationMemory } | null {
     if (!raw) return null;
     let candidate = raw.trim();
-    // Remove fences ```json ... ```
     if (candidate.startsWith('```')) {
       candidate = candidate
         .replace(/^```(?:json)?\s*/i, '')
@@ -565,7 +453,7 @@ export class ConversationContextService {
     const memory = conversation.conversationMemory || {};
     const failures = (memory.summary_failures ?? 0) + 1;
     await this.conversationRepo.update(conversation.id, {
-      conversationMemory: { ...memory, summary_failures: failures } as any,
+      conversationMemory: { ...memory, summary_failures: failures },
     });
   }
 }

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import { errorMessage } from '../../utils/error-message.util';
 import {
   inexciTracer,
   SpanStatusCode,
@@ -34,10 +35,6 @@ export class OpenaiService {
     this.client = new OpenAI({
       apiKey: this.configService.get<string>('OPENAI_API_KEY', ''),
       timeout: this.requestTimeoutMs,
-      // Retry é feito manualmente em `chatCompletionWithRetry` (loga tentativa,
-      // filtra por status/código específico). `maxRetries: 0` evita que o SDK
-      // some seu próprio retry automático por cima, multiplicando o tempo até
-      // o timeout final ser reportado ao chamador.
       maxRetries: 0,
     });
   }
@@ -48,30 +45,9 @@ export class OpenaiService {
     temperature?: number;
     maxTokens?: number;
     timeoutMs?: number;
-    /** Override do modelo configurado em `OPENAI_MODEL` (ex.: classifier do OCR usa `gpt-4o-mini`). */
     model?: string;
-    /**
-     * Habilita JSON Schema strict ou JSON mode legacy.
-     * Compatível com o param `response_format` do Chat Completions da OpenAI.
-     */
     responseFormat?: OpenAI.ChatCompletionCreateParams['response_format'];
-    /**
-     * Chave de roteamento de prompt caching (ver
-     * https://platform.openai.com/docs/guides/prompt-caching). Quando enviada,
-     * a OpenAI direciona requests com a mesma chave para a mesma réplica,
-     * aumentando o hit rate do cache de prefixo. Use uma chave estável que
-     * agrupe prompts com o mesmo prefixo (ex.: `inexci:wa:v2.1.2:draft=create_sc`).
-     *
-     * O SDK 4.104 ainda não tipa esse campo — propagamos via cast `as any`,
-     * já que a API HTTP aceita normalmente.
-     */
     cacheKey?: string;
-    /**
-     * Etapa do pipeline de IA que originou a chamada — usada apenas como
-     * label da métrica `inexci.openai.request.duration`/`.tokens`
-     * (dashboards de IA/WhatsApp, seção 6.4 do PLANO-OBSERVABILIDADE-GRAFANA.md).
-     * Default `chat` cobre o fluxo principal do orquestrador.
-     */
     stage?: 'chat' | 'summary' | 'doc_classifier' | 'doc_vision_fallback';
   }): Promise<OpenAI.ChatCompletion> {
     return inexciTracer.startActiveSpan(
@@ -109,19 +85,21 @@ export class OpenaiService {
               stage,
               type: 'completion',
             });
-            const cached =
-              (usage as any).prompt_tokens_details?.cached_tokens ?? 0;
+            const cached = usage.prompt_tokens_details?.cached_tokens ?? 0;
             if (cached) span.setAttribute('ai.usage.cached_tokens', cached);
           }
           span.setStatus({ code: SpanStatusCode.OK });
           return result;
-        } catch (e: any) {
+        } catch (e) {
           recordOpenaiRequestDuration(Date.now() - startedAt, {
             model,
             stage,
           });
-          span.recordException(e);
-          span.setStatus({ code: SpanStatusCode.ERROR, message: e.message });
+          span.recordException(e instanceof Error ? e : String(e));
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: errorMessage(e),
+          });
           throw e;
         } finally {
           span.end();
@@ -154,12 +132,11 @@ export class OpenaiService {
         : this.configService.get<string>('OPENAI_MODEL', 'gpt-4o');
 
     const maxTokens = params.maxTokens ?? this.defaultMaxTokens;
-    // Modelos o1/o3/o4 e GPT-5+ têm restrições de API vs gpt-4.x:
-    //   - exigem max_completion_tokens em vez de max_tokens
-    //   - não aceitam temperature customizada (apenas o default 1)
     const isNewGenModel = /^(o\d|gpt-5)/.test(effectiveModel);
 
-    const requestBody: OpenAI.ChatCompletionCreateParams = {
+    const requestBody: OpenAI.ChatCompletionCreateParams & {
+      prompt_cache_key?: string;
+    } = {
       model: effectiveModel,
       messages: params.messages,
       tools: params.tools?.length ? params.tools : undefined,
@@ -173,32 +150,34 @@ export class OpenaiService {
 
     const trimmedCacheKey = params.cacheKey?.trim();
     if (trimmedCacheKey) {
-      // O campo `prompt_cache_key` ainda não está tipado no SDK 4.x, mas a
-      // API HTTP da OpenAI aceita desde out/2024. Usar `as any` aqui evita
-      // bumpar o SDK só para isso.
-      (requestBody as any).prompt_cache_key = trimmedCacheKey;
+      requestBody.prompt_cache_key = trimmedCacheKey;
     }
 
     try {
       return await this.client.chat.completions.create(requestBody, {
         timeout: effectiveTimeoutMs,
       });
-    } catch (error: any) {
+    } catch (error) {
+      const { status, code, name } = (
+        typeof error === 'object' && error !== null ? error : {}
+      ) as { status?: unknown; code?: unknown; name?: unknown };
       const isRetryable =
-        error?.status === 500 ||
-        error?.status === 503 ||
-        error?.code === 'ETIMEDOUT' ||
-        error?.code === 'ECONNABORTED' ||
-        error?.name === 'AbortError';
+        status === 500 ||
+        status === 503 ||
+        code === 'ETIMEDOUT' ||
+        code === 'ECONNABORTED' ||
+        name === 'AbortError';
 
-      if (error?.code === 'ETIMEDOUT' || error?.code === 'ECONNABORTED') {
+      if (code === 'ETIMEDOUT' || code === 'ECONNABORTED') {
         this.logger.warn(
           `Timeout na chamada OpenAI após ${effectiveTimeoutMs}ms`,
         );
       }
 
       if (retries > 0 && isRetryable) {
-        this.logger.warn(`OpenAI erro ${error?.status}, tentando novamente...`);
+        this.logger.warn(
+          `OpenAI erro ${String(status)}, tentando novamente...`,
+        );
         await new Promise((r) => setTimeout(r, 3000));
         return this.chatCompletionWithRetry(params, retries - 1);
       }

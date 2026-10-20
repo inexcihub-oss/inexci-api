@@ -23,7 +23,7 @@ import {
 function gf(id: string, extra: Record<string, string | null> = {}) {
   return {
     id,
-    dia_semana: '2', // segunda
+    dia_semana: '2',
     hora_de: '08:00:00',
     hora_ate: '12:00:00',
     profissionalid: '1',
@@ -71,12 +71,11 @@ function feriado(
   };
 }
 
-/** Cadastro → agenda → disponibilidade no mesmo ledger, como o runner faz. */
 function planejar(
   tabelas: Record<string, unknown[]>,
   opcoes: Partial<ContextoImportacao['opcoes']> = {},
 ) {
-  const exp = exportSintetico({ grade_fixa: [], ...tabelas } as never);
+  const exp = exportSintetico({ grade_fixa: [], ...tabelas });
   const ctx0 = contextoDeTeste({
     usuariosPorEmail: new Map([
       [
@@ -169,8 +168,8 @@ describe('planejarDisponibilidade — grade', () => {
       grade_periodo: [
         {
           id: '1',
-          data_de: '2025-05-23', // sexta
-          data_ate: '2025-05-24', // sábado
+          data_de: '2025-05-23',
+          data_ate: '2025-05-24',
           hora_de: '08:00:00',
           hora_ate: '12:00:00',
           profissional_id: '1',
@@ -308,7 +307,7 @@ describe('disponibilidade — idempotência e gravação', () => {
       feriados: [feriado('1', 'Natal', '2026-12-25')],
     };
     const primeira = planejar(tabelas);
-    const exp = exportSintetico(tabelas as never);
+    const exp = exportSintetico(tabelas);
     const segunda = planejarDisponibilidade(
       exp,
       contextoDeTeste({ ledger: primeira.ctx.ledger, hoje: '2026-10-02' }),

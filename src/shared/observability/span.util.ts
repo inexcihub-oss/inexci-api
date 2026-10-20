@@ -2,10 +2,6 @@ import { inexciTracer, SpanStatusCode } from './tracer';
 
 type SpanAttributes = Record<string, string | number | boolean>;
 
-/**
- * Executa `fn` dentro de um span OTel ativo, registrando duração e erros.
- * Uso nos pontos críticos de performance (detalhe SC, kanban, dashboard).
- */
 export async function withActiveSpan<T>(
   name: string,
   attributes: SpanAttributes,

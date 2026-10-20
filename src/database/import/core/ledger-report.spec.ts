@@ -70,7 +70,6 @@ describe('Ledger', () => {
       expect(() =>
         new Ledger(caminho).vincular({ ...VINCULO, banco: 'inexci_homolog' }),
       ).toThrow(/outra carga.*banco/);
-      // --adotar-ledger não serve de saída para ledger de outra carga.
       expect(() =>
         new Ledger(caminho).vincular(
           { ...VINCULO, ownerId: 'outro-dono' },

@@ -1,18 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-/**
- * Categorias de PII reconhecidas pelo Vault.
- *
- * Toda PII enviada ao LLM externo deve ser substituída por um placeholder
- * `{{<category>_<n>}}` antes da chamada e detokenizada após a resposta,
- * antes de qualquer envio externo (WhatsApp, persistência de histórico bruto, etc.).
- */
 export type PiiCategory =
   | 'patient_name'
   | 'doctor_name'
   | 'hospital_name'
   | 'health_plan_name'
   | 'cpf'
+  | 'cns'
+  | 'health_plan_card'
   | 'rg'
   | 'phone'
   | 'email'
@@ -32,6 +27,8 @@ export const ALL_PII_CATEGORIES: PiiCategory[] = [
   'hospital_name',
   'health_plan_name',
   'cpf',
+  'cns',
+  'health_plan_card',
   'rg',
   'phone',
   'email',
@@ -46,15 +43,40 @@ export const ALL_PII_CATEGORIES: PiiCategory[] = [
   'payload_blob',
 ];
 
-/**
- * RG (registro geral) não tem checksum nem formato único entre estados —
- * cobrimos o padrão mais comum em documentos brasileiros (ex.: "27.903.040-7"
- * em "ID: 27.903.040-7 DETRAN-RJ"): 1-2 dígitos, ponto, 3 dígitos, ponto,
- * 3 dígitos, traço, 1 dígito ou "X" (dígito verificador). Os pontos
- * obrigatórios evitam colisão com CPF (sempre 3-3-3-2) e código TUSS
- * (sem traço final).
- */
 const RG_REGEX = /\b\d{1,2}\.\d{3}\.\d{3}-[\dXx]\b/g;
+
+const CPF_SEPARADO_REGEX =
+  /(?<!\d)\d{3}(?:\s*[.-]\s*|\s+)\d{3}(?:\s*[.-]\s*|\s+)\d{3}(?:\s*[.-]\s*|\s+)\d{2}(?!\d)/g;
+
+const CNS_REGEX =
+  /(?<!\d)[12789]\d{2}[\s.-]?\d{4}[\s.-]?\d{4}[\s.-]?\d{4}(?!\d)/g;
+
+const CARTEIRINHA_ROTULADA_REGEX =
+  /(\b(?:carteirinha|carteira\s+do\s+(?:conv[êe]nio|plano)|matr[íi]cula|n[úu]mero\s+d[aeo]\s+(?:carteirinha|conv[êe]nio|plano)|n[º°o]\.?\s*d[aeo]\s+(?:carteirinha|conv[êe]nio|plano)|c[óo]digo\s+do\s+benefici[áa]rio)(?:\s+do\s+(?:conv[êe]nio|plano))?\s*(?:[:#=-]|[ée]|n[º°o]\.?)?\s*)(\d(?:\d|[.\-/ ](?=\d)){4,30})/gi;
+
+function somenteDigitos(valor: string): string {
+  return valor.replace(/\D/g, '');
+}
+
+export function cpfValido(valor: string): boolean {
+  const d = somenteDigitos(valor);
+  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+  const digito = (len: number): number => {
+    let soma = 0;
+    for (let i = 0; i < len; i++) soma += Number(d[i]) * (len + 1 - i);
+    const resto = (soma * 10) % 11;
+    return resto === 10 ? 0 : resto;
+  };
+  return digito(9) === Number(d[9]) && digito(10) === Number(d[10]);
+}
+
+export function cnsValido(valor: string): boolean {
+  const d = somenteDigitos(valor);
+  if (d.length !== 15 || !/^[12789]/.test(d)) return false;
+  let soma = 0;
+  for (let i = 0; i < 15; i++) soma += Number(d[i]) * (15 - i);
+  return soma % 11 === 0;
+}
 
 export interface PiiBinding {
   token: string;
@@ -62,11 +84,6 @@ export interface PiiBinding {
   realValue: string;
 }
 
-/**
- * Forma serializável usada para persistir os bindings da sessão entre
- * turnos da mesma conversa (Redis/banco). Mantemos `PiiBinding[]` direto:
- * é JSON-friendly e idempotente com `restoreSession`.
- */
 export type SerializedPiiBindings = PiiBinding[];
 
 export interface ResidualPiiFinding {
@@ -74,16 +91,6 @@ export interface ResidualPiiFinding {
   sample: string;
 }
 
-/**
- * Normaliza `realValue` por categoria antes de gravar/restaurar no vault.
- *
- * Caso especial: `protocol`. Versões antigas tokenizavam o protocolo já com
- * prefixo `SC-`, e bindings persistidos em Redis (TTL 1h) mantêm esse formato
- * mesmo após o fix. Sem essa normalização, o detokenize gera `"SC-SC-XXXXX"`
- * porque a IA acabou aprendendo o padrão `"SC-{{protocol_n}}"` no histórico.
- * Aqui forçamos que TODO `realValue` de `protocol` seja salvo SEM prefixo
- * `SC-`, garantindo que o detokenize da resposta da IA produza `"SC-XXXXX"`.
- */
 function normalizeRealValueForCategory(
   category: PiiCategory,
   rawValue: string,
@@ -113,23 +120,6 @@ export class PiiVaultService {
     this.bindings.delete(sessionId);
   }
 
-  hasSession(sessionId: string): boolean {
-    return this.bindings.has(sessionId);
-  }
-
-  /**
-   * Restaura bindings previamente serializados (Redis/banco) na sessão atual.
-   *
-   * Necessário para preservar a correspondência placeholder→valor real entre
-   * turnos consecutivos da mesma conversa: sem isso, os placeholders salvos
-   * no histórico (`{{protocol_1}}`, `{{patient_name_1}}`, …) viram órfãos no
-   * próximo turno e o `detokenize` retorna o texto inalterado.
-   *
-   * - Sessão é (re)criada se não existir.
-   * - Mantém bindings já presentes na sessão (caso `tokenize` tenha sido
-   *   chamado antes de `restoreSession` por algum motivo) e mescla pelos
-   *   `(category, realValue)` para evitar duplicatas.
-   */
   restoreSession(
     sessionId: string,
     bindings: SerializedPiiBindings | null | undefined,
@@ -167,10 +157,6 @@ export class PiiVaultService {
     this.bindings.set(sessionId, list);
   }
 
-  /**
-   * Snapshot serializável da sessão para persistência externa.
-   * Diferente de `snapshot`, devolve apenas os campos JSON-safe.
-   */
   serializeSession(sessionId: string): SerializedPiiBindings {
     return [...(this.bindings.get(sessionId) ?? [])].map((b) => ({
       token: b.token,
@@ -179,11 +165,6 @@ export class PiiVaultService {
     }));
   }
 
-  /**
-   * Substitui um valor real por um placeholder estável dentro da sessão.
-   * Reuso garantido: o mesmo valor + categoria devolvem o mesmo placeholder.
-   * Valores vazios ou nulos são devolvidos como string vazia (sem registro).
-   */
   tokenize(
     sessionId: string,
     value: string | number | null | undefined,
@@ -210,10 +191,6 @@ export class PiiVaultService {
     return token;
   }
 
-  /**
-   * Substitui placeholders pelos valores reais. Operação inversa de tokenize.
-   * Idempotente: aplicar duas vezes não corrompe o texto.
-   */
   detokenize(sessionId: string, text: string): string {
     if (!text || !sessionId) return text || '';
     const list = this.bindings.get(sessionId);
@@ -228,23 +205,6 @@ export class PiiVaultService {
     return output;
   }
 
-  /**
-   * Pré-processador de input livre (texto do usuário, OCR de documento, etc.):
-   * substitui CPF/RG/telefone/email por placeholders ANTES de o conteúdo
-   * entrar no histórico ou ir para a OpenAI.
-   *
-   * Apenas dados sensíveis estruturados (CPF, RG, telefone, e-mail) são
-   * tokenizados. Texto de laudo, descrição de procedimento, observações
-   * clínicas e qualquer conteúdo médico fluem **inteiros** ao LLM —
-   * laudos podem ter qualquer tamanho e precisamos do conteúdo completo
-   * para o classificador de documentos extrair patient/hospital/TUSS/CID.
-   *
-   * O parâmetro `blobThreshold` existe como opt-in defensivo (caller que
-   * realmente queira limitar input gigante pode passar um número finito);
-   * por padrão é `Infinity` — sem `payload_blob`. Antes era `1500` por
-   * default e isso engolia laudos médicos inteiros num único placeholder,
-   * fazendo o pipeline OCR devolver `kind=unknown, confidence=0.5`.
-   */
   preprocessUserInput(
     sessionId: string,
     rawInput: string,
@@ -253,8 +213,22 @@ export class PiiVaultService {
     if (!rawInput) return '';
     let out = rawInput;
 
+    out = out.replace(
+      CARTEIRINHA_ROTULADA_REGEX,
+      (_match, rotulo: string, numero: string) =>
+        `${rotulo}${this.tokenize(sessionId, numero, 'health_plan_card')}`,
+    );
+
+    out = out.replace(CNS_REGEX, (match) =>
+      cnsValido(match) ? this.tokenize(sessionId, match, 'cns') : match,
+    );
+
     out = out.replace(/\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b/g, (match) =>
       this.tokenize(sessionId, match, 'cpf'),
+    );
+
+    out = out.replace(CPF_SEPARADO_REGEX, (match) =>
+      cpfValido(match) ? this.tokenize(sessionId, match, 'cpf') : match,
     );
 
     out = out.replace(RG_REGEX, (match) =>
@@ -277,17 +251,17 @@ export class PiiVaultService {
     return out;
   }
 
-  /**
-   * Detecta resíduos de PII estruturada (CPF, RG, telefone BR, email) que
-   * não passaram pela tokenização. Usado como filtro defensivo antes de
-   * qualquer chamada ao LLM externo.
-   */
   detectResidualPii(text: string): ResidualPiiFinding[] {
     const findings: ResidualPiiFinding[] = [];
     if (!text) return findings;
 
-    const cpf = text.match(/\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b/);
-    if (cpf) findings.push({ category: 'cpf', sample: cpf[0] });
+    const cpf =
+      text.match(/\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b/)?.[0] ??
+      [...text.matchAll(CPF_SEPARADO_REGEX)].map((m) => m[0]).find(cpfValido);
+    if (cpf) findings.push({ category: 'cpf', sample: cpf });
+
+    const cns = [...text.matchAll(CNS_REGEX)].map((m) => m[0]).find(cnsValido);
+    if (cns) findings.push({ category: 'cns', sample: cns });
 
     const rg = text.match(/\b\d{1,2}\.\d{3}\.\d{3}-[\dXx]\b/);
     if (rg) findings.push({ category: 'rg', sample: rg[0] });
@@ -301,20 +275,6 @@ export class PiiVaultService {
     return findings;
   }
 
-  /**
-   * Mascara CPF/RG/telefone/email "literais" no texto por placeholders
-   * genéricos não-PII (`(DDD) NNNNN-NNNN`, `XXX.XXX.XXX-XX`, `XX.XXX.XXX-X`,
-   * `exemplo@dominio.com`).
-   *
-   * Usado para sanitizar respostas do assistente ANTES de salvar no histórico
-   * conversacional — sem isso, exemplos de formato gerados pela IA
-   * (ex.: "use o formato 31 99999-9999") seriam redigidos pelo
-   * `redactResidualPii` a cada turno seguinte e poluiriam o log de auditoria.
-   *
-   * Os placeholders do vault (`{{categoria_n}}`) NÃO são tocados pois as
-   * regexes de PII estruturada não casam com chaves `{{ }}`. Um helper
-   * adicional preserva ranges para garantir robustez.
-   */
   maskLiteralPii(text: string): {
     text: string;
     masked: { category: PiiCategory; count: number }[];
@@ -348,10 +308,12 @@ export class PiiVaultService {
       regex: RegExp,
       category: PiiCategory,
       mask: string,
+      valida?: (valor: string) => boolean,
     ): void => {
       const localRegex = new RegExp(regex.source, regex.flags);
       let match: RegExpExecArray | null;
       while ((match = localRegex.exec(text)) !== null) {
+        if (valida && !valida(match[0])) continue;
         const start = match.index;
         const end = start + match[0].length;
         if (overlapsPlaceholder(start, end)) continue;
@@ -363,11 +325,13 @@ export class PiiVaultService {
       }
     };
 
+    collect(CNS_REGEX, 'cns', 'NNN NNNN NNNN NNNN', cnsValido);
     collect(
       /\b(?:\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})\b/g,
       'cpf',
       'XXX.XXX.XXX-XX',
     );
+    collect(CPF_SEPARADO_REGEX, 'cpf', 'XXX.XXX.XXX-XX', cpfValido);
     collect(/\b\d{1,2}\.\d{3}\.\d{3}-[\dXx]\b/g, 'rg', 'XX.XXX.XXX-X');
     collect(
       /(?:\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}-?\d{4}/g,
@@ -400,9 +364,6 @@ export class PiiVaultService {
     return { text: output, masked };
   }
 
-  /**
-   * Hash determinístico do valor para fins de auditoria sem armazenar o valor real.
-   */
   hashValue(value: string): string {
     if (!value) return '';
     let hash = 0;
@@ -413,22 +374,16 @@ export class PiiVaultService {
     return Math.abs(hash).toString(16).padStart(8, '0');
   }
 
-  /**
-   * Snapshot read-only das vinculações ativas (somente para diagnóstico/teste).
-   */
   snapshot(sessionId: string): PiiBinding[] {
     return [...(this.bindings.get(sessionId) ?? [])];
   }
 
-  /**
-   * Conta tokens ativos por categoria; usado para métrica/observabilidade (T0.11).
-   */
   categoryCounts(sessionId: string): Record<PiiCategory, number> {
     const counts: Record<string, number> = {};
     for (const cat of ALL_PII_CATEGORIES) counts[cat] = 0;
     for (const binding of this.bindings.get(sessionId) ?? []) {
       counts[binding.category] = (counts[binding.category] ?? 0) + 1;
     }
-    return counts as Record<PiiCategory, number>;
+    return counts;
   }
 }

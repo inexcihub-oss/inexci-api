@@ -47,7 +47,6 @@ describe('emParalelo', () => {
         terminados.push(n);
       }),
     ).rejects.toThrow('falhou');
-    // 2 e 3 já estavam em voo: terminaram antes da rejeição.
     expect(terminados.sort()).toEqual([2, 3]);
     expect(iniciados.sort()).toEqual([1, 2, 3]);
   });

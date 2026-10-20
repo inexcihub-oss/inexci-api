@@ -1,4 +1,5 @@
 import { QueryRunner } from 'typeorm';
+import { CLINIC_ROOM_NOME_UNICO } from '../entities/clinic-room.entity';
 import {
   AddUniqueClinicRoomName1755801000000,
   UQ_CLINIC_ROOMS_CLINIC_NAME,
@@ -8,11 +9,6 @@ import {
   VERIFICACOES_PRE_MIGRATION,
 } from './preflight/data-checks';
 
-/**
- * O índice fecha a corrida do `assertNomeLivre`. Dado legado repetido
- * derrubaria o `CREATE UNIQUE INDEX` sem dizer quais salas colidem — a
- * migration confere antes, com a mesma verificação do pré-flight de deploy.
- */
 describe('AddUniqueClinicRoomName1755801000000', () => {
   function criarQueryRunner(conflitos: Record<string, unknown>[] = []) {
     const query = jest.fn((sql: string) =>
@@ -60,5 +56,9 @@ describe('AddUniqueClinicRoomName1755801000000', () => {
     expect(executadas(query)).toEqual([
       `DROP INDEX IF EXISTS "${UQ_CLINIC_ROOMS_CLINIC_NAME}"`,
     ]);
+  });
+
+  it('a entidade declara o mesmo nome de índice', () => {
+    expect(CLINIC_ROOM_NOME_UNICO).toBe(UQ_CLINIC_ROOMS_CLINIC_NAME);
   });
 });

@@ -1,9 +1,17 @@
-import { Injectable } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { Injectable, Logger } from '@nestjs/common';
+import { DataSource, EntityManager } from 'typeorm';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { Patient } from 'src/database/entities/patient.entity';
-import { Hospital } from 'src/database/entities/hospital.entity';
-import { HealthPlan } from 'src/database/entities/health-plan.entity';
+import {
+  HOSPITAL_NOME_UNICO,
+  Hospital,
+} from 'src/database/entities/hospital.entity';
+import {
+  HEALTH_PLAN_NOME_UNICO,
+  HealthPlan,
+} from 'src/database/entities/health-plan.entity';
+import { violouIndice } from 'src/database/repositories/unique-violation.util';
+import { escapeLikePattern } from 'src/database/repositories/owned-catalog.repository';
 import { Procedure } from 'src/database/entities/procedure.entity';
 import { DocumentClassificationExtracted } from 'src/shared/ai/ocr/document-classifier.types';
 
@@ -21,13 +29,12 @@ export interface ResolvedCandidates {
   hospital: EntityCandidate[];
   healthPlan: EntityCandidate[];
   procedure: EntityCandidate[];
-  /** true quando o documento identificou um paciente pelo nome mas sem CPF. */
   patientCpfMissing: boolean;
-  /** true quando há um único match exato de paciente por CPF. */
   patientMatchedByCpf: boolean;
 }
 
 const MAX_CANDIDATES = 5;
+const MAX_PROCEDURE_NAME_LENGTH = 255;
 
 function normalizeCpf(raw?: string): string | null {
   if (!raw) return null;
@@ -51,15 +58,12 @@ function buildSearchTerms(raw: string): string[] {
   const terms = new Set<string>();
   terms.add(base);
 
-  // Ex.: "SULAMERICA 88888 0167 4659 0018" -> "SULAMERICA"
   const withoutLongNumbers = base
     .replace(/\b\d[\d\s./-]{7,}\d\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   if (withoutLongNumbers.length >= 2) terms.add(withoutLongNumbers);
 
-  // Ex.: "Local: Será realizada no Hospital Caxias D'Or, na data..."
-  // -> "Hospital Caxias D'Or"
   const venueMatch = base.match(/\b(hospital[^,.;:\n]*|cl[ií]nica[^,.;:\n]*)/i);
   if (venueMatch?.[1]) {
     const venue = venueMatch[1].replace(/\s+/g, ' ').trim();
@@ -69,14 +73,10 @@ function buildSearchTerms(raw: string): string[] {
   return Array.from(terms).slice(0, 4);
 }
 
-/**
- * A partir dos dados extraídos de um documento, busca candidatos existentes
- * no banco (escopados por ownerId) para paciente, hospital, convênio e
- * procedimento. Todas as buscas são best-effort — se não encontrar, retorna
- * lista vazia.
- */
 @Injectable()
 export class DocumentEntityResolverService {
+  private readonly logger = new Logger(DocumentEntityResolverService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly accessControlService: AccessControlService,
@@ -154,7 +154,7 @@ export class DocumentEntityResolverService {
         .createQueryBuilder('p')
         .where('p.owner_id = :ownerId', { ownerId })
         .andWhere('unaccent(lower(p.name)) ILIKE unaccent(lower(:term))', {
-          term: `%${name}%`,
+          term: `%${escapeLikePattern(name)}%`,
         })
         .select(['p.id', 'p.name', 'p.cpf'])
         .limit(MAX_CANDIDATES)
@@ -202,7 +202,7 @@ export class DocumentEntityResolverService {
               OR :termNorm ILIKE ('%' || regexp_replace(unaccent(lower(e.name)), '[^a-z0-9]+', ' ', 'g') || '%')
             )`,
             {
-              termLike: `%${termNorm}%`,
+              termLike: `%${escapeLikePattern(termNorm)}%`,
               termNorm,
             },
           )
@@ -220,8 +220,121 @@ export class DocumentEntityResolverService {
       }
 
       return Array.from(unique.values()).slice(0, MAX_CANDIDATES);
-    } catch {
+    } catch (err) {
+      this.logger.warn(
+        `[resolveByName] Falha ao buscar candidatos de ${entity.name}: ${(err as Error)?.message}`,
+      );
       return [];
     }
+  }
+
+  resolveOrCreateHospitalId(
+    name: string | undefined,
+    ownerId: string,
+    manager?: EntityManager,
+  ): Promise<string | undefined> {
+    return this.resolveOrCreateByName(
+      Hospital,
+      (name ?? '').trim(),
+      ownerId,
+      { active: true },
+      manager,
+      HOSPITAL_NOME_UNICO,
+    );
+  }
+
+  resolveOrCreateHealthPlanId(
+    name: string | undefined,
+    ownerId: string,
+    manager?: EntityManager,
+  ): Promise<string | undefined> {
+    return this.resolveOrCreateByName(
+      HealthPlan,
+      (name ?? '').trim(),
+      ownerId,
+      { active: true },
+      manager,
+      HEALTH_PLAN_NOME_UNICO,
+    );
+  }
+
+  resolveOrCreateProcedureId(
+    name: string | undefined,
+    ownerId: string,
+    manager?: EntityManager,
+  ): Promise<string | undefined> {
+    return this.resolveOrCreateByName(
+      Procedure,
+      this.normalizeProcedureName(name),
+      ownerId,
+      {},
+      manager,
+    );
+  }
+
+  private async resolveOrCreateByName<
+    T extends { id: string; name: string; ownerId: string },
+  >(
+    entity: new () => T,
+    name: string | undefined,
+    ownerId: string,
+    defaults: Partial<T>,
+    manager: EntityManager = this.dataSource.manager,
+    uniqueIndex?: string,
+  ): Promise<string | undefined> {
+    if (!name) return undefined;
+
+    const repo = manager.getRepository(entity);
+    const existing = await repo
+      .createQueryBuilder('e')
+      .where('e.owner_id = :ownerId', { ownerId })
+      .andWhere('unaccent(lower(e.name)) = unaccent(lower(:name))', { name })
+      .select(['e.id'])
+      .getOne();
+    if (existing?.id) return existing.id;
+
+    if (!uniqueIndex) {
+      const saved = await repo.save(
+        repo.create({ ...defaults, name, ownerId } as T),
+      );
+      return saved.id;
+    }
+
+    try {
+      const saved = await manager.transaction((tx) => {
+        const txRepo = tx.getRepository(entity);
+        return txRepo.save(txRepo.create({ ...defaults, name, ownerId } as T));
+      });
+      return saved.id;
+    } catch (erro) {
+      if (!violouIndice(erro, uniqueIndex)) throw erro;
+
+      const vencedor = await repo
+        .createQueryBuilder('e')
+        .where('e.owner_id = :ownerId', { ownerId })
+        .andWhere('lower(e.name) = lower(:name)', { name })
+        .select(['e.id'])
+        .getOne();
+      if (!vencedor?.id) throw erro;
+
+      this.logger.warn(
+        `[resolveOrCreateByName] ${entity.name} criado em paralelo com o mesmo nome; reaproveitando id=${vencedor.id}`,
+      );
+      return vencedor.id;
+    }
+  }
+
+  private normalizeProcedureName(raw: string | undefined): string | undefined {
+    const name = (raw ?? '').replace(/\s+/g, ' ').trim();
+    if (!name) return undefined;
+
+    if (name.length > MAX_PROCEDURE_NAME_LENGTH) {
+      this.logger.warn(
+        `[SC_FROM_DOC] procedure_name_too_long len=${name.length} max=${MAX_PROCEDURE_NAME_LENGTH} dropping_auto_create`,
+      );
+      return undefined;
+    }
+
+    return name;
   }
 }

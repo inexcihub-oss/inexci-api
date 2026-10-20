@@ -41,7 +41,7 @@ describe('verificarCarga', () => {
     ledger.registrar('patient', '10', 'p1');
     ledger.registrar('patient', '11', 'p2');
     ledger.registrar('health_plan', '14', 'hp1');
-    ledger.registrar('health_plan', '15', 'hp1'); // fundidos
+    ledger.registrar('health_plan', '15', 'hp1');
     const consultar = jest
       .fn()
       .mockImplementation(async (sql: string) =>

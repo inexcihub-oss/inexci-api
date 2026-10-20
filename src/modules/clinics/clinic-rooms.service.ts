@@ -3,7 +3,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ClinicRoom } from 'src/database/entities/clinic-room.entity';
+import {
+  CLINIC_ROOM_NOME_UNICO,
+  ClinicRoom,
+} from 'src/database/entities/clinic-room.entity';
 import { ClinicRepository } from 'src/database/repositories/clinic.repository';
 import { ClinicRoomRepository } from 'src/database/repositories/clinic-room.repository';
 import { violacaoDeUnicidade } from 'src/database/repositories/unique-violation.util';
@@ -13,16 +16,6 @@ import {
   UpdateClinicRoomDto,
 } from './dto/clinic-room.dto';
 
-/**
- * Índice único de nome por clínica (`AddUniqueClinicRoomName1755801000000`).
- * Literal aqui de propósito: o service não importa de `migrations/`.
- */
-const UQ_NOME_DA_SALA = 'uq_clinic_rooms_clinic_name_active';
-
-/**
- * Salas (consultórios) de uma clínica. Isolamento pela conta (`ownerId`), como
- * a própria clínica; id de outra conta responde 404, sem confirmar existência.
- */
 @Injectable()
 export class ClinicRoomsService {
   constructor(
@@ -71,17 +64,12 @@ export class ClinicRoomsService {
     }
   }
 
-  /**
-   * O `assertNomeLivre` é check-then-insert: dois cadastros simultâneos passam
-   * pela checagem antes de qualquer um gravar, e o índice único barra o
-   * segundo. Traduz essa violação na mesma 409 amigável, em vez de um 500.
-   */
   private async gravandoNome<T>(name: string, gravar: () => Promise<T>) {
     try {
       return await gravar();
     } catch (erro) {
       const violacao = violacaoDeUnicidade(erro);
-      if (violacao && violacao.constraint === UQ_NOME_DA_SALA) {
+      if (violacao && violacao.constraint === CLINIC_ROOM_NOME_UNICO) {
         throw new ConflictException(`Já existe uma sala chamada "${name}".`);
       }
       throw erro;
@@ -131,7 +119,6 @@ export class ClinicRoomsService {
     ))!;
   }
 
-  /** Soft delete: consultas antigas continuam apontando para a sala. */
   async delete(
     clinicId: string,
     roomId: string,

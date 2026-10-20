@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { SurgeryRequestFromDocumentService } from './surgery-request-from-document.service';
 
 const buildFile = (
@@ -42,8 +42,10 @@ describe('SurgeryRequestFromDocumentService', () => {
   let storage: any;
   let accessControl: any;
   let patientsService: any;
-  let surgeryRequestsService: any;
   let mutationService: any;
+  let surgeryRequestRepository: any;
+  let patientRepo: any;
+  let manager: any;
   let assemblyService: any;
   let entityResolver: any;
   let documentsService: any;
@@ -71,17 +73,25 @@ describe('SurgeryRequestFromDocumentService', () => {
     };
     accessControl = {
       getOwnerId: jest.fn().mockResolvedValue('owner-1'),
+      buildSurgeryAccessWhere: jest.fn(async (where: any) => ({
+        ...where,
+        ownerId: 'owner-1',
+      })),
     };
     patientsService = {
       create: jest.fn().mockResolvedValue({ id: 'patient-new' }),
-    };
-    surgeryRequestsService = {
-      createReportSection: jest.fn().mockResolvedValue({}),
+      sendWelcome: jest.fn().mockResolvedValue(undefined),
     };
     mutationService = {
       createSurgeryRequest: jest
         .fn()
         .mockResolvedValue({ id: 'sc-1', protocol: 'SC-2024-0001' }),
+      assertBelongsToOwner: jest.fn().mockResolvedValue(undefined),
+      broadcastCreated: jest.fn().mockResolvedValue(undefined),
+    };
+    surgeryRequestRepository = {
+      findOneSimple: jest.fn(),
+      update: jest.fn().mockResolvedValue({}),
     };
     assemblyService = {
       assembleFromExtracted: jest.fn().mockResolvedValue({ warnings: [] }),
@@ -95,6 +105,9 @@ describe('SurgeryRequestFromDocumentService', () => {
         patientCpfMissing: false,
         patientMatchedByCpf: true,
       }),
+      resolveOrCreateHospitalId: jest.fn().mockResolvedValue(undefined),
+      resolveOrCreateHealthPlanId: jest.fn().mockResolvedValue(undefined),
+      resolveOrCreateProcedureId: jest.fn().mockResolvedValue(undefined),
     };
     documentsService = {
       createFromPath: jest.fn().mockResolvedValue({ id: 'doc-1' }),
@@ -106,8 +119,14 @@ describe('SurgeryRequestFromDocumentService', () => {
         return defaultValue;
       }),
     };
+    patientRepo = {
+      findOne: jest.fn().mockResolvedValue(null),
+      update: jest.fn().mockResolvedValue({}),
+    };
+    manager = { getRepository: jest.fn(() => patientRepo) };
     dataSource = {
-      getRepository: jest.fn(),
+      manager,
+      transaction: jest.fn(async (cb: any) => cb(manager)),
     };
 
     service = new SurgeryRequestFromDocumentService(
@@ -115,19 +134,15 @@ describe('SurgeryRequestFromDocumentService', () => {
       storage,
       accessControl,
       patientsService,
-      surgeryRequestsService,
       mutationService,
       assemblyService,
       entityResolver,
       documentsService,
       configService,
       dataSource,
+      surgeryRequestRepository,
     );
   });
-
-  // ─────────────────────────────────────────────
-  // extractFromDocument
-  // ─────────────────────────────────────────────
 
   it('extrai e retorna DTO completo com candidatos e tempStoragePath', async () => {
     const result = await service.extractFromDocument(buildFile(), 'user-1');
@@ -190,10 +205,6 @@ describe('SurgeryRequestFromDocumentService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  // ─────────────────────────────────────────────
-  // createFromDocument
-  // ─────────────────────────────────────────────
-
   it('cria SC com paciente existente e retorna id+protocol', async () => {
     const result = await service.createFromDocument(
       {
@@ -212,6 +223,7 @@ describe('SurgeryRequestFromDocumentService', () => {
         procedureId: 'proc-1',
       }),
       'user-1',
+      { manager },
     );
     expect(assemblyService.assembleFromExtracted).toHaveBeenCalledWith(
       expect.objectContaining({ scId: 'sc-1' }),
@@ -269,10 +281,15 @@ describe('SurgeryRequestFromDocumentService', () => {
     expect(patientsService.create).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Joao Silva', cpf: '12345678901' }),
       'user-1',
+      { manager },
     );
+    expect(patientsService.sendWelcome).toHaveBeenCalledWith({
+      id: 'patient-new',
+    });
     expect(mutationService.createSurgeryRequest).toHaveBeenCalledWith(
       expect.objectContaining({ patientId: 'patient-new' }),
       'user-1',
+      { manager },
     );
     expect(result.id).toBe('sc-1');
   });
@@ -308,7 +325,7 @@ describe('SurgeryRequestFromDocumentService', () => {
 
   it('cria a SC sem procedimento (via documento só exige paciente válido)', async () => {
     const result = await service.createFromDocument(
-      { doctorId: 'doctor-1', patientId: 'patient-1' } as any,
+      { doctorId: 'doctor-1', patientId: 'patient-1' },
       'user-1',
     );
 
@@ -316,6 +333,7 @@ describe('SurgeryRequestFromDocumentService', () => {
     expect(mutationService.createSurgeryRequest).toHaveBeenCalledWith(
       expect.objectContaining({ procedureId: undefined }),
       'user-1',
+      { manager },
     );
   });
 
@@ -348,6 +366,11 @@ describe('SurgeryRequestFromDocumentService', () => {
   });
 
   it('repassa address, healthPlanId e healthPlanNumber ao criar novo paciente', async () => {
+    patientRepo.findOne.mockResolvedValue({
+      id: 'patient-new',
+      healthPlanId: null,
+      healthPlanNumber: '88888 0167 4659 0018',
+    });
     await service.createFromDocument(
       {
         doctorId: 'doctor-1',
@@ -369,9 +392,13 @@ describe('SurgeryRequestFromDocumentService', () => {
       expect.objectContaining({
         address: 'Rua das Flores, 123',
         healthPlanNumber: '88888 0167 4659 0018',
-        healthPlanId: 'hp-1',
       }),
       'user-1',
+      { manager },
+    );
+    expect(patientRepo.update).toHaveBeenCalledWith(
+      'patient-new',
+      expect.objectContaining({ healthPlanId: 'hp-1' }),
     );
   });
 
@@ -406,6 +433,7 @@ describe('SurgeryRequestFromDocumentService', () => {
         zipCode: '25220290',
       }),
       'user-1',
+      { manager },
     );
   });
 
@@ -511,40 +539,9 @@ describe('SurgeryRequestFromDocumentService', () => {
     expect(result.warnings[0]).toContain('TUSS');
   });
 
-  it('resolve/cria hospital e convênio por nome quando IDs não são enviados', async () => {
-    const hospitalQb = {
-      where: jest.fn().mockReturnThis(),
-      andWhere: jest.fn().mockReturnThis(),
-      select: jest.fn().mockReturnThis(),
-      getOne: jest.fn().mockResolvedValue({ id: 'h-new' }),
-    };
-    const healthPlanQb = {
-      where: jest.fn().mockReturnThis(),
-      andWhere: jest.fn().mockReturnThis(),
-      select: jest.fn().mockReturnThis(),
-      getOne: jest.fn().mockResolvedValue({ id: 'hp-new' }),
-    };
-    const patientRepo = {
-      findOne: jest.fn().mockResolvedValue(null),
-      update: jest.fn(),
-    };
-    dataSource.getRepository.mockImplementation((entity: any) => {
-      if (entity?.name === 'Hospital') {
-        return {
-          createQueryBuilder: () => hospitalQb,
-          create: jest.fn((v: any) => v),
-          save: jest.fn(async (v: any) => ({ id: 'h-new', ...v })),
-        };
-      }
-      if (entity?.name === 'HealthPlan') {
-        return {
-          createQueryBuilder: () => healthPlanQb,
-          create: jest.fn((v: any) => v),
-          save: jest.fn(async (v: any) => ({ id: 'hp-new', ...v })),
-        };
-      }
-      return patientRepo;
-    });
+  it('resolve/cria hospital e convênio por nome dentro da transação da SC', async () => {
+    entityResolver.resolveOrCreateHospitalId.mockResolvedValue('h-new');
+    entityResolver.resolveOrCreateHealthPlanId.mockResolvedValue('hp-new');
 
     await service.createFromDocument(
       {
@@ -557,49 +554,37 @@ describe('SurgeryRequestFromDocumentService', () => {
       'user-1',
     );
 
+    expect(entityResolver.resolveOrCreateHospitalId).toHaveBeenCalledWith(
+      "Hospital Caxias D'Or",
+      'owner-1',
+      manager,
+    );
+    expect(entityResolver.resolveOrCreateHealthPlanId).toHaveBeenCalledWith(
+      'SULAMERICA',
+      'owner-1',
+      manager,
+    );
     expect(mutationService.createSurgeryRequest).toHaveBeenCalledWith(
       expect.objectContaining({
         hospitalId: 'h-new',
         healthPlanId: 'hp-new',
       }),
       'user-1',
+      { manager },
+    );
+    expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+    expect(mutationService.broadcastCreated).toHaveBeenCalledWith(
+      'sc-1',
+      'user-1',
     );
   });
 
   it('faz backfill de convênio/carteirinha no paciente existente quando informado', async () => {
-    const hospitalRepo = {
-      createQueryBuilder: () => ({
-        where: jest.fn().mockReturnThis(),
-        andWhere: jest.fn().mockReturnThis(),
-        select: jest.fn().mockReturnThis(),
-        getOne: jest.fn().mockResolvedValue(null),
-      }),
-      create: jest.fn((v: any) => v),
-      save: jest.fn(async (v: any) => ({ id: 'h-new', ...v })),
-    };
-    const healthPlanRepo = {
-      createQueryBuilder: () => ({
-        where: jest.fn().mockReturnThis(),
-        andWhere: jest.fn().mockReturnThis(),
-        select: jest.fn().mockReturnThis(),
-        getOne: jest.fn().mockResolvedValue({ id: 'hp-1' }),
-      }),
-      create: jest.fn((v: any) => v),
-      save: jest.fn(async (v: any) => ({ id: 'hp-1', ...v })),
-    };
-    const patientRepo = {
-      findOne: jest.fn().mockResolvedValue({
-        id: 'patient-1',
-        healthPlanId: null,
-        healthPlanNumber: null,
-      }),
-      update: jest.fn().mockResolvedValue({}),
-    };
-
-    dataSource.getRepository.mockImplementation((entity: any) => {
-      if (entity?.name === 'Hospital') return hospitalRepo;
-      if (entity?.name === 'HealthPlan') return healthPlanRepo;
-      return patientRepo;
+    entityResolver.resolveOrCreateHealthPlanId.mockResolvedValue('hp-1');
+    patientRepo.findOne.mockResolvedValue({
+      id: 'patient-1',
+      healthPlanId: null,
+      healthPlanNumber: null,
     });
 
     await service.createFromDocument(
@@ -623,32 +608,7 @@ describe('SurgeryRequestFromDocumentService', () => {
   });
 
   it('resolve/cria procedimento por nome quando procedureId não é enviado', async () => {
-    const procedureQb = {
-      where: jest.fn().mockReturnThis(),
-      andWhere: jest.fn().mockReturnThis(),
-      select: jest.fn().mockReturnThis(),
-      getOne: jest.fn().mockResolvedValue({ id: 'proc-new' }),
-    };
-
-    dataSource.getRepository.mockImplementation((entity: any) => {
-      if (entity?.name === 'Procedure') {
-        return {
-          createQueryBuilder: () => procedureQb,
-          create: jest.fn((v: any) => v),
-          save: jest.fn(async (v: any) => ({ id: 'proc-new', ...v })),
-        };
-      }
-      return {
-        createQueryBuilder: () => ({
-          where: jest.fn().mockReturnThis(),
-          andWhere: jest.fn().mockReturnThis(),
-          select: jest.fn().mockReturnThis(),
-          getOne: jest.fn().mockResolvedValue(null),
-        }),
-        findOne: jest.fn().mockResolvedValue(null),
-        update: jest.fn().mockResolvedValue({}),
-      };
-    });
+    entityResolver.resolveOrCreateProcedureId.mockResolvedValue('proc-new');
 
     await service.createFromDocument(
       {
@@ -660,37 +620,119 @@ describe('SurgeryRequestFromDocumentService', () => {
     );
 
     expect(mutationService.createSurgeryRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        procedureId: 'proc-new',
-      }),
+      expect.objectContaining({ procedureId: 'proc-new' }),
       'user-1',
+      { manager },
     );
   });
 
-  it('não cria procedimento quando nome excede 255 chars, mas ainda cria a SC sem procedimento', async () => {
-    const longName = 'A'.repeat(256);
-
-    const result = await service.createFromDocument(
-      {
-        doctorId: 'doctor-1',
-        patientId: 'patient-1',
-        procedureName: longName,
-      },
-      'user-1',
+  it('B1: recusa ids de outra clínica antes de qualquer escrita', async () => {
+    mutationService.assertBelongsToOwner.mockRejectedValue(
+      new NotFoundException('Hospital não encontrado'),
     );
 
-    expect(result.id).toBe('sc-1');
-    expect(mutationService.createSurgeryRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ procedureId: undefined }),
-      'user-1',
+    await expect(
+      service.createFromDocument(
+        {
+          doctorId: 'doctor-1',
+          newPatient: { name: 'Novo', cpf: '12345678901' },
+          hospitalId: 'hosp-de-outra-clinica',
+        } as any,
+        'user-1',
+      ),
+    ).rejects.toThrow('Hospital não encontrado');
+
+    expect(mutationService.assertBelongsToOwner).toHaveBeenCalledWith(
+      expect.objectContaining({ hospitalId: 'hosp-de-outra-clinica' }),
+      'owner-1',
     );
+    expect(patientsService.create).not.toHaveBeenCalled();
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+  });
+
+  it('falha na criação da SC desfaz os cadastros auxiliares (mesma transação) e não faz broadcast', async () => {
+    mutationService.createSurgeryRequest.mockRejectedValue(new Error('boom'));
+    entityResolver.resolveOrCreateHospitalId.mockResolvedValue('h-new');
+
+    await expect(
+      service.createFromDocument(
+        {
+          doctorId: 'doctor-1',
+          patientId: 'patient-1',
+          hospitalName: 'Hospital Novo',
+        } as any,
+        'user-1',
+      ),
+    ).rejects.toThrow('boom');
+
+    expect(entityResolver.resolveOrCreateHospitalId).toHaveBeenCalledWith(
+      'Hospital Novo',
+      'owner-1',
+      manager,
+    );
+    expect(mutationService.broadcastCreated).not.toHaveBeenCalled();
+    expect(assemblyService.assembleFromExtracted).not.toHaveBeenCalled();
+  });
+
+  it('falha na criação da SC: novo paciente é gravado pelo manager da transação e não recebe boas-vindas', async () => {
+    const order: string[] = [];
+    patientsService.create.mockImplementation(async () => {
+      order.push('patient');
+      return { id: 'patient-new', phone: '11999999999' };
+    });
+    mutationService.createSurgeryRequest.mockRejectedValue(new Error('boom'));
+    dataSource.transaction.mockImplementationOnce(async (cb: any) => {
+      order.push('begin');
+      try {
+        return await cb(manager);
+      } catch (err) {
+        order.push('rollback');
+        throw err;
+      }
+    });
+
+    await expect(
+      service.createFromDocument(
+        {
+          doctorId: 'doctor-1',
+          newPatient: { name: 'Novo', cpf: '12345678901' },
+          procedureId: 'proc-1',
+        } as any,
+        'user-1',
+      ),
+    ).rejects.toThrow('boom');
+
+    expect(order).toEqual(['begin', 'patient', 'rollback']);
+    expect(patientsService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Novo' }),
+      'user-1',
+      { manager },
+    );
+    expect(patientsService.sendWelcome).not.toHaveBeenCalled();
+    expect(mutationService.broadcastCreated).not.toHaveBeenCalled();
+  });
+
+  it('CPF inválido do novo paciente é recusado antes de abrir a transação', async () => {
+    await expect(
+      service.createFromDocument(
+        {
+          doctorId: 'doctor-1',
+          newPatient: { name: 'Novo', cpf: '123' },
+        } as any,
+        'user-1',
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+    expect(patientsService.create).not.toHaveBeenCalled();
   });
 
   describe('applyDocumentExtraction', () => {
     it('rejeita um caminho temporário que não pertence ao tenant', async () => {
-      surgeryRequestsService.findOne = jest
-        .fn()
-        .mockResolvedValue({ status: 1 });
+      surgeryRequestRepository.findOneSimple.mockResolvedValue({
+        id: 'sc-1',
+        status: 1,
+      });
 
       await expect(
         service.applyDocumentExtraction(
@@ -704,30 +746,31 @@ describe('SurgeryRequestFromDocumentService', () => {
       expect(assemblyService.assembleFromExtracted).not.toHaveBeenCalled();
     });
 
-    it('preenche a carteirinha pendente sem substituir o convênio existente', async () => {
-      const surgeryRequestRepo = {
-        findOne: jest.fn().mockResolvedValue({
-          id: 'sc-1',
-          patientId: 'patient-1',
-          healthPlanId: 'hp-1',
-          healthPlanRegistration: null,
-        }),
-        update: jest.fn().mockResolvedValue({}),
-      };
-      const patientRepo = {
-        findOne: jest.fn().mockResolvedValue({
-          id: 'patient-1',
-          healthPlanId: 'hp-1',
-          healthPlanNumber: null,
-        }),
-        update: jest.fn().mockResolvedValue({}),
-      };
-      dataSource.getRepository.mockImplementation((entity: any) =>
-        entity?.name === 'SurgeryRequest' ? surgeryRequestRepo : patientRepo,
+    it('SC fora do alcance do usuário vira 404', async () => {
+      surgeryRequestRepository.findOneSimple.mockResolvedValue(null);
+
+      await expect(
+        service.applyDocumentExtraction('sc-x', {}, 'user-1'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(accessControl.buildSurgeryAccessWhere).toHaveBeenCalledWith(
+        { id: 'sc-x' },
+        'user-1',
       );
-      surgeryRequestsService.findOne = jest
-        .fn()
-        .mockResolvedValue({ status: 1 });
+    });
+
+    it('preenche a carteirinha pendente sem substituir o convênio existente', async () => {
+      surgeryRequestRepository.findOneSimple.mockResolvedValue({
+        id: 'sc-1',
+        status: 1,
+        patientId: 'patient-1',
+        healthPlanId: 'hp-1',
+        healthPlanRegistration: null,
+      });
+      patientRepo.findOne.mockResolvedValue({
+        id: 'patient-1',
+        healthPlanId: 'hp-1',
+        healthPlanNumber: null,
+      });
 
       await service.applyDocumentExtraction(
         'sc-1',
@@ -735,7 +778,7 @@ describe('SurgeryRequestFromDocumentService', () => {
         'user-1',
       );
 
-      expect(surgeryRequestRepo.update).toHaveBeenCalledWith('sc-1', {
+      expect(surgeryRequestRepository.update).toHaveBeenCalledWith('sc-1', {
         healthPlanRegistration: '123456',
       });
       expect(patientRepo.update).toHaveBeenCalledWith('patient-1', {

@@ -19,16 +19,12 @@ describe('AppController (e2e)', () => {
     if (app) {
       try {
         await app.close();
-      } catch {
-        // Ignorar erros de teardown do Bull/Redis
-      }
+      } catch {}
     }
   });
 
   it('should have a working health check or return 404 for root', async () => {
-    // A aplicação pode não ter uma rota raiz configurada
     const response = await request(app.getHttpServer()).get('/');
-    // Aceitar 200 (se tiver health check) ou 404 (se não tiver rota raiz)
     expect([200, 404]).toContain(response.status);
   });
 });

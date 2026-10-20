@@ -12,24 +12,16 @@ export interface ConteudoFicha {
   conduct: string | null;
 }
 
-/** Um formulário preenchido do Feegow (linha de `_N.csv`). */
 export interface FormularioFeegow {
   modeloId: string;
   nomeModelo: string;
   quando: Date;
-  /** `conteudo_resumo`: blocos "Campo : valor" separados por linha em branco. */
   conteudo: string;
-  /** `sys_active = 0` no Feegow, importado só com `--incluir-rascunhos`. */
   rascunho?: boolean;
 }
 
-/** Id usado para o resumo de IA (`pacientes_ai_summary`), que tem seções `<h3>`. */
 export const MODELO_RESUMO_IA = '-ia';
 
-/**
- * Título de seção (`<h3>` dos formulários de IA) ou rótulo de campo
- * ("Queixa Principal :") → campo da ficha. Chave sem acento, minúscula.
- */
 const CAMPO_POR_TITULO: Record<string, CampoFicha> = {
   'queixa principal': 'anamnesis',
   'historia da doenca atual': 'anamnesis',
@@ -53,7 +45,6 @@ const CAMPO_POR_TITULO: Record<string, CampoFicha> = {
   conduta: 'conduct',
 };
 
-/** Rótulos genéricos do editor de formulários do Feegow: não informam nada. */
 const ROTULO_GENERICO = /^novo (texto|memo)$/i;
 
 const ORDEM: CampoFicha[] = [
@@ -68,11 +59,6 @@ export interface BlocoFeegow {
   valor: string;
 }
 
-/**
- * `conteudo_resumo` → blocos. O Feegow achata o formulário em
- * `Rótulo : valor`, um campo por parágrafo; formulário de caixa livre tem
- * rótulo vazio (` : <html>`).
- */
 export function blocosFeegow(conteudo: string): BlocoFeegow[] {
   return conteudo
     .replace(/\r\n?/g, '\n')
@@ -86,7 +72,6 @@ export function blocosFeegow(conteudo: string): BlocoFeegow[] {
     .filter((b) => !htmlSemTexto(b.valor));
 }
 
-/** Corta o HTML nos `<h3>`: o que vem antes entra sem título. */
 export function secoesPorTitulo(
   html: string,
 ): { titulo: string | null; html: string }[] {
@@ -102,7 +87,6 @@ export function secoesPorTitulo(
   return secoes;
 }
 
-/** Texto para comparar conteúdos (ignora tags, rótulos, espaços e caixa). */
 export function textoComparavel(conteudo: string): string {
   return chaveDeNome(
     decodificarEntidadesHtml(
@@ -118,18 +102,6 @@ export function textoComparavel(conteudo: string): string {
 const campoDoTitulo = (titulo: string | null): CampoFicha | null =>
   titulo ? (CAMPO_POR_TITULO[chaveDeNome(titulo)] ?? null) : null;
 
-/**
- * Um formulário → pedaços de HTML por campo.
- *
- * - Formulário de IA (id negativo) e resumo de IA: cada seção `<h3>` vai para
- *   o campo do título, mantendo o título; título desconhecido → anamnese.
- * - Formulário com rótulos ("Queixa Principal :"): cada campo vai para o
- *   campo do rótulo, com o rótulo em negrito; rótulo desconhecido → caixa
- *   livre.
- * - Caixa livre (rótulo vazio): tudo para `caixaLivre`; nos modelos com
- *   conduta no meio do texto, o trecho a partir de "cdt:"/"conduta:" vai
- *   para a conduta.
- */
 export function camposDoFormulario(
   f: FormularioFeegow,
   caixaLivre: CampoFicha,
@@ -140,7 +112,6 @@ export function camposDoFormulario(
     (campos[campo] ??= []).push(html);
   };
 
-  // Ids negativos são os formulários de IA do Feegow (seções em `<h3>`).
   const modoSecoes = f.modeloId.startsWith('-');
   for (const bloco of blocosFeegow(f.conteudo)) {
     if (modoSecoes) {
@@ -176,7 +147,6 @@ export function camposDoFormulario(
   return campos;
 }
 
-/** Texto vindo do Feegow que vira HTML (títulos, rótulos, nome do formulário). */
 function escapar(texto: string): string {
   return texto
     .replace(/&/g, '&amp;')
@@ -197,11 +167,6 @@ function quandoBR(d: Date): string {
     .replace(',', '');
 }
 
-/**
- * Formulários de um atendimento (ou um formulário solto) → os quatro campos
- * da ficha, em HTML sanitizado. Com 2+ formulários (ou rascunho), cada bloco
- * ganha um `<h4>` com o nome do formulário e a data, em ordem cronológica.
- */
 export function conteudoDaFicha(
   formularios: FormularioFeegow[],
   caixaLivre: CampoFicha,

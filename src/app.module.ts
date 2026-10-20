@@ -45,6 +45,7 @@ import { TussModule } from './modules/tuss/tuss.module';
 import { WhatsappModule } from './shared/whatsapp/whatsapp.module';
 import { AccessControlModule } from './shared/services/access-control.module';
 import { SurgeryRequestOwnerGuardModule } from './shared/guards/surgery-request-owner.module';
+import { ClinicalAccessAuditModule } from './shared/logging/clinical-access-audit.module';
 import { UserDoctorAccessModule } from './modules/user-doctor-access/user-doctor-access.module';
 import { WebhookModule } from './modules/webhook/webhook.module';
 import { AiModule } from './shared/ai/ai.module';
@@ -65,6 +66,7 @@ import { ObservabilityModule } from './shared/observability/observability.module
     }),
     R2Module,
     SurgeryRequestOwnerGuardModule,
+    ClinicalAccessAuditModule,
     ThrottlerModule.forRoot([
       { name: 'short', ttl: 1000, limit: 10 },
       { name: 'medium', ttl: 10000, limit: 50 },
@@ -87,16 +89,12 @@ import { ObservabilityModule } from './shared/observability/observability.module
           retryStrategy: (times: number) => Math.min(times * 200, 5000),
         };
 
-        // Bull exige enableReadyCheck: false e maxRetriesPerRequest: null
-        // para as conexões subscriber e bclient (ver bull#1873).
         const workerRedisOptions: RedisOptions = {
           ...redisOptions,
           enableReadyCheck: false,
           maxRetriesPerRequest: null,
         };
 
-        // Compartilhando client e subscriber, reduzimos de 3×N para N+2 conexões,
-        // evitando "ERR max number of clients reached" em planos com limite baixo.
         const sharedClient = new IORedis(redisOptions);
         const sharedSubscriber = new IORedis(workerRedisOptions);
 
@@ -108,10 +106,11 @@ import { ObservabilityModule } from './shared/observability/observability.module
               case 'subscriber':
                 return sharedSubscriber;
               case 'bclient':
-                // bclient precisa de conexão dedicada (operações de bloqueio)
                 return new IORedis(workerRedisOptions);
               default:
-                throw new Error(`Tipo de conexão Redis inesperado: ${type}`);
+                throw new Error(
+                  `Tipo de conexão Redis inesperado: ${String(type)}`,
+                );
             }
           },
         };

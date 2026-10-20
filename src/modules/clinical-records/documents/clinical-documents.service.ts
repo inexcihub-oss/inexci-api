@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -16,14 +17,11 @@ import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { Document } from 'src/database/entities/document.entity';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 import { STORAGE_FOLDER_SIZE_LIMITS } from 'src/config/storage.config';
+import { prepararDocumentoParaUpload } from 'src/shared/storage/tipo-arquivo';
 import { CreateClinicalDocumentDto } from './dto/create-clinical-document.dto';
+import { isDocumentoEmitido } from './clinical-documents.constants';
 import { DeleteClinicalDocumentDto } from './dto/delete-clinical-document.dto';
 
-/**
- * Documentos (exames/anexos) vinculados ao paciente — e opcionalmente à ficha
- * de atendimento. Segue o molde de `surgery-requests/documents`, mas escopa a
- * posse pelo `ownerId` do paciente em vez de um guard de solicitação cirúrgica.
- */
 @Injectable()
 export class ClinicalDocumentsService {
   private readonly logger = new Logger(ClinicalDocumentsService.name);
@@ -44,10 +42,6 @@ export class ClinicalDocumentsService {
   ) {
     if (!file) throw new BadRequestException('File is required');
 
-    // `STORAGE_FOLDER_SIZE_LIMITS` é a fonte de verdade do limite de tamanho:
-    // o `FileInterceptor` só consegue cortar pelo maior limite, porque a pasta
-    // chega no corpo, depois do interceptor (mesmo padrão de
-    // `surgery-requests/documents`).
     const sizeLimit = STORAGE_FOLDER_SIZE_LIMITS[data.folder];
     const fileSize = file.size ?? file.buffer?.length ?? 0;
     if (sizeLimit !== undefined && fileSize > sizeLimit) {
@@ -66,8 +60,10 @@ export class ClinicalDocumentsService {
       );
     }
 
+    const arquivo = await prepararDocumentoParaUpload(file);
+
     const storagePath = await this.storageService.create(
-      file,
+      arquivo,
       data.folder,
       patient.ownerId,
     );
@@ -88,6 +84,7 @@ export class ClinicalDocumentsService {
       action: 'create',
       actorUserId: userId,
       tenantId: patient.ownerId,
+      patientId: data.patientId,
     });
 
     return {
@@ -97,7 +94,6 @@ export class ClinicalDocumentsService {
     };
   }
 
-  /** Lista os documentos do paciente com URLs assinadas. */
   async listByPatient(patientId: string, userId: string): Promise<Document[]> {
     const patient = await this.assertPatientAccess(patientId, userId);
 
@@ -107,9 +103,15 @@ export class ClinicalDocumentsService {
       action: 'list',
       actorUserId: userId,
       tenantId: patient.ownerId,
+      patientId,
     });
 
-    const documents = await this.documentRepository.findByPatientId(patientId);
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
+    const documents = await this.documentRepository.findByPatientIdForDoctors(
+      patientId,
+      doctorIds,
+    );
     return transformDocumentUrls(documents, this.storageService);
   }
 
@@ -117,16 +119,27 @@ export class ClinicalDocumentsService {
     const document = await this.documentRepository.findOneSimple({
       id: data.id,
     });
-    // O `key` entra no WHERE do DELETE abaixo. Se ele não casar com o do
-    // documento carregado, o banco não remove linha nenhuma — mas o arquivo do
-    // R2 é apagado assim mesmo (o storage usa a `uri` do documento, não o
-    // `key`), deixando um anexo clínico fantasma: visível na lista, 404 ao
-    // abrir. Valida antes de qualquer efeito e devolve o mesmo 404 de
-    // "documento não encontrado", sem dizer qual dos dois campos divergiu.
     if (!document || !document.patientId || document.key !== data.key) {
       throw new NotFoundException(ERROR_MESSAGES.DOCUMENT_NOT_FOUND);
     }
     const patient = await this.assertPatientAccess(document.patientId, userId);
+
+    if (document.clinicalRecordId) {
+      await this.assertRecordAccess(
+        document.clinicalRecordId,
+        document.patientId,
+        userId,
+      );
+    }
+
+    if (isDocumentoEmitido(document)) {
+      await this.accessControlService.assertIsDoctor(userId);
+      if (document.createdById !== userId) {
+        throw new ForbiddenException(
+          'Só o médico que emitiu este documento pode excluí-lo.',
+        );
+      }
+    }
 
     await executeInTransaction(
       this.dataSource,
@@ -137,9 +150,6 @@ export class ClinicalDocumentsService {
           key: data.key,
         });
 
-        // Segunda trava, agora sobre o efeito real: só encosta no R2 depois de
-        // a linha ter de fato saído do banco. Sem o `affected`, uma corrida (ou
-        // um WHERE que deixe de casar) apagaria o arquivo de um registro vivo.
         if (!result.affected) {
           throw new NotFoundException(ERROR_MESSAGES.DOCUMENT_NOT_FOUND);
         }
@@ -161,6 +171,7 @@ export class ClinicalDocumentsService {
       action: 'delete',
       actorUserId: userId,
       tenantId: patient.ownerId,
+      patientId: document.patientId,
     });
   }
 
@@ -171,12 +182,6 @@ export class ClinicalDocumentsService {
     return patient;
   }
 
-  /**
-   * Vincular o anexo a uma ficha exige acesso àquela ficha — o paciente é
-   * visível para toda a clínica, mas o prontuário é recortado por médico.
-   * Também amarra a ficha ao paciente informado, para o anexo não aparecer no
-   * atendimento de outro paciente.
-   */
   private async assertRecordAccess(
     clinicalRecordId: string,
     patientId: string,

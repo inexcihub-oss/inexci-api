@@ -461,7 +461,6 @@ describe('planejarEquipe — dono da conta precisa casar com um profissional', (
         aviso: expect.stringContaining('dono da conta não conferido'),
       }),
     );
-    // Lista os candidatos já no ensaio, para o operador montar o --mapear.
     const aviso = ctx.relatorio.avisos.find((a) =>
       a.aviso.includes('dono da conta não conferido'),
     );
@@ -507,7 +506,69 @@ describe('planejarEquipe — e-mail repetido dentro do export', () => {
         motivo: expect.stringContaining('profissional 6'),
       }),
     );
-    // O celular do rejeitado não fica reservado à toa.
     expect(plano.usuarios.map((u) => u.phone)).not.toContain('24999990007');
+  });
+});
+
+describe('planejarEquipe — telefone canônico', () => {
+  it('grava o celular canônico e reconhece como ocupado o número já gravado em grafia legada', () => {
+    const ctx = contextoDeTeste({ telefonesEmUso: new Set(['5524999990007']) });
+    const exp = exportSintetico({
+      profissionais: [
+        {
+          id: '6',
+          nome_profissional: 'Karina Clínica',
+          conselho_id: '1',
+          email1: 'karina@exemplo.com',
+          celular1: '+55 (24) 9999-0006',
+          ativo: 'on',
+          sys_active: '1',
+        },
+      ],
+      funcionarios: [
+        {
+          id: '3',
+          nome_funcionario: 'Bruno Recepção',
+          email: 'bruno@exemplo.com',
+          celular: '(24) 99999-0007',
+          ativo: 'on',
+          sys_active: '1',
+        },
+      ],
+    });
+
+    const plano = planejarEquipe(exp, ctx);
+
+    expect(plano.usuarios.map((u) => u.phone)).toEqual(['24999990006']);
+    expect(ctx.relatorio.rejeicoes).toContainEqual(
+      expect.objectContaining({
+        idOrigem: '3',
+        motivo: 'celular já usado por outro usuário',
+      }),
+    );
+  });
+
+  it('ignora telefone que não é brasileiro válido e usa o próximo', () => {
+    const ctx = contextoDeTeste();
+    const exp = exportSintetico({
+      profissionais: [
+        {
+          id: '6',
+          nome_profissional: 'Karina Clínica',
+          conselho_id: '1',
+          email1: 'karina@exemplo.com',
+          celular1: '(24) 1234-5678',
+          celular2: '24999990006',
+          ativo: 'on',
+          sys_active: '1',
+        },
+      ],
+    });
+
+    const plano = planejarEquipe(exp, ctx);
+
+    expect(
+      plano.usuarios.find((u) => u.email === 'karina@exemplo.com')?.phone,
+    ).toBe('24999990006');
   });
 });

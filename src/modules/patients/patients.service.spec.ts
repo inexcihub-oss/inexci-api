@@ -10,6 +10,7 @@ import { AccessControlService } from 'src/shared/services/access-control.service
 import { MailService } from 'src/shared/mail/mail.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { Patient } from 'src/database/entities/patient.entity';
+import { Permission } from 'src/shared/permissions';
 
 jest.mock('src/shared/logging/audit', () => ({
   auditProntuarioAccess: jest.fn(),
@@ -40,10 +41,15 @@ describe('PatientsService', () => {
     findOne: jest.Mock;
     findAndCountWithSearch: jest.Mock;
     getRepository: jest.Mock;
+    countByPhotoPath?: (photoPath: string, id?: string) => Promise<number>;
+    updateReturningPreviousPhoto?: (
+      id: string,
+      dados: Partial<Patient>,
+    ) => Promise<string | null>;
   };
-  /** Pacientes (fora o editado) que já apontam para o caminho consultado. */
   let contagemDeUso: jest.Mock;
-  /** Linha lida com FOR UPDATE dentro da transação da troca de foto. */
+  let whatsappService: { sendPatientWelcome: jest.Mock };
+  let mailService: { sendWelcomePatient: jest.Mock };
   let lidoNaTransacao: jest.Mock;
   let transaction: jest.Mock;
   let storageService: {
@@ -63,7 +69,6 @@ describe('PatientsService', () => {
       getRepository: jest.fn(),
     };
     contagemDeUso = jest.fn().mockResolvedValue(0);
-    // Por padrão a linha travada é a mesma lida no início do update.
     lidoNaTransacao = jest.fn(() => patientRepository.findOne());
     transaction = jest.fn(
       (cb: (em: { getRepository: () => unknown }) => unknown) =>
@@ -74,10 +79,15 @@ describe('PatientsService', () => {
           }),
         }),
     );
-    patientRepository.getRepository.mockReturnValue({
-      count: contagemDeUso,
-      manager: { transaction },
-    });
+    const repositorioReal = new PatientRepository({
+      getRepository: () => ({ count: contagemDeUso, manager: { transaction } }),
+    } as never);
+    patientRepository.countByPhotoPath = (photoPath: string, id?: string) =>
+      repositorioReal.countByPhotoPath(photoPath, id);
+    patientRepository.updateReturningPreviousPhoto = (
+      id: string,
+      dados: Partial<Patient>,
+    ) => repositorioReal.updateReturningPreviousPhoto(id, dados);
     storageService = {
       getSignedUrl: jest.fn((p: string) => Promise.resolve(`https://r2/${p}`)),
       delete: jest.fn().mockResolvedValue(undefined),
@@ -91,18 +101,155 @@ describe('PatientsService', () => {
       getOwnerId: jest.fn().mockResolvedValue(OWNER),
     };
 
+    whatsappService = { sendPatientWelcome: jest.fn() };
+    mailService = { sendWelcomePatient: jest.fn() };
     service = new PatientsService(
       patientRepository as unknown as PatientRepository,
       userRepository as unknown as UserRepository,
-      { sendPatientWelcome: jest.fn() } as unknown as WhatsappService,
+      whatsappService as unknown as WhatsappService,
       accessControlService as unknown as AccessControlService,
-      { sendWelcomePatient: jest.fn() } as unknown as MailService,
+      mailService as unknown as MailService,
       storageService as unknown as StorageService,
     );
   });
 
   const gravadoNoCreate = () => patientRepository.create.mock.calls[0][0];
   const gravadoNoUpdate = () => patientRepository.update.mock.calls[0][1];
+
+  describe('dado clínico por permissão (medicalNotes)', () => {
+    const comNotas = () =>
+      patientRepository.findOne.mockResolvedValue(
+        paciente({ medicalNotes: 'Alergia a dipirona' }),
+      );
+
+    it('quem só tem Agenda não recebe medicalNotes no GET', async () => {
+      comNotas();
+
+      const r = await service.findOneWithPhoto('pac-1', 'user-1', [
+        Permission.AGENDA,
+      ]);
+
+      expect(r).not.toHaveProperty('medicalNotes');
+      expect(r.name).toBe('Maria');
+      expect(r.cpf).toBe('12345678909');
+    });
+
+    it('quem só tem Administração não recebe medicalNotes', async () => {
+      comNotas();
+
+      const r = await service.findOneWithPhoto('pac-1', 'user-1', [
+        Permission.ADMINISTRACAO,
+      ]);
+
+      expect(r).not.toHaveProperty('medicalNotes');
+    });
+
+    it('sem permissões informadas, oculta (fail-closed)', async () => {
+      comNotas();
+
+      const r = await service.findOneWithPhoto('pac-1', 'user-1');
+
+      expect(r).not.toHaveProperty('medicalNotes');
+    });
+
+    it.each([[Permission.ATENDIMENTO], [Permission.SOLICITACOES]])(
+      'quem tem %s recebe medicalNotes',
+      async (perm) => {
+        comNotas();
+
+        const r = await service.findOneWithPhoto('pac-1', 'user-1', [perm]);
+
+        expect(r.medicalNotes).toBe('Alergia a dipirona');
+      },
+    );
+
+    it('PATCH de quem não vê dado clínico não grava medicalNotes nem o devolve', async () => {
+      patientRepository.update.mockResolvedValue(
+        paciente({ medicalNotes: 'Alergia a dipirona' }),
+      );
+
+      const r = await service.updateWithPhoto(
+        'pac-1',
+        { name: 'Maria', medicalNotes: '' },
+        'user-1',
+        [Permission.AGENDA],
+      );
+
+      expect(gravadoNoUpdate()).not.toHaveProperty('medicalNotes');
+      expect(r).not.toHaveProperty('medicalNotes');
+    });
+
+    it('PATCH de quem tem Atendimento grava medicalNotes', async () => {
+      await service.updateWithPhoto(
+        'pac-1',
+        { medicalNotes: 'Hipertenso' },
+        'user-1',
+        [Permission.ATENDIMENTO],
+      );
+
+      expect(gravadoNoUpdate()).toEqual(
+        expect.objectContaining({ medicalNotes: 'Hipertenso' }),
+      );
+    });
+
+    it('POST de quem só tem Agenda não devolve medicalNotes', async () => {
+      const r = await service.createWithPhoto(
+        { name: 'Maria', medicalNotes: 'Obs' },
+        'user-1',
+        [Permission.AGENDA],
+      );
+
+      expect(r).not.toHaveProperty('medicalNotes');
+    });
+  });
+
+  describe('create dentro de transação', () => {
+    const dados = {
+      name: 'Maria',
+      phone: '11999999999',
+      email: 'maria@x.com',
+    };
+
+    it('sem manager grava pelo repositório padrão e envia boas-vindas', async () => {
+      await service.create(dados, 'user-1');
+
+      expect(patientRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Maria' }),
+        undefined,
+      );
+      expect(whatsappService.sendPatientWelcome).toHaveBeenCalled();
+      await Promise.resolve();
+      expect(mailService.sendWelcomePatient).toHaveBeenCalled();
+    });
+
+    it('com manager grava pelo manager e não envia boas-vindas antes do commit', async () => {
+      const manager = { tag: 'tx' } as never;
+
+      await service.create(dados, 'user-1', { manager });
+
+      expect(patientRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Maria' }),
+        manager,
+      );
+      expect(whatsappService.sendPatientWelcome).not.toHaveBeenCalled();
+      expect(mailService.sendWelcomePatient).not.toHaveBeenCalled();
+    });
+
+    it('sendWelcome dispara WhatsApp e e-mail do paciente', async () => {
+      await service.sendWelcome(
+        paciente({ phone: '11999999999', email: 'maria@x.com' }),
+      );
+
+      expect(whatsappService.sendPatientWelcome).toHaveBeenCalledWith(
+        '11999999999',
+        expect.any(String),
+      );
+      expect(mailService.sendWelcomePatient).toHaveBeenCalledWith(
+        'maria@x.com',
+        expect.objectContaining({ doctorName: expect.any(String) }),
+      );
+    });
+  });
 
   describe('CPF opcional', () => {
     it('cria paciente sem CPF gravando null', async () => {
@@ -280,7 +427,6 @@ describe('PatientsService', () => {
     });
 
     it('apaga a foto que o UPDATE substituiu, não a lida no início (corrida com a conversão)', async () => {
-      // Lida no início: a PNG. Antes do UPDATE, o script trocou para a WebP.
       patientRepository.findOne.mockResolvedValue(
         paciente({ photoPath: `patient-photos/${OWNER}/antiga.png` }),
       );
@@ -300,7 +446,6 @@ describe('PatientsService', () => {
       patientRepository.findOne.mockResolvedValue(
         paciente({ photoPath: `patient-photos/${OWNER}/antiga.png` }),
       );
-      // 1ª contagem: validarFoto(FOTO) → livre. 2ª: a antiga → em uso.
       contagemDeUso.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
 
       await service.update('pac-1', { photoPath: FOTO }, 'user-1');
@@ -331,7 +476,6 @@ describe('PatientsService', () => {
       await expect(
         service.update('pac-1', { photoPath: FOTO }, 'user-1'),
       ).rejects.toThrow(BadRequestException);
-      // A checagem exclui o próprio paciente (manter a mesma foto é válido).
       const where = contagemDeUso.mock.calls[0][0].where;
       expect(where.photoPath).toBe(FOTO);
       expect(where.id).toBeDefined();

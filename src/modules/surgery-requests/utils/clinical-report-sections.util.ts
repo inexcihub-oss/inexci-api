@@ -10,12 +10,6 @@ export interface ClinicalSeedContent {
   surgeryDescription?: string | null;
 }
 
-/**
- * Sanitizacao do conteudo de secao de laudo. Este util e o caminho usado pelo
- * commit de draft da IA/WhatsApp, cujo conteudo vem de mensagens e de OCR de
- * documentos enviados por terceiros — antes gravava HTML cru, que os templates
- * renderizam com triple-stash dentro do Chromium.
- */
 const OPCOES_SANITIZACAO: sanitizeHtml.IOptions = {
   allowedTags: [
     'p',
@@ -65,9 +59,6 @@ function joinParagraphs(
   return filtered.map(buildParagraph).join('');
 }
 
-/**
- * Persiste conteúdo clínico legado como seções de laudo (idempotente por título).
- */
 export async function seedClinicalReportSections(
   dataSource: DataSource,
   surgeryRequestId: string,

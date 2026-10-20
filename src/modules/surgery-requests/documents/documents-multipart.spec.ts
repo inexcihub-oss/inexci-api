@@ -32,7 +32,6 @@ describe('DocumentsService.create — posse da SC em rota multipart', () => {
       ),
     ).rejects.toThrow(ForbiddenException);
 
-    // O arquivo nao pode nem chegar ao storage.
     expect(storage.create).not.toHaveBeenCalled();
     expect(repo.create).not.toHaveBeenCalled();
   });

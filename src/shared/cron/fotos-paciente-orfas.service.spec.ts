@@ -38,7 +38,6 @@ describe('FotosPacienteOrfasService', () => {
     const resultado = await service.limpar(AGORA);
 
     expect(storage.listAll).toHaveBeenCalledWith('patient-photos');
-    // Só os antigos vão à consulta; recente e sem data nem são candidatos.
     expect(repo.query.mock.calls[0][1]).toEqual([
       ['patient-photos/o/orfa.webp', 'patient-photos/o/em-uso.webp'],
     ]);

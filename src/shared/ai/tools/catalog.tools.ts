@@ -1,29 +1,28 @@
-import OpenAI from 'openai';
-import { AiTool, ToolContext } from './tool.interface';
+import { AiTool, ANY_AUTHENTICATED, ToolContext } from './tool.interface';
 import { ProcedureRepository } from '../../../database/repositories/procedure.repository';
-import { normalizeNameForCompare } from './catalog.helpers';
+import {
+  normalizeNameForCompare,
+  resolveOwnerIdFromContext,
+} from './catalog.helpers';
 import { EntityResolverService } from '../services/entity-resolver.service';
+import { UserRepository } from '../../../database/repositories/user.repository';
 
-/**
- * Tools de catálogo (apenas LEITURA do catálogo global de procedimentos).
- *
- * As tools legacy de criação (`create_hospital`, `create_health_plan`,
- * `create_procedure`) foram removidas em 2026-05-12 (Fase 3.3 do
- * PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA). A criação desses cadastros agora
- * passa exclusivamente pelo fluxo de drafts:
- *
- *   - `plan_actions(intent="create_hospital")` + `hospital_draft_*`
- *   - `plan_actions(intent="create_health_plan")` + `health_plan_draft_*`
- *   - `plan_actions(intent="create_procedure")` + `procedure_draft_*`
- */
-export function buildCatalogTools(
-  procedureRepo: ProcedureRepository,
-  resolver?: EntityResolverService,
-): AiTool[] {
+export interface CatalogToolDeps {
+  procedureRepo: ProcedureRepository;
+  userRepo?: UserRepository;
+  entityResolver?: EntityResolverService;
+}
+
+export function buildCatalogTools({
+  procedureRepo,
+  userRepo,
+  entityResolver: resolver,
+}: CatalogToolDeps): AiTool[] {
   const entityResolver = resolver ?? new EntityResolverService();
 
   const searchProcedures: AiTool = {
     name: 'search_procedures',
+    requiredPermission: ANY_AUTHENTICATED,
     definition: {
       type: 'function',
       function: {
@@ -47,7 +46,7 @@ export function buildCatalogTools(
           required: [],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 
@@ -60,7 +59,10 @@ export function buildCatalogTools(
         50,
       );
 
-      const all = await procedureRepo.findMany({} as any, 0, 500);
+      const ownerId = await resolveOwnerIdFromContext(context, userRepo);
+      if (!ownerId) return 'Acesso negado.';
+
+      const all = await procedureRepo.findMany({ ownerId }, 0, 500);
       let candidates = all;
       let usedFuzzy = false;
       if (queryRaw) {
@@ -72,13 +74,11 @@ export function buildCatalogTools(
         if (substringMatches.length > 0) {
           candidates = substringMatches;
         } else {
-          // Fallback fuzzy: tolera typos / erros de transcrição
-          // (ex.: "artoplastia" -> "artroplastia").
-          const result = entityResolver.resolve<any>({
+          const result = entityResolver.resolve({
             query: queryRaw,
             candidates: all,
-            getName: (p: any) => String(p.name ?? ''),
-            getId: (p: any) => String(p.id),
+            getName: (p) => String(p.name ?? ''),
+            getId: (p) => String(p.id),
             candidateThreshold: 0.55,
             maxCandidates: limit,
           });
@@ -108,7 +108,7 @@ export function buildCatalogTools(
       }
 
       const slice = candidates.slice(0, limit);
-      const lines = slice.map((p: any) => `- ${p.name} (id: ${p.id})`);
+      const lines = slice.map((p) => `- ${p.name} (id: ${p.id})`);
 
       const total = candidates.length;
       const headerVerb = usedFuzzy ? 'se parecem com' : 'contêm';

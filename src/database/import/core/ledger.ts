@@ -9,19 +9,11 @@ import {
   writeSync,
 } from 'fs';
 
-/**
- * A quem o ledger pertence: a conta (dono) e o banco em que os uuids foram
- * criados. Um uuid do ledger só faz sentido nesse par — reaproveitá-lo em
- * outra conta ou outro banco faz a fase `cadastro` pular tudo e as seguintes
- * gravarem consultas/fichas da conta nova apontando para pacientes da antiga.
- */
 export interface VinculoLedger {
   ownerId: string;
-  /** `current_database()` da conexão. */
   banco: string;
 }
 
-/** Formato gravado no `ledger.json` a partir do vínculo com conta/banco. */
 interface ArquivoLedgerV2 {
   versao: 2;
   vinculo: VinculoLedger;
@@ -30,22 +22,9 @@ interface ArquivoLedgerV2 {
 
 type Registros = Record<string, Record<string, string>>;
 
-/**
- * Livro-razão local da importação: id no sistema de origem → uuid na INEXCI,
- * por tipo de entidade. Fica num `ledger.json` fora do repositório (ao lado do
- * export), não no banco.
- *
- * Serve a duas coisas: a fase seguinte resolve referências (a fase `agenda`
- * acha o uuid do paciente criado na fase `cadastro`), e uma fase que rodar de
- * novo pula o que já entrou em vez de duplicar.
- *
- * O arquivo carrega o vínculo (dono + banco) e o runner confere antes de
- * qualquer fase (`vincular`): ledger de outra conta/banco aborta a execução.
- */
 export class Ledger {
   private dados: Registros;
   private vinculoAtual: VinculoLedger | null;
-  /** Lido de um `ledger.json` do formato antigo, sem vínculo, com registros. */
   private readonly legadoComRegistros: boolean;
 
   constructor(
@@ -68,7 +47,6 @@ export class Ledger {
       this.vinculoAtual = lido.vinculo;
       this.legadoComRegistros = false;
     } else {
-      // Formato antigo (sem vínculo): só os registros, no topo do JSON.
       this.dados = lido as Registros;
       this.vinculoAtual = null;
       this.legadoComRegistros = Object.values(this.dados).some(
@@ -81,18 +59,6 @@ export class Ledger {
     return this.vinculoAtual ? { ...this.vinculoAtual } : null;
   }
 
-  /**
-   * Amarra o ledger à conta/banco desta execução, ou aborta.
-   *
-   * - Vínculo gravado diferente do atual → erro, sem saída: o ledger é de
-   *   outra carga. Use outro `--out` (ledger novo) para esta conta/banco.
-   * - Ledger vazio sem vínculo (primeira execução) → adota o atual.
-   * - Ledger com registros mas sem vínculo (gravado antes desta checagem) →
-   *   erro, a menos que `adotar` (`--adotar-ledger`). Não dá para saber de
-   *   que conta/banco ele veio, e adotar por padrão repetiria exatamente o
-   *   problema que a checagem existe para evitar; o operador confirma que é
-   *   desta conta e deste banco.
-   */
   vincular(atual: VinculoLedger, opcoes: { adotar?: boolean } = {}): void {
     const gravado = this.vinculoAtual;
     if (gravado) {
@@ -131,10 +97,6 @@ export class Ledger {
     (this.dados[entidade] ??= {})[idOrigem] = uuid;
   }
 
-  /**
-   * Desfaz o registro que aponta para `uuid` (o planejamento registrou, mas o
-   * item acabou não entrando). Devolve o id de origem, ou `null`.
-   */
   removerPorUuid(entidade: string, uuid: string): string | null {
     const mapa = this.dados[entidade];
     if (!mapa) return null;
@@ -148,7 +110,6 @@ export class Ledger {
     return Object.keys(this.dados[entidade] ?? {}).length;
   }
 
-  /** Cópia para planejar sem sujar o original (dry-run, rollback). */
   clonar(): Ledger {
     return new Ledger(
       this.caminho,
@@ -157,11 +118,6 @@ export class Ledger {
     );
   }
 
-  /**
-   * Grava de forma atômica (arquivo temporário + `rename`): uma queda no meio
-   * da escrita deixa o ledger anterior inteiro, nunca um JSON truncado — que
-   * faria a próxima execução reimportar (duplicar) o que já está no banco.
-   */
   salvar(): void {
     if (!this.caminho) return;
     if (!this.vinculoAtual) {
@@ -194,7 +150,6 @@ function ehArquivoV2(valor: unknown): valor is ArquivoLedgerV2 {
   );
 }
 
-/** Escreve em `<caminho>.tmp-<pid>`, faz fsync e renomeia por cima. */
 export function escreverAtomico(caminho: string, conteudo: string): void {
   const temporario = `${caminho}.tmp-${process.pid}`;
   try {
@@ -209,9 +164,7 @@ export function escreverAtomico(caminho: string, conteudo: string): void {
   } catch (erro) {
     try {
       unlinkSync(temporario);
-    } catch {
-      // já não existe
-    }
+    } catch {}
     throw erro;
   }
 }

@@ -9,6 +9,7 @@ import { StorageService } from 'src/shared/storage/storage.service';
 import { SurgeryRequestActivityMentionRepository } from 'src/database/repositories/surgery-request-activity-mention.repository';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { ActivityMentionsService } from './mentions/activity-mentions.service';
+import { lerAtividadePdf } from 'src/shared/storage/system-pdf-activity';
 
 @Injectable()
 export class ActivitiesService {
@@ -25,14 +26,11 @@ export class ActivitiesService {
   ) {}
 
   async findAll(surgeryRequestId: string, userId: string) {
-    // Verifica acesso
-    await this.loadRequest(surgeryRequestId, userId);
+    const request = await this.loadRequest(surgeryRequestId, userId);
 
     const activities =
       await this.activityRepository.findBySurgeryRequest(surgeryRequestId);
 
-    // Uma consulta só para todas as atividades — uma por atividade seria
-    // N+1 numa aba que costuma ter dezenas de linhas.
     const mentions = await this.mentionRepository.findByActivityIds(
       activities.map((a) => a.id),
     );
@@ -55,17 +53,20 @@ export class ActivitiesService {
         let pdfUrl: string | undefined;
 
         if (a.type === ActivityType.PDF_GENERATED) {
-          try {
-            const parsed = JSON.parse(a.content);
-            content = parsed.description ?? a.content;
-            if (parsed.pdf_path) {
-              pdfUrl = await this.storageService.getSignedUrl(parsed.pdf_path);
-            }
-          } catch {
-            // conteúdo não é JSON — usa o texto bruto
+          const lida = lerAtividadePdf(a, request.ownerId);
+          if (!lida) {
             this.logger.warn(
               `Atividade ${a.id}: conteúdo não é JSON válido, usando texto bruto`,
             );
+          } else {
+            content = lida.description ?? a.content;
+            if (lida.motivoRejeicao) {
+              this.logger.warn(
+                `Atividade ${a.id}: pdf_path recusado (${lida.motivoRejeicao}) na solicitação ${surgeryRequestId}`,
+              );
+            } else if (lida.pdfPath) {
+              pdfUrl = await this.storageService.getSignedUrl(lida.pdfPath);
+            }
           }
         }
 
@@ -88,12 +89,6 @@ export class ActivitiesService {
     );
   }
 
-  /**
-   * Usuários que podem ser mencionados nos comentários desta SC.
-   *
-   * O autor sai da lista: mencionar a si mesmo só geraria uma notificação
-   * para quem acabou de escrever o comentário.
-   */
   async findMentionableUsers(surgeryRequestId: string, userId: string) {
     const request = await this.loadRequest(surgeryRequestId, userId);
 
@@ -121,7 +116,7 @@ export class ActivitiesService {
     const activity = await this.activityRepository.create({
       surgeryRequestId: surgeryRequestId,
       userId: userId,
-      type: dto.type ?? ActivityType.COMMENT,
+      type: ActivityType.COMMENT,
       content: dto.content,
     });
 
@@ -159,7 +154,6 @@ export class ActivitiesService {
     });
     if (!request) throw new NotFoundException('Solicitação não encontrada.');
 
-    // Admin tem acesso total
     if (user.role === UserRole.ADMIN) return request;
 
     return request;

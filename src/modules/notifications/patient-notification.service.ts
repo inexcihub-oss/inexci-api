@@ -4,6 +4,7 @@ import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { WHATSAPP_TEMPLATES } from 'src/shared/whatsapp/whatsapp-templates.constants';
 import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 import {
+  errorMessage,
   getStatusLabel,
   getStatusDescriptionForPatient,
 } from 'src/shared/utils';
@@ -24,7 +25,6 @@ export interface PatientNotificationContext {
   oldStatus: SurgeryRequestStatus;
   newStatus: SurgeryRequestStatus;
   notifyPatient?: boolean;
-  /** Canais selecionados pelo usuário. Se ausente, envia para todos os disponíveis. */
   channels?: { email?: boolean; whatsapp?: boolean };
 }
 
@@ -95,9 +95,9 @@ export class PatientNotificationService {
           '4': option3,
         },
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.logger.warn(
-        `Falha ao enviar opções de agendamento para paciente: ${err?.message}`,
+        `Falha ao enviar opções de agendamento para paciente: ${errorMessage(err)}`,
       );
     }
   }
@@ -134,12 +134,9 @@ export class PatientNotificationService {
       minute: '2-digit',
     });
 
-    // Determina se cada canal deve ser enviado:
-    // se channels foi informado, respeita a seleção; caso contrário envia para todos disponíveis
     const sendEmail = ctx.channels ? (ctx.channels.email ?? false) : true;
     const sendWhatsapp = ctx.channels ? (ctx.channels.whatsapp ?? false) : true;
 
-    // Send email if patient has email and channel selected
     if (sendEmail) {
       if (patientEmail) {
         try {
@@ -150,9 +147,9 @@ export class PatientNotificationService {
             newStatus: newLabel,
             changedAt,
           });
-        } catch (err: any) {
+        } catch (err: unknown) {
           this.logger.warn(
-            `Falha ao notificar paciente por e-mail: ${err?.message}`,
+            `Falha ao notificar paciente por e-mail: ${errorMessage(err)}`,
           );
         }
       } else {
@@ -162,7 +159,6 @@ export class PatientNotificationService {
       }
     }
 
-    // Send WhatsApp if patient has phone and channel selected
     if (sendWhatsapp) {
       if (patientPhone) {
         try {
@@ -175,9 +171,9 @@ export class PatientNotificationService {
               '3': statusDescription,
             },
           );
-        } catch (err: any) {
+        } catch (err: unknown) {
           this.logger.warn(
-            `Falha ao notificar paciente por WhatsApp: ${err?.message}`,
+            `Falha ao notificar paciente por WhatsApp: ${errorMessage(err)}`,
           );
         }
       } else {

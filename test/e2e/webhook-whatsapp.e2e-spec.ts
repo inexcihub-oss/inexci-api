@@ -1,21 +1,3 @@
-/**
- * webhook-whatsapp.e2e-spec.ts
- *
- * Suite e2e cobrindo os fluxos WhatsApp principais:
- *  - create_patient (draft commit via PatientsService)
- *  - create_hospital (draft commit via HospitalsService)
- *  - create_sc (draft commit via SurgeryRequestsService)
- *  - mark_performed (draft commit via SurgeryRequestWorkflowService)
- *  - invoice_request (draft commit via SurgeryRequestWorkflowService)
- *
- * Nível 1 — Contrato HTTP do webhook Twilio:
- *   Garante que o controller aceita mensagens de texto e enfileira no orchestrator.
- *
- * Nível 2 — Tool execution integrada (sem DB real):
- *   Exercita o OperationDraftService + tools de draft diretamente, verificando
- *   que os commits delegam aos Services corretos.
- */
-
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import * as request from 'supertest';
@@ -37,8 +19,6 @@ import { buildFlowDraftTools } from '../../src/shared/ai/tools/flow-draft.tools'
 import { ToolContext } from '../../src/shared/ai/tools/tool.interface';
 import { parseToolResult } from '../../src/shared/ai/tools/tool-result';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 function makeConvRepo() {
   let conv: any = { id: 'conv-1', operationDraft: null };
   return {
@@ -57,8 +37,6 @@ const BASE_CONTEXT: ToolContext = {
   ownerId: 'owner-1',
 };
 
-// ─── Nível 1: Contrato HTTP do webhook ───────────────────────────────────────
-
 describe('Webhook WhatsApp — Contrato HTTP (e2e)', () => {
   let app: INestApplication;
   const enqueueInboundMessage = jest.fn();
@@ -70,11 +48,11 @@ describe('Webhook WhatsApp — Contrato HTTP (e2e)', () => {
         WebhookService,
         {
           provide: AiOrchestratorService,
-          useValue: { enqueueInboundMessage },
+          useValue: {
+            enqueueInboundMessage,
+            claimInboundMessage: jest.fn().mockResolvedValue(true),
+          },
         },
-        // Dependências que o `WebhookService` passou a receber (botões
-        // interativos de agendamento). O contrato HTTP testado aqui não as
-        // exercita, então mocks vazios bastam.
         {
           provide: SurgeryRequestRepository,
           useValue: { findOneSimple: jest.fn(), update: jest.fn() },
@@ -83,8 +61,6 @@ describe('Webhook WhatsApp — Contrato HTTP (e2e)', () => {
           provide: SurgeryRequestActivityRepository,
           useValue: { create: jest.fn() },
         },
-        // Confirmação/cancelamento de consulta pelos botões do WhatsApp — o
-        // contrato testado aqui não exercita esse caminho.
         { provide: AppointmentRepository, useValue: {} },
         {
           provide: AppointmentActivityRepository,
@@ -135,7 +111,6 @@ describe('Webhook WhatsApp — Contrato HTTP (e2e)', () => {
     const arg = enqueueInboundMessage.mock.calls[0][0];
     expect(arg.from).toBe('whatsapp:+5511999990001');
     expect(arg.body).toBe('quero criar um paciente');
-    // Controller normaliza mensagens sem mídia como media=[]
     expect(arg.media).toEqual([]);
   });
 
@@ -171,8 +146,6 @@ describe('Webhook WhatsApp — Contrato HTTP (e2e)', () => {
       .expect('Content-Type', /xml|text/);
   });
 });
-
-// ─── Nível 2: Tool execution — create_patient ─────────────────────────────────
 
 describe('WhatsApp tool execution — create_patient', () => {
   let draftService: OperationDraftService;
@@ -213,13 +186,8 @@ describe('WhatsApp tool execution — create_patient', () => {
       conversationId: 'conv-1',
       type: 'create_patient',
     });
-    // Setters per-type (`patient_draft_set_*`) foram removidos na Fase 5 do
-    // PLANO-SANITIZACAO-CLEAN-CODE-IA. O LLM agora usa `draft_update`; aqui
-    // chamamos `setFields` direto no service para focar no preview/commit.
     await draftService.setFields('conv-1', 'create_patient', {
       name: 'Maria Souza',
-      // `cpf` entrou em REQUIRED_FIELDS_BY_TYPE.create_patient; sem ele o
-      // preview devolve `needs_input` em vez de `pending_confirmation`.
       cpf: '52998224725',
       phone: '11988880000',
       doctorId: 'doctor-1',
@@ -249,8 +217,6 @@ describe('WhatsApp tool execution — create_patient', () => {
     );
   });
 });
-
-// ─── Nível 2: Tool execution — create_hospital ────────────────────────────────
 
 describe('WhatsApp tool execution — create_hospital', () => {
   let draftService: OperationDraftService;
@@ -306,8 +272,6 @@ describe('WhatsApp tool execution — create_hospital', () => {
   });
 });
 
-// ─── Nível 2: Tool execution — create_sc ──────────────────────────────────────
-
 describe('WhatsApp tool execution — create_sc', () => {
   let draftService: OperationDraftService;
   let mockSurgeryRequestsService: any;
@@ -326,6 +290,9 @@ describe('WhatsApp tool execution — create_sc', () => {
 
     tools = buildScDraftTools({
       draftService,
+      assemblyService: {
+        assembleFromExtracted: jest.fn().mockResolvedValue({ warnings: [] }),
+      } as any,
       userRepo: {
         findOne: jest.fn().mockResolvedValue({
           id: 'user-1',
@@ -339,13 +306,11 @@ describe('WhatsApp tool execution — create_sc', () => {
           .fn()
           .mockResolvedValue({ id: 'sc-wa-1', protocol: 'SC-0099' }),
         findOne: jest.fn(),
-        // O commit passou a recarregar a SC com relações para montar a
-        // resposta — sem este método o fluxo falha em "is not a function".
         findOneWithRelations: jest
           .fn()
           .mockResolvedValue({ id: 'sc-wa-1', protocol: 'SC-0099' }),
       } as any,
-      surgeryRequestsService: mockSurgeryRequestsService as any,
+      surgeryRequestsService: mockSurgeryRequestsService,
       activityRepo: { create: jest.fn().mockResolvedValue({}) } as any,
     });
   });
@@ -383,8 +348,6 @@ describe('WhatsApp tool execution — create_sc', () => {
   });
 });
 
-// ─── Nível 2: Tool execution — mark_performed ─────────────────────────────────
-
 describe('WhatsApp tool execution — mark_performed', () => {
   let draftService: OperationDraftService;
   let mockWorkflowService: any;
@@ -400,15 +363,16 @@ describe('WhatsApp tool execution — mark_performed', () => {
 
     tools = buildFlowDraftTransitionTools({
       draftService,
+      storageService: {
+        uploadBuffer: jest.fn(),
+        getSignedUrl: jest.fn(),
+      } as any,
       surgeryRequestRepo: {
         findOne: jest.fn().mockResolvedValue({
           id: 'sc-1',
           protocol: 'SC-0042',
           status: 5,
           ownerId: 'owner-1',
-          // A tool passou a validar o acesso à SC pelo médico: sem
-          // `doctorId` batendo com `accessibleDoctorIds` do contexto, o
-          // commit é recusado por permissão.
           doctorId: 'doctor-1',
         }),
         findOneSimple: jest.fn().mockResolvedValue({
@@ -419,10 +383,9 @@ describe('WhatsApp tool execution — mark_performed', () => {
           doctorId: 'doctor-1',
         }),
       } as any,
-      workflowService: mockWorkflowService as any,
+      workflowService: mockWorkflowService,
       activityRepo: { create: jest.fn().mockResolvedValue({}) } as any,
       documentRepo: {
-        // checkPostSurgeryDocuments usa `d.key` para verificar documentos presentes
         findMany: jest.fn().mockResolvedValue([
           { key: 'surgery_room', surgeryRequestId: 'sc-1' },
           { key: 'surgery_auth_document', surgeryRequestId: 'sc-1' },
@@ -459,8 +422,6 @@ describe('WhatsApp tool execution — mark_performed', () => {
   });
 });
 
-// ─── Nível 2: Tool execution — invoice_request ────────────────────────────────
-
 describe('WhatsApp tool execution — invoice_request (draft)', () => {
   let draftService: OperationDraftService;
   let mockWorkflowService: any;
@@ -484,7 +445,7 @@ describe('WhatsApp tool execution — invoice_request (draft)', () => {
           ownerId: 'owner-1',
         }),
       } as any,
-      workflowService: mockWorkflowService as any,
+      workflowService: mockWorkflowService,
       activityRepo: { create: jest.fn().mockResolvedValue({}) } as any,
       patientsService: { create: jest.fn() } as any,
       surgeryRequestsService: { createSurgeryRequest: jest.fn() } as any,
@@ -519,8 +480,6 @@ describe('WhatsApp tool execution — invoice_request (draft)', () => {
     );
   });
 });
-
-// ─── Nível 2: Tool execution — draft_update (Fase 5) ─────────────────────────
 
 describe('WhatsApp tool execution — draft_update (generic, Fase 5)', () => {
   it('draft_update atualiza campo e retorna status correto', async () => {

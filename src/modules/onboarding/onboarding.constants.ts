@@ -7,11 +7,6 @@ import {
 
 export const ONBOARDING_STATE_VERSION = 1;
 
-/**
- * Whitelist do DTO. É espelho de `lib/onboarding/state.ts` no frontend — os
- * valores viajam pela API, então não mude um lado sem o outro, exatamente
- * como já acontece com `lib/permissions.ts` e o enum `Permission`.
- */
 export const ONBOARDING_STEP_KEYS: readonly StepKey[] = [
   'conhecer-plataforma',
   'criar-solicitacao',
@@ -46,7 +41,6 @@ export const ONBOARDING_STATUSES: readonly OnboardingStatus[] = [
   'completed',
 ];
 
-/** Estado de quem nunca começou. Objeto novo a cada chamada, de propósito. */
 export function emptyOnboardingState(): OnboardingState {
   return {
     version: ONBOARDING_STATE_VERSION,

@@ -1,5 +1,5 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
+import { draftConfirmationFingerprint } from '../../helpers/draft-fingerprint';
 import { ALL_PERMISSIONS } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { translateServiceError } from '../../helpers/service-error-translator';
@@ -10,10 +10,10 @@ export function buildProcedureDraftCommitTool(deps: CadastroDraftDeps): AiTool {
   const { draftService, proceduresService } = deps;
   return {
     name: 'procedure_draft_commit',
-    // Mesma regra do HTTP: `ProceduresController.create` herda o
-    // `@RequireAnyArea()` da classe — qualquer área cria, mas o colaborador
-    // sem área nenhuma não. Excluir continua sendo ato do admin e não tem tool.
     requiredPermission: ALL_PERMISSIONS,
+    mutates: true,
+    requiresConfirmation: true,
+    confirmationFingerprint: draftConfirmationFingerprint(deps.draftService),
     definition: {
       type: 'function',
       function: {
@@ -26,12 +26,12 @@ export function buildProcedureDraftCommitTool(deps: CadastroDraftDeps): AiTool {
           required: ['confirm'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context) {
       if (!context.userId) {
         return buildToolResult({ status: 'error', message: 'Acesso negado.' });
       }
-      if (!(args as any).confirm) {
+      if (!args.confirm) {
         return buildToolResult({
           status: 'pending_confirmation',
           message:
@@ -56,7 +56,7 @@ export function buildProcedureDraftCommitTool(deps: CadastroDraftDeps): AiTool {
       const target = normalizeNameForCompare(rawName);
 
       const { records } = await proceduresService.findAll(
-        { skip: 0, take: 200 } as any,
+        { skip: 0, take: 200 },
         context.userId,
       );
       const existing =

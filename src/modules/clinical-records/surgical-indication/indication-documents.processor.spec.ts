@@ -42,8 +42,6 @@ describe('IndicationDocumentsProcessor', () => {
     });
   });
 
-  // O serviço nunca lança; sem isto, uma falha do R2 sumiria em silêncio e os
-  // anexos nunca chegariam à solicitação.
   it('falha o job quando sobrou documento para copiar, para a fila tentar de novo', async () => {
     documentsService.copyPatientDocuments.mockResolvedValue({
       copied: 1,

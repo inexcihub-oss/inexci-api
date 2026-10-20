@@ -14,11 +14,6 @@ import { LEDGER_CONSULTA } from './appointment.mapper';
 import { LEDGER_PACIENTE } from './patient.mapper';
 import { LEDGER_PROFISSIONAL, profissionaisDoFeegow } from './team.mapper';
 
-/**
- * Ledger das fichas. A chave diz a origem: `atd:<atendimento>`,
- * `form:<formulário solto>`, `ia:<resumo solto>`,
- * `presc:<paciente>:<data>:<tipo>:<n>` (ver `chaveDoDocumentoEmitido`).
- */
 export const LEDGER_FICHA = 'clinical_record';
 export const LEDGER_MODELO_ANAMNESE = 'clinical_record_template';
 
@@ -51,21 +46,6 @@ interface FormularioLido extends FormularioFeegow {
   profissionalId: string | null;
 }
 
-/**
- * Fichas do prontuário (MIG-07 §5).
- *
- * - Cada `atendimentos` vira uma ficha finalizada, com os formulários dele —
- *   mesmo sem formulário (o atendimento aconteceu). A 1ª ficha de um
- *   agendamento importado fica ligada à consulta; as demais, soltas. Só liga
- *   se a consulta for do mesmo paciente e do mesmo médico da ficha (a API
- *   exige o mesmo em `assertAppointmentBelongs`); senão, ficha solta com
- *   aviso.
- * - Formulário sem atendimento vira ficha solta.
- * - Resumo de IA só entra se o texto não estiver já num formulário (no
- *   export, todo resumo ligado a atendimento repete o formulário de IA).
- * - O atestado emitido no Feegow vira ficha solta com o texto na conduta.
- * - Ficha importada é sempre finalizada: é histórico, não atendimento aberto.
- */
 export function planejarFichas(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
@@ -90,8 +70,6 @@ export function planejarFichas(
     }
   }
 
-  // Texto de todos os formulários do paciente, para descartar resumo de IA
-  // repetido.
   const textosDoPaciente = new Map<string, Set<string>>();
   for (const f of formularios) {
     if (!f.pacienteId) continue;
@@ -127,9 +105,6 @@ export function planejarFichas(
   }
 
   const fichas: NovaFicha[] = [];
-  // Começa com as consultas que já têm ficha no banco (rodada anterior ou
-  // aberta pela tela): uma segunda ficha na mesma consulta violaria
-  // `idx_clinical_records_appointment_unique` e abortaria a fase.
   const consultasUsadas = new Set<string>(ctx.consultasComFicha);
   let paraODono = 0;
   const nova = (dados: {
@@ -172,7 +147,6 @@ export function planejarFichas(
     rel.aceitar('ficha');
   };
 
-  // Atendimentos, em ordem: a 1ª ficha de cada agendamento leva a consulta.
   const atendimentos = exp
     .tabela('atendimentos')
     .map((a) => ({
@@ -181,7 +155,6 @@ export function planejarFichas(
       fim: dataHoraSaoPaulo(a.DATA, a.hora_fim),
     }))
     .sort((x, y) => (x.inicio?.getTime() ?? 0) - (y.inicio?.getTime() ?? 0));
-  // Agendamento de origem de cada consulta, para conferir paciente e médico.
   const agendamentos = new Map(
     exp.tabela('agendamentos').map((g) => [g.id, g]),
   );
@@ -308,8 +281,6 @@ export function planejarFichas(
       rel.rejeitar('ficha', chave, 'documento emitido sem data ou sem texto');
       continue;
     }
-    // Ledger de antes da chave com tipo (`presc:<paciente>:<data>`): só o 1º
-    // documento do instante entrava — é ele que a chave antiga aponta.
     const legada = `presc:${p.PacienteId}:${p.datahora}`;
     const jaImportado = ctx.ledger.resolver(LEDGER_FICHA, legada);
     if (jaImportado && !legadasUsadas.has(legada)) {
@@ -344,11 +315,6 @@ export function planejarFichas(
   return fichas;
 }
 
-/**
- * `--modelos-vazios`: um modelo de anamnese, sem texto, com o nome de cada
- * formulário ativo criado pela clínica (ids positivos; os negativos são os
- * formulários de IA do próprio Feegow). Nome repetido entra uma vez.
- */
 export function planejarModelosVazios(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
@@ -359,9 +325,6 @@ export function planejarModelosVazios(
   for (const f of exp.tabela('formularios')) {
     const nome = (f.Nome ?? '').trim().slice(0, 100);
     if (Number(f.id) <= 0 || f.sysActive !== '1' || !nome) continue;
-    // O nome entra em `vistos` antes de pular o já importado: senão, na
-    // rodada seguinte, outro formulário com o mesmo nome criaria o modelo de
-    // novo (o pulado não reservava o nome).
     const chave = chaveDeNome(nome);
     const repetido = vistos.has(chave);
     vistos.add(chave);
@@ -378,11 +341,6 @@ export function planejarModelosVazios(
   return novos;
 }
 
-/**
- * Formulários preenchidos com o conteúdo do `_N.csv` do modelo. Ativos
- * sempre; rascunhos (`sys_active = 0`) com texto só com
- * `--incluir-rascunhos`; excluídos nunca.
- */
 function lerFormularios(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
@@ -449,11 +407,6 @@ function lerFormularios(
   return lidos;
 }
 
-/**
- * Chave de um documento emitido. O export não tem id na tabela: paciente +
- * data/hora + tipo + a posição entre os iguais (na ordem do export, estável
- * entre rodadas). Dois documentos no mesmo instante não colidem mais.
- */
 function chaveDoDocumentoEmitido(
   p: LinhaCsv,
   tipo: string,

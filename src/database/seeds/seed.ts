@@ -7,19 +7,7 @@ import { seedClinicalReportSections } from './seed-clinical-sections.helper';
 
 const logger = new Logger('Seed');
 
-/**
- * 🌱 SEED v3 — Nova estrutura de usuários e permissões
- *
- * Arquitetura:
- * - role: 'admin' | 'collaborator' (médico = existência de doctor_profile)
- * - owner_id: isolamento de tenant (todos da mesma conta compartilham)
- * - user_doctor_access: controle binário de acesso médico↔usuário
- * - doctor_id em todas as tabelas → user.id
- */
-
-// Verificação de ambiente
 function checkEnvironment() {
-  // Allowlist explicita: variavel ausente aborta, em vez de liberar.
   const nodeEnv = process.env.NODE_ENV;
   const allowedEnvs = ['development', 'local', 'dev'];
 
@@ -82,11 +70,6 @@ function generateCNPJ(): string {
   return cnpj;
 }
 
-/**
- * Registra uma transição de status como atividade do tipo `status_change`.
- * Auditoria de status vive em `surgery_request_activities` — não há mais
- * tabela `status_update`.
- */
 async function recordStatusChange(
   ds: { query: (q: string, params?: unknown[]) => Promise<unknown[]> },
   surgeryRequestId: string,
@@ -101,12 +84,6 @@ async function recordStatusChange(
   );
 }
 
-/**
- * Cria uma subscription ATIVA (já saída do trial) para um admin de seed,
- * com período corrente de 30 dias e quota period vinculado. Não cria
- * payment_method nem invoice (seed é para desenvolvimento — fluxo real
- * exige cadastro de cartão via Stripe).
- */
 async function createActiveSubscription(
   dataSource: { query: (q: string, params?: unknown[]) => Promise<unknown[]> },
   ownerId: string,
@@ -186,7 +163,9 @@ async function linkOpmeManufacturers(
 }
 
 async function createDefaultProceduresForOwner(
-  dataSource: { query: (q: string, params?: unknown[]) => Promise<any[]> },
+  dataSource: {
+    query: (q: string, params?: unknown[]) => Promise<{ id: string }[]>;
+  },
   ownerId: string,
 ): Promise<string[]> {
   const ids: string[] = [];
@@ -208,9 +187,6 @@ async function main() {
 
   const dataSource = await SeedDataSource.initialize();
 
-  // ========================================
-  // VERIFICAÇÃO DE IDEMPOTÊNCIA
-  // ========================================
   const existing = await dataSource.query(
     `SELECT id FROM "users" WHERE email = 'medico@inexci.com' LIMIT 1`,
   );
@@ -227,11 +203,6 @@ async function main() {
 
   const hashedPassword = await bcrypt.hash('Teste123@', 10);
 
-  // ========================================
-  // 1. PLANOS DE ASSINATURA
-  // ========================================
-  // Cria os planos default (idempotente via ON CONFLICT em slug).
-  // Quota é por solicitações cirúrgicas enviadas/mês (-1 = ilimitado).
   logger.log('📋 Criando planos de assinatura...');
 
   await dataSource.query(`
@@ -250,7 +221,6 @@ async function main() {
     ON CONFLICT (slug) DO NOTHING;
   `);
 
-  // Popula gateway_price_id a partir das vars de ambiente (idempotente)
   const priceMap: Record<string, string | undefined> = {
     starter: process.env.STRIPE_PRICE_STARTER_MONTHLY,
     'starter-anual': process.env.STRIPE_PRICE_STARTER_YEARLY,
@@ -269,7 +239,7 @@ async function main() {
        WHERE slug = $2 AND (gateway_price_id IS NULL OR gateway_price_id != $1)`,
       [priceId, slug],
     );
-    if ((result as any).rowCount > 0) priceIdsSet++;
+    if (result.rowCount > 0) priceIdsSet++;
   }
   if (priceIdsSet > 0) {
     logger.log(
@@ -289,24 +259,17 @@ async function main() {
     '✅ 9 planos criados: starter, starter-anual, essencial, essencial-anual, profissional, profissional-anual, avancado, avancado-anual, enterprise\n',
   );
 
-  // ========================================
-  // 2. PROCEDIMENTOS (TUSS / cirúrgicos)
-  // ========================================
   logger.log('🔧 Preparando procedimentos padrão por conta...');
   const procedureNames = DEFAULT_PROCEDURE_NAMES;
 
-  // ========================================
-  // 3. CONTA 1 — Dr. Carlos Mendonça (Admin + Médico)
-  //    medico@inexci.com — ortopedista, admin
-  // ========================================
   logger.log('👤 Criando conta 1: medico@inexci.com (admin + médico)...');
 
   const preGen1 = await dataSource.query(`SELECT uuid_generate_v4() AS id`);
   const adminMedicoId = preGen1[0].id;
 
   await dataSource.query(
-    `INSERT INTO "users" (id, name, email, password, phone, cpf, gender, birth_date, role, status, owner_id, admin_id, email_verified, email_verified_at, privacy_policy_accepted_at, terms_of_use_accepted_at, ai_consent_accepted_at)
-     VALUES ($1,'Dr. Carlos Mendonça','medico@inexci.com',$2,'11987654321','${generateCPF()}','M','1972-04-10','admin','active',$1,NULL,true,NOW(),NOW(),NOW(),NOW())`,
+    `INSERT INTO "users" (id, name, email, password, phone, cpf, gender, birth_date, role, status, owner_id, email_verified, email_verified_at, privacy_policy_accepted_at, terms_of_use_accepted_at, ai_consent_accepted_at)
+     VALUES ($1,'Dr. Carlos Mendonça','medico@inexci.com',$2,'11987654321','${generateCPF()}','M','1972-04-10','admin','active',$1,true,NOW(),NOW(),NOW(),NOW())`,
     [adminMedicoId, hashedPassword],
   );
   await dataSource.query(
@@ -315,7 +278,6 @@ async function main() {
     [adminMedicoId],
   );
   await createActiveSubscription(dataSource, adminMedicoId, professionalPlanId);
-  // Admin de PLATAFORMA (V2) — único a acessar `/admin/*`. Setado só via seed.
   await dataSource.query(
     `UPDATE "users" SET is_platform_admin = true WHERE id = $1`,
     [adminMedicoId],
@@ -330,16 +292,9 @@ async function main() {
     `✅ Procedimentos criados para a conta: ${procedureIdsConta1.length}\n`,
   );
 
-  // ========================================
-  // 8. HOSPITAIS
-  // ========================================
   logger.log('🏥 Criando hospitais...');
 
-  // Hospitais pertencem à clínica (tenant), via owner_id. Todos são da
-  // conta 1 (owner = adminMedicoId). Qualquer médico/colaborador da mesma
-  // conta pode usá-los nas solicitações cirúrgicas.
   const hospitalsData = [
-    // Conta 1 (medico@inexci.com)
     {
       name: 'Hospital Albert Einstein',
       cnpj: generateCNPJ(),
@@ -398,15 +353,9 @@ async function main() {
   }
   logger.log(`  ✅ ${hospitalIds.length} hospitais criados\n`);
 
-  // ========================================
-  // 9. CONVÊNIOS
-  // ========================================
   logger.log('💳 Criando convênios...');
 
-  // Convênios pertencem à clínica (tenant), via owner_id. Todos são da
-  // conta 1 (owner = adminMedicoId).
   const healthPlansData = [
-    // Conta 1
     {
       name: 'Unimed Paulistana',
       ans_code: '317497',
@@ -462,15 +411,9 @@ async function main() {
   }
   logger.log(`  ✅ ${healthPlanIds.length} convênios criados\n`);
 
-  // ========================================
-  // 10. FORNECEDORES DE OPME
-  // ========================================
   logger.log('📦 Criando fornecedores...');
 
-  // Fornecedores pertencem à clínica (tenant), via owner_id. Todos são da
-  // conta 1 (owner = adminMedicoId).
   const suppliersData = [
-    // Conta 1
     {
       name: 'Zimmer Biomet Brasil',
       contact_name: 'Claudia Neves',
@@ -513,13 +456,9 @@ async function main() {
   }
   logger.log(`  ✅ ${supplierIds.length} fornecedores criados\n`);
 
-  // ========================================
-  // 10.1 FABRICANTES DE OPME
-  // ========================================
   logger.log('🏭 Criando fabricantes...');
 
   const manufacturersData = [
-    // Conta 1
     {
       name: 'Zimmer Biomet',
       owner_id: adminMedicoId,
@@ -580,9 +519,6 @@ async function main() {
   }
   logger.log(`  ✅ ${manufacturerIds.length} fabricantes criados\n`);
 
-  // ========================================
-  // 12. PACIENTES — Conta 1 (medico@inexci.com)
-  // ========================================
   logger.log('🧑‍🤝‍🧑 Criando pacientes da conta 1...');
 
   const patientsData1 = [
@@ -711,14 +647,10 @@ async function main() {
   }
   logger.log(`  ✅ ${patientIds1.length} pacientes criados para conta 1\n`);
 
-  // ========================================
-  // 14. SOLICITAÇÕES CIRÚRGICAS — Conta 1 (medico@inexci.com)
-  // ========================================
   logger.log('📋 Criando solicitações cirúrgicas (conta 1)...');
 
   const srIds1: string[] = [];
 
-  // SR C1-1 — ATJ — SCHEDULED
   {
     const surgDate = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
     const r = await dataSource.query(
@@ -790,7 +722,6 @@ async function main() {
     );
   }
 
-  // SR C1-2 — ATQ urgente — IN_SCHEDULING
   {
     const r = await dataSource.query(
       `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, date_options)
@@ -856,7 +787,6 @@ async function main() {
     );
   }
 
-  // SR C1-3 — Artroscopia — PENDING
   {
     const r = await dataSource.query(
       `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type)
@@ -884,7 +814,6 @@ async function main() {
     });
   }
 
-  // SR C1-4 — FINALIZED com billing e contestação
   {
     const r = await dataSource.query(
       `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
@@ -938,7 +867,6 @@ async function main() {
     );
   }
 
-  // SR C1-5 — SENT (Enviada) — Eduardo Luiz Teixeira
   {
     const r = await dataSource.query(
       `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, send_method)
@@ -968,7 +896,6 @@ async function main() {
     await recordStatusChange(dataSource, r[0].id, 1, 2, adminMedicoId);
   }
 
-  // SR C1-6 — IN_ANALYSIS (Em Análise) — Fernando Augusto Costa (segunda cirurgia)
   {
     const r = await dataSource.query(
       `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, analysis_started_at)
@@ -1004,7 +931,6 @@ async function main() {
     );
   }
 
-  // SR C1-7 — PERFORMED (Realizada) — Beatriz Helena Santos (segunda cirurgia)
   {
     const r = await dataSource.query(
       `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, surgery_performed_at)
@@ -1054,7 +980,6 @@ async function main() {
     );
   }
 
-  // SR C1-8 — INVOICED (Faturada) — Marcos Antônio Ribeiro (segunda cirurgia)
   {
     const r = await dataSource.query(
       `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
@@ -1098,7 +1023,6 @@ async function main() {
     );
   }
 
-  // SR C1-9 — CLOSED (Encerrada) — Patrícia Gonçalves Ferraz (segunda solicitação)
   {
     const r = await dataSource.query(
       `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, closed_reason, closed_at)
@@ -1131,9 +1055,6 @@ async function main() {
 
   logger.log(`  ✅ ${srIds1.length} solicitações criadas para conta 1\n`);
 
-  // ========================================
-  // 14a. COMPLETUDE DAS SCs (TUSS + OPME + Laudo)
-  // ========================================
   logger.log('🧩 Garantindo completude das solicitações cirúrgicas...');
 
   const allSurgeryRequests: {
@@ -1254,9 +1175,6 @@ async function main() {
     `  ✅ Completude aplicada: ${addedTuss} TUSS, ${addedOpme} OPMEs e ${addedReportSections} seções de laudo adicionadas\n`,
   );
 
-  // ========================================
-  // 14b. VÍNCULO OPME ↔ FABRICANTE
-  // ========================================
   logger.log('🔗 Vinculando fabricantes aos itens OPME...');
   const linkedOpmeManufacturers = await linkOpmeManufacturers(
     dataSource,
@@ -1266,16 +1184,10 @@ async function main() {
     `  ✅ ${linkedOpmeManufacturers} vínculos em opme_item_manufacturers criados\n`,
   );
 
-  // ========================================
-  // 15. CID/TUSS
-  // ========================================
   logger.log(
     '⏭️ Carga de CID/TUSS e vinculação nas solicitações foi removida do seed (será feita manualmente).\n',
   );
 
-  // ========================================
-  // 15a. TEMPLATES DE SOLICITAÇÃO
-  // ========================================
   logger.log('📝 Criando templates de solicitação...');
 
   await dataSource.query(
@@ -1338,12 +1250,8 @@ async function main() {
 
   logger.log('  ✅ 2 templates criados\n');
 
-  // ========================================
-  // 15f. ATIVIDADES nas solicitações
-  // ========================================
   logger.log('📊 Criando atividades nas solicitações...');
 
-  // SR C1-1 — atividades diversas
   await dataSource.query(
     `INSERT INTO surgery_request_activities (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Pendente para Enviada')`,
     [srIds1[0], adminMedicoId],
@@ -1373,7 +1281,6 @@ async function main() {
     [srIds1[0], adminMedicoId],
   );
 
-  // SR C1-4 (finalizada com contestação)
   await dataSource.query(
     `INSERT INTO surgery_request_activities (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'pdf_generated', 'PDF da solicitação cirúrgica gerado automaticamente.')`,
     [srIds1[3], adminMedicoId],
@@ -1385,17 +1292,8 @@ async function main() {
 
   logger.log('  ✅ Atividades criadas nas solicitações\n');
 
-  // ========================================
-  // 16. DOCUMENTOS nas solicitações
-  // ========================================
-  // Inserção de documentos em solicitações é omitida (depende de upload real
-  // para o storage). A tabela `default_document_clinics` foi removida do
-  // schema — não há mais documentos padrão da clínica.
   logger.log('⏭️ Documentos em solicitações são criados via upload real.\n');
 
-  // ========================================
-  // 17. CABEÇALHO DOS MÉDICOS (doctor_headers)
-  // ========================================
   logger.log('🧩 Criando cabeçalhos dos médicos...');
 
   const doctorProfileRows = await dataSource.query(
@@ -1418,9 +1316,6 @@ async function main() {
     `  ✅ ${doctorProfileRows.length} cabeçalhos de médicos criados\n`,
   );
 
-  // ========================================
-  // RESUMO
-  // ========================================
   logger.log('═══════════════════════════════════════════════════════════');
   logger.log('🎉 Seed concluído com sucesso!');
   logger.log('═══════════════════════════════════════════════════════════');

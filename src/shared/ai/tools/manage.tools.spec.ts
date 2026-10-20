@@ -1,3 +1,18 @@
+const detectarTipo = (buf: Buffer) => {
+  const hex = buf.subarray(0, 8).toString('hex');
+  if (hex.startsWith('89504e470d0a1a0a'))
+    return Promise.resolve({ ext: 'png', mime: 'image/png' });
+  if (hex.startsWith('ffd8ff'))
+    return Promise.resolve({ ext: 'jpg', mime: 'image/jpeg' });
+  if (buf.subarray(0, 4).toString() === '%PDF')
+    return Promise.resolve({ ext: 'pdf', mime: 'application/pdf' });
+  return Promise.resolve(undefined);
+};
+jest.mock('file-type', () => ({ fileTypeFromBuffer: detectarTipo }), {
+  virtual: true,
+});
+
+import { EntityResolverService } from '../services/entity-resolver.service';
 import { buildManageTools } from './manage.tools';
 import { ToolContext } from './tool.interface';
 import { SurgeryRequestStatus } from '../../../database/entities/surgery-request.entity';
@@ -54,7 +69,10 @@ const mockDocumentRepo = {
   getRepository: () => mockDocumentRepository,
 };
 const mockSupplierRepo = { findMany: jest.fn(), create: jest.fn() };
-const mockHealthPlanRepo = { findOne: jest.fn() };
+const mockHealthPlanRepo = {
+  findOne: jest.fn(),
+  findMany: jest.fn().mockResolvedValue([]),
+};
 const mockStorageService = { create: jest.fn() };
 const mockConfigService = { get: jest.fn() };
 const mockTussService = {
@@ -88,22 +106,22 @@ const sentRequest = {
 };
 
 describe('ManageTools', () => {
-  const tools = buildManageTools(
-    mockSurgeryRequestRepo as any,
-    mockSurgeryRequestsService as any,
-    mockActivityRepo as any,
-    mockTussItemRepo as any,
-    mockOpmeItemRepo as any,
-    mockDocumentRepo as any,
-    mockSupplierRepo as any,
-    mockHealthPlanRepo as any,
-    mockStorageService as any,
-    mockConfigService as any,
-    mockOpmeService as any,
-    mockDocumentsService as any,
-    undefined,
-    mockTussService as any,
-  );
+  const tools = buildManageTools({
+    surgeryRequestRepo: mockSurgeryRequestRepo as any,
+    surgeryRequestsService: mockSurgeryRequestsService as any,
+    activityRepo: mockActivityRepo as any,
+    tussItemRepo: mockTussItemRepo as any,
+    opmeItemRepo: mockOpmeItemRepo as any,
+    documentRepo: mockDocumentRepo as any,
+    supplierRepo: mockSupplierRepo as any,
+    healthPlanRepo: mockHealthPlanRepo as any,
+    storageService: mockStorageService as any,
+    configService: mockConfigService as any,
+    opmeService: mockOpmeService as any,
+    documentsService: mockDocumentsService as any,
+    entityResolver: new EntityResolverService(),
+    tussService: mockTussService as any,
+  });
 
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
 
@@ -118,8 +136,6 @@ describe('ManageTools', () => {
     mockSupplierRepo.create.mockImplementation((dto: any) =>
       Promise.resolve({ id: `sup-${dto.name}`, name: dto.name }),
     );
-    // Por padrão, o catálogo TUSS confirma o código informado pelo caller.
-    // Testes específicos sobrescrevem com cenários de ambiguidade/not_found.
     mockTussService.findByExactCode.mockImplementation((code: string) => ({
       id: code,
       tussCode: code,
@@ -529,6 +545,52 @@ describe('ManageTools', () => {
       expect(mockOpmeService.delete).toHaveBeenCalledWith('o1', 'user-1');
       expect(result).toContain('removido');
     });
+    it('preview (sem confirm) devolve envelope pending_confirmation para o ConfirmationManager', async () => {
+      const raw = await getTool('manage_opme_items').execute(
+        {
+          surgeryRequestId: 'req-1',
+          operation: 'add',
+          name: 'Parafuso',
+          manufacturerNames: ['Fab 1', 'Fab 2', 'Fab 3'],
+          supplierNames: ['F1', 'F2', 'F3'],
+        },
+        baseContext,
+      );
+      const parsed = parseToolResult(raw);
+
+      expect(parsed?.status).toBe('pending_confirmation');
+      expect(parsed?.pending_confirmation?.tool).toBe('manage_opme_items');
+      expect(parsed?.pending_confirmation?.args).toEqual(
+        expect.objectContaining({ operation: 'add', confirm: true }),
+      );
+      expect(mockOpmeService.create).not.toHaveBeenCalled();
+    });
+
+    it('regressão: renomear item envia o novo nome no DTO de update', async () => {
+      mockOpmeItemRepo.findByIdWithSuppliers.mockResolvedValue({
+        id: 'o1',
+        surgeryRequestId: 'req-1',
+        name: 'Parafuso',
+        quantity: 1,
+        suppliers: [],
+      });
+
+      await getTool('manage_opme_items').execute(
+        {
+          surgeryRequestId: 'req-1',
+          operation: 'update',
+          opmeItemId: 'o1',
+          name: 'Placa',
+          confirm: true,
+        },
+        baseContext,
+      );
+
+      expect(mockOpmeService.update).toHaveBeenCalledWith(
+        { id: 'o1', name: 'Placa' },
+        'user-1',
+      );
+    });
   });
 
   describe('manage_documents', () => {
@@ -577,7 +639,7 @@ describe('ManageTools', () => {
         ok: true,
         status: 200,
         headers: { get: () => 'application/pdf' },
-        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+        arrayBuffer: async () => new TextEncoder().encode('%PDF-1.7 x').buffer,
       } as any);
 
       mockStorageService.create.mockResolvedValue('documents/doc-1.pdf');
@@ -601,11 +663,19 @@ describe('ManageTools', () => {
         },
       );
 
-      expect(mockStorageService.create).toHaveBeenCalled();
+      expect(mockStorageService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          originalname: 'Laudo.pdf',
+          mimetype: 'application/pdf',
+        }),
+        expect.any(String),
+        expect.anything(),
+      );
       expect(mockDocumentsService.createFromPath).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'medical_report',
           key: 'medical_report',
+          contentType: 'application/pdf',
         }),
       );
       expect(result).toContain('anexado');
@@ -711,7 +781,8 @@ describe('ManageTools', () => {
         ok: true,
         status: 200,
         headers: { get: () => 'image/jpeg' },
-        arrayBuffer: async () => new Uint8Array([1, 2]).buffer,
+        arrayBuffer: async () =>
+          new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]).buffer,
       } as any);
 
       mockStorageService.create.mockResolvedValue('documents/img-1.jpg');
@@ -735,14 +806,80 @@ describe('ManageTools', () => {
         },
       );
 
+      expect(mockStorageService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          originalname: 'RX joelho.jpg',
+          mimetype: 'image/jpeg',
+        }),
+        expect.any(String),
+        expect.anything(),
+      );
       expect(mockDocumentsService.createFromPath).toHaveBeenCalledWith(
         expect.objectContaining({
           key: 'report_images',
           type: 'exam_image',
+          contentType: 'image/jpeg',
         }),
       );
       expect(result).toContain('anexada');
 
+      fetchMock.mockRestore();
+    });
+
+    it('nome padrão sem extensão ganha a extensão do tipo detectado (PNG declarado como JPEG)', async () => {
+      const fetchMock = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: { get: () => 'image/jpeg' },
+        arrayBuffer: async () =>
+          new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+            .buffer,
+      } as any);
+      mockStorageService.create.mockResolvedValue('documents/img-2.png');
+
+      await getTool('manage_report_images').execute(
+        { surgeryRequestId: 'req-1', operation: 'attach', confirm: true },
+        {
+          ...baseContext,
+          inboundMedia: [
+            {
+              url: 'https://api.twilio.com/2010-04-01/media/2',
+              contentType: 'image/jpeg',
+            },
+          ],
+        },
+      );
+
+      const [arquivo] = mockStorageService.create.mock.calls.at(-1);
+      expect(arquivo.originalname).toMatch(/^Imagem do laudo .+\.png$/);
+      expect(arquivo.mimetype).toBe('image/png');
+      fetchMock.mockRestore();
+    });
+
+    it('recusa attach quando o conteúdo baixado não é imagem', async () => {
+      const fetchMock = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: { get: () => 'image/jpeg' },
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      } as any);
+      mockStorageService.create.mockClear();
+
+      const result = await getTool('manage_report_images').execute(
+        { surgeryRequestId: 'req-1', operation: 'attach', confirm: true },
+        {
+          ...baseContext,
+          inboundMedia: [
+            {
+              url: 'https://api.twilio.com/2010-04-01/media/3',
+              contentType: 'image/jpeg',
+            },
+          ],
+        },
+      );
+
+      expect(parseToolResult(result)?.status).toBe('blocked');
+      expect(mockStorageService.create).not.toHaveBeenCalled();
       fetchMock.mockRestore();
     });
 
@@ -907,9 +1044,6 @@ describe('ManageTools', () => {
     });
   });
 
-  // ----------------------------------------------------------------
-  // Fase 2 PLANO-CORRECOES-CODE-REVIEW-2026-05-13: envelope ToolResult
-  // ----------------------------------------------------------------
   describe('envelope ToolResult — Fase 2', () => {
     describe('manage_tuss_items', () => {
       it('status=pending_confirmation para add sem confirm', async () => {

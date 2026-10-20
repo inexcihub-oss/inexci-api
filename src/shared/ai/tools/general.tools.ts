@@ -1,25 +1,26 @@
-import OpenAI from 'openai';
 import { AiTool, ToolContext } from './tool.interface';
 import { detokenizeArg, tokenizePii } from '../pii/tool-pii-helpers';
 import { EntityResolverService } from '../services/entity-resolver.service';
 import { PatientsService } from '../../../modules/patients/patients.service';
+import { ALL_PERMISSIONS } from 'src/shared/permissions';
+import { Patient } from '../../../database/entities/patient.entity';
+import { asScalarArg } from './helpers/arg-parsers';
+import { auditProntuarioAccess } from 'src/shared/logging/audit';
 
-export function buildGeneralTools(
-  patientsService: PatientsService,
-  resolver?: EntityResolverService,
-): AiTool[] {
+export interface GeneralToolDeps {
+  patientsService: PatientsService;
+  entityResolver?: EntityResolverService;
+}
+
+export function buildGeneralTools({
+  patientsService,
+  entityResolver: resolver,
+}: GeneralToolDeps): AiTool[] {
   const entityResolver = resolver ?? new EntityResolverService();
 
-  /**
-   * `query_patients` substitui as antigas `get_patient_info` + `list_patients`
-   * (removidas em Mai/2026 — Fase 4.1 do PLANO-CONSOLIDACAO-TOOLS-IA-VIA-SERVICES-REST).
-   *
-   * - Quando `patient_name_or_id` é um UUID → detalhe completo do paciente.
-   * - Quando fornecido como texto → busca por nome com o `match_mode` escolhido.
-   * - Sem parâmetros → lista todos os pacientes da clínica.
-   */
   const queryPatients: AiTool = {
     name: 'query_patients',
+    requiredPermission: ALL_PERMISSIONS,
     definition: {
       type: 'function',
       function: {
@@ -48,13 +49,13 @@ export function buildGeneralTools(
           required: [],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 
       const TOOL = 'query_patients';
       const rawInput = String(
-        detokenizeArg(context, (args as any).patient_name_or_id) ?? '',
+        detokenizeArg(context, asScalarArg(args.patient_name_or_id)) ?? '',
       ).trim();
 
       const limit = Math.min(
@@ -74,14 +75,15 @@ export function buildGeneralTools(
         matchModeRaw === 'exact' ||
         matchModeRaw === 'contains' ||
         matchModeRaw === 'fuzzy'
-          ? (matchModeRaw as 'fuzzy' | 'contains' | 'prefix' | 'exact')
+          ? matchModeRaw
           : 'fuzzy';
 
-      // ── Lookup por UUID → detalhe completo ─────────────────────────────────
       if (rawInput.match(/^[0-9a-f-]{36}$/i)) {
-        let patient: any;
+        let patient: Patient;
         try {
-          patient = await patientsService.findOne(rawInput, context.userId);
+          patient = await patientsService.findOne(rawInput, context.userId, {
+            origin: 'ai',
+          });
         } catch {
           return `Paciente com ID "${rawInput}" não encontrado.`;
         }
@@ -114,9 +116,6 @@ export function buildGeneralTools(
         return lines.join('\n');
       }
 
-      // ── Busca por nome ──────────────────────────────────────────────────────
-      // Para fuzzy: PatientsService já limita ao banco via ILIKE (candidateLimit
-      // = limit * 4). Não precisamos mais puxar 500 entidades em memória.
       const patients = await patientsService.findManyWithSearch(
         rawInput || null,
         matchMode,
@@ -131,20 +130,27 @@ export function buildGeneralTools(
         return 'Nenhum paciente cadastrado nesta clínica ainda.';
       }
 
-      // Para fuzzy: aplica EntityResolverService
-      let filtered: any[];
+      let filtered: Patient[];
       if (rawInput && matchMode === 'fuzzy') {
-        const resolverResult = entityResolver.resolve<any>({
+        const resolverResult = entityResolver.resolve({
           query: rawInput,
           candidates: patients,
-          getName: (p: any) => String(p.name ?? ''),
-          getId: (p: any) => String(p.id),
+          getName: (p) => String(p.name ?? ''),
+          getId: (p) => String(p.id),
           candidateThreshold: 0.5,
           maxCandidates: limit,
         });
         if (resolverResult.status === 'resolved' && resolverResult.resolved) {
-          // Um único match claro → detalhe completo
           const p = resolverResult.resolved.data;
+          auditProntuarioAccess({
+            resource: 'patient',
+            resourceId: p.id,
+            action: 'read',
+            actorUserId: context.userId,
+            tenantId: p.ownerId,
+            patientId: p.id,
+            origin: 'ai',
+          });
           const cpfToken = p.cpf
             ? tokenizePii(context, TOOL, 'cpf', p.cpf)
             : 'Não informado';
@@ -180,7 +186,7 @@ export function buildGeneralTools(
       }
 
       const slice = filtered.slice(0, limit);
-      const lines = slice.map((p: any) => {
+      const lines = slice.map((p) => {
         const phoneToken = p.phone
           ? tokenizePii(context, TOOL, 'phone', p.phone)
           : 'sem telefone';
@@ -202,12 +208,6 @@ export function buildGeneralTools(
       return [header, ...lines].join('\n');
     },
   };
-
-  // Tools legacy removidas:
-  //  - `create_patient` (2026-05-12): migrada para `patient_draft_*`.
-  //  - `get_patient_info` + `list_patients` (2026-05-12, Fase 4.1 do
-  //    PLANO-CONSOLIDACAO-TOOLS-IA-VIA-SERVICES-REST): unificadas em
-  //    `query_patients` que delega a `PatientsService.findManyWithSearch()`.
 
   return [queryPatients];
 }

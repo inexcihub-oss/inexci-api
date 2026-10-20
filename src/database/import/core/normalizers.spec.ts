@@ -31,7 +31,6 @@ describe('normalizadores', () => {
     });
 
     it('não completa valor curto mascarado nem com 9 dígitos (RG no campo)', () => {
-      // 001.234.567-90 sem os dois zeros seria válido: não é chute que se faça.
       expect(cpfValido('00123456790')).toBe(false);
       expect(normalizarCpf('123456789')).toBeNull();
       expect(normalizarCpf('12.345.678-90')).toBeNull();
@@ -98,7 +97,7 @@ describe('normalizadores', () => {
   });
 
   it('e-mail acima do limite da coluna é descartado (emailLongoDemais avisa)', () => {
-    const longo = `${'a'.repeat(95)}@clinica.com`; // 107 caracteres
+    const longo = `${'a'.repeat(95)}@clinica.com`;
     expect(normalizarEmail(longo)).toBe(longo);
     expect(normalizarEmail(longo, EMAIL_MAX.paciente)).toBeNull();
     expect(normalizarEmail(longo, EMAIL_MAX.usuario)).toBe(longo);
@@ -159,7 +158,6 @@ describe('normalizadores', () => {
     });
 
     it('usa o horário de verão de antes de 2019 (-02:00)', () => {
-      // Verão 2017/2018: 15/10/2017 a 18/02/2018.
       expect(dataHoraSaoPaulo('2018-01-15', '10:00')?.toISOString()).toBe(
         '2018-01-15T12:00:00.000Z',
       );
@@ -169,7 +167,6 @@ describe('normalizadores', () => {
     });
 
     it('meia-noite que não existiu (início do verão) cai em 01:00', () => {
-      // 04/11/2018: o relógio pulou de 00:00 para 01:00 (-02:00).
       expect(dataHoraSaoPaulo('2018-11-04')?.toISOString()).toBe(
         '2018-11-04T03:00:00.000Z',
       );

@@ -1,9 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Cria a tabela `appointments` (consultas/retornos) — base do módulo de
- * atendimento (Fase 1). Escopada por clínica (owner_id) e médico (doctor_id).
- */
 export class CreateAppointments1752300000000 implements MigrationInterface {
   name = 'CreateAppointments1752300000000';
 

@@ -1,12 +1,13 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { buildToolResult } from '../../tool-result';
 import { CadastroDraftDeps } from '../_types';
+import { ALL_PERMISSIONS } from 'src/shared/permissions';
 
 export function buildHospitalDraftPreviewTool(deps: CadastroDraftDeps): AiTool {
   const { draftService } = deps;
   return {
     name: 'hospital_draft_preview',
+    requiredPermission: ALL_PERMISSIONS,
     definition: {
       type: 'function',
       function: {
@@ -14,7 +15,7 @@ export function buildHospitalDraftPreviewTool(deps: CadastroDraftDeps): AiTool {
         description: 'Gera o preview do rascunho de hospital.',
         parameters: { type: 'object', properties: {} },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(_args, context) {
       const v = await draftService.validate(
         context.conversationId,

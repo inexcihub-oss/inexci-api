@@ -45,11 +45,6 @@ export class ClinicalRecordsController {
     return this.clinicalRecordsService.findByPatient(patientId!, user.userId);
   }
 
-  /**
-   * `:id` é validado como UUID em todas as rotas: sem isso, um segmento fixo
-   * de outro controller (`clinical-records/documents`) chega ao banco como id
-   * e devolve 500 em vez de 404/400.
-   */
   @Get(':id')
   @ApiOperation({ summary: 'Buscar atendimento por ID' })
   findOne(

@@ -1,15 +1,7 @@
 import 'dotenv/config';
 import { Client } from 'pg';
+import { resolvePostgresSsl } from '../src/database/typeorm/postgres-ssl';
 
-/**
- * Verifica antes do deploy se o Postgres tem a extensão `pgvector` disponível
- * (e idealmente já instalada). Falha cedo com mensagem objetiva quando o
- * banco não está apto a hospedar o RAG.
- *
- * Uso:
- *   yarn predeploy        (rodado automaticamente antes do deploy)
- *   yarn check:pgvector   (manual)
- */
 async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
@@ -19,7 +11,10 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const client = new Client({ connectionString: databaseUrl });
+  const client = new Client({
+    connectionString: databaseUrl,
+    ssl: resolvePostgresSsl(),
+  });
 
   try {
     await client.connect();
@@ -57,4 +52,4 @@ async function main(): Promise<void> {
   }
 }
 
-main();
+void main();

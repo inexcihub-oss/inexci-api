@@ -69,7 +69,6 @@ describe('ClearContextDetectorService', () => {
       );
       expect(out.status).toBe('prompt');
       expect(out).toHaveProperty('message');
-      // Confirmação subsequente deve achar pending registrada.
       const next = service.tryHandleClearContextConfirmation(
         '+5511999998888',
         'sim',
@@ -98,7 +97,6 @@ describe('ClearContextDetectorService', () => {
         expect(out.conversationId).toBe('conv-42');
         expect(out.message).toContain('Limpei o contexto');
       }
-      // Pending consumida — segunda chamada devolve none.
       expect(
         service.tryHandleClearContextConfirmation(phone, 'sim').status,
       ).toBe('none');
@@ -120,7 +118,6 @@ describe('ClearContextDetectorService', () => {
         'me ajude com outra coisa',
       );
       expect(out.status).toBe('reprompt');
-      // Pending continua de pé.
       expect(
         service.tryHandleClearContextConfirmation(phone, 'sim').status,
       ).toBe('confirmed');

@@ -1,15 +1,25 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
+import { draftConfirmationFingerprint } from '../../helpers/draft-fingerprint';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
-import { ActivityType } from '../../../../../database/entities/surgery-request-activity.entity';
 import { FlowDraftDeps } from '../_types';
+import {
+  getAuthorizedRequest,
+  recordAiActivity,
+} from '../../helpers/surgery-request-access';
+import { errorMessage } from '../../../../utils/error-message.util';
+import { UpdateDateOptionsDto } from '../../../../../modules/surgery-requests/dto/update-date-options.dto';
+import { ConfirmDateDto } from '../../../../../modules/surgery-requests/dto/confirm-date.dto';
 
 export function buildSchedulingDraftCommitTool(deps: FlowDraftDeps): AiTool {
-  const { draftService, workflowService, activityRepo } = deps;
+  const { draftService, workflowService, activityRepo, surgeryRequestRepo } =
+    deps;
   return {
     name: 'scheduling_draft_commit',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
+    requiresConfirmation: true,
+    confirmationFingerprint: draftConfirmationFingerprint(deps.draftService),
     definition: {
       type: 'function',
       function: {
@@ -22,12 +32,12 @@ export function buildSchedulingDraftCommitTool(deps: FlowDraftDeps): AiTool {
           required: ['confirm'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context) {
       if (!context.userId) {
         return buildToolResult({ status: 'error', message: 'Acesso negado.' });
       }
-      if (!(args as any).confirm) {
+      if (!args.confirm) {
         return buildToolResult({
           status: 'pending_confirmation',
           message:
@@ -48,45 +58,54 @@ export function buildSchedulingDraftCommitTool(deps: FlowDraftDeps): AiTool {
         });
       }
       const f = v.draft.fields;
+      const acesso = await getAuthorizedRequest(
+        surgeryRequestRepo,
+        f.surgeryRequestId,
+        context,
+      );
+      if (!acesso.ok) {
+        return buildToolResult({ status: 'error', message: acesso.message });
+      }
       try {
         const hasOptions =
           Array.isArray(f.dateOptions) && f.dateOptions.length > 0;
         if (hasOptions) {
           await workflowService.updateDateOptions(
             f.surgeryRequestId!,
-            { dateOptions: f.dateOptions } as any,
+            { dateOptions: f.dateOptions } as UpdateDateOptionsDto,
             context.userId,
           );
         }
         if (f.confirmedDateIndex !== undefined) {
           await workflowService.confirmDate(
             f.surgeryRequestId!,
-            { selectedDateIndex: f.confirmedDateIndex } as any,
+            { selectedDateIndex: f.confirmedDateIndex } as ConfirmDateDto,
             context.userId,
           );
         }
-        await activityRepo.create({
-          surgeryRequestId: f.surgeryRequestId!,
-          userId: context.userId,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Agendamento: ${hasOptions ? 'opções definidas' : ''}${
+        await recordAiActivity(
+          activityRepo,
+          context,
+          f.surgeryRequestId!,
+          `Agendamento: ${hasOptions ? 'opções definidas' : ''}${
             f.confirmedDateIndex !== undefined
               ? `${hasOptions ? '; ' : ''}data confirmada (opção #${f.confirmedDateIndex + 1})`
               : ''
           }.`,
-        });
+        );
         await draftService.finalizeCommit(context.conversationId, {
           id: f.surgeryRequestId,
           label: f.surgeryRequestLabel,
         });
         return buildToolResult({
           status: 'ok',
+          affected: [{ kind: 'surgery_request', id: f.surgeryRequestId! }],
           message: `Agendamento aplicado para a solicitação ${f.surgeryRequestLabel ?? f.surgeryRequestId}.`,
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
-          message: `Erro ao agendar: ${err?.message || 'erro desconhecido'}`,
+          message: `Erro ao agendar: ${errorMessage(err) || 'erro desconhecido'}`,
         });
       }
     },

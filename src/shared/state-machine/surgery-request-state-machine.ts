@@ -1,17 +1,10 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import {
   SurgeryRequest,
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
 import { recordWorkflowTransition } from '../observability/metrics.util';
 
-/**
- * SurgeryRequestStateMachine
- *
- * Valida APENAS a parte estrutural da transição: se o status atual é o
- * esperado para a transição alvo. Toda validação de completude de dados
- * é responsabilidade do PendencyValidatorService (assertCanAdvance).
- */
 export class SurgeryRequestStateMachine {
   canTransitionTo(
     request: SurgeryRequest,
@@ -124,4 +117,23 @@ export class SurgeryRequestStateMachine {
       });
     }
   }
+
+  assertStatus(
+    request: Pick<SurgeryRequest, 'status'>,
+    expected: SurgeryRequestStatus,
+    message: string,
+  ): void {
+    if (request.status === expected) return;
+    throw new BadRequestException({
+      message,
+      pendencies: [message],
+    });
+  }
+}
+
+export const STALE_TRANSITION_MESSAGE =
+  'A solicitação foi alterada por outra ação enquanto esta era processada. Atualize a página e tente novamente.';
+
+export function assertTransitionApplied(applied: boolean): void {
+  if (!applied) throw new ConflictException(STALE_TRANSITION_MESSAGE);
 }

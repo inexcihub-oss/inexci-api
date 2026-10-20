@@ -1,10 +1,3 @@
-/**
- * Estado do onboarding de um usuário, persistido em `users.onboarding_state`.
- *
- * Timestamps são strings ISO-8601, não `Date`: o valor trafega por JSON até o
- * navegador e volta pelo PATCH. Guardar `Date` aqui obrigaria a converter nas
- * duas pontas e a lidar com o que o `JSON.parse` do jsonb devolve (string).
- */
 export type OnboardingStatus =
   | 'not_started'
   | 'in_progress'
@@ -41,11 +34,6 @@ export interface OnboardingState {
   status: OnboardingStatus;
   welcomeSeenAt: string | null;
   checklistDismissedAt: string | null;
-  /**
-   * Mapa chave → timestamp, não array. Mapa é idempotente: refazer um passo
-   * sobrescreve a data em vez de duplicar a entrada, e "esse passo foi feito?"
-   * é um acesso direto.
-   */
   completedSteps: Partial<Record<StepKey, string>>;
   toursSeen: Partial<Record<TrackId, string>>;
   restartedAt: string | null;

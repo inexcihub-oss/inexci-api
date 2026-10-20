@@ -60,6 +60,19 @@ describe('DocumentEntityResolverService', () => {
     expect(result.patient[0].name).toBe('Maria Souza');
   });
 
+  it('escapa curingas do LIKE no nome do paciente', async () => {
+    const patientQb = makeQb([]);
+    dataSource.getRepository.mockReturnValue({
+      createQueryBuilder: () => patientQb,
+    });
+
+    await service.resolveCandidates({ patient: { name: '%_Maria' } }, 'user-1');
+
+    expect(patientQb.andWhere).toHaveBeenCalledWith(expect.any(String), {
+      term: '%\\%\\_Maria%',
+    });
+  });
+
   it('marca patientCpfMissing=true quando nome existe, CPF ausente e nenhum candidato encontrado', async () => {
     const emptyQb = makeQb([]);
     dataSource.getRepository.mockReturnValue({
@@ -92,9 +105,7 @@ describe('DocumentEntityResolverService', () => {
   });
 
   it('resolve hospital, convênio e procedimento em paralelo', async () => {
-    // Patient query: CPF match
     const patientQb = makeQb([{ id: 'p-1', name: 'Joao', cpf: '12345678901' }]);
-    // Hospital, healthPlan, procedure queries
     const hospitalQb = makeQb([{ id: 'h-1', name: 'Hospital X' }]);
     const healthPlanQb = makeQb([{ id: 'hp-1', name: 'Bradesco' }]);
     const procedureQb = makeQb([{ id: 'pr-1', name: 'Artrodese' }]);
@@ -125,7 +136,6 @@ describe('DocumentEntityResolverService', () => {
   });
 
   it('ignora nome com menos de 2 caracteres na busca por nome', async () => {
-    // CPF é inválido (não tem 11 dígitos), nome tem 1 char
     const patientQb = makeQb([]);
     dataSource.getRepository.mockReturnValue({
       createQueryBuilder: () => patientQb,
@@ -153,7 +163,6 @@ describe('DocumentEntityResolverService', () => {
       'user-1',
     );
 
-    // andWhere deve ser chamado com { cpf: '98765432100' } (sem máscara)
     expect(patientQb.andWhere).toHaveBeenCalledWith(
       expect.stringContaining('cpf'),
       expect.objectContaining({ cpf: '98765432100' }),
@@ -226,5 +235,173 @@ describe('DocumentEntityResolverService', () => {
     );
     expect(result.hospital).toHaveLength(1);
     expect(result.hospital[0].name).toBe("Hospital Caxias D'Or");
+  });
+
+  describe('resolveOrCreate*', () => {
+    const buildRepo = (existing: { id: string } | null) => {
+      const qb = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(existing),
+      };
+      return {
+        qb,
+        createQueryBuilder: jest.fn(() => qb),
+        create: jest.fn((v: unknown) => v),
+        save: jest.fn(async (v: Record<string, unknown>) => ({
+          id: 'novo',
+          ...v,
+        })),
+      };
+    };
+
+    const buildManager = (repo: unknown) => {
+      const manager: any = { getRepository: jest.fn(() => repo) };
+      manager.transaction = jest.fn(
+        async (fn: (tx: unknown) => Promise<unknown>) => fn(manager),
+      );
+      return manager;
+    };
+
+    const violacao = (constraint: string) =>
+      Object.assign(new Error('duplicate key'), { code: '23505', constraint });
+
+    it('reaproveita o cadastro de mesmo nome (sem acento/caixa) da clínica', async () => {
+      const repo = buildRepo({ id: 'h-1' });
+      const manager = { getRepository: jest.fn(() => repo) };
+
+      await expect(
+        service.resolveOrCreateHospitalId(
+          '  Hospital São Luiz ',
+          'owner-1',
+          manager as any,
+        ),
+      ).resolves.toBe('h-1');
+      expect(repo.qb.where).toHaveBeenCalledWith('e.owner_id = :ownerId', {
+        ownerId: 'owner-1',
+      });
+      expect(repo.qb.andWhere).toHaveBeenCalledWith(
+        expect.stringContaining('unaccent'),
+        { name: 'Hospital São Luiz' },
+      );
+      expect(repo.save).not.toHaveBeenCalled();
+      expect(dataSource.getRepository).not.toHaveBeenCalled();
+    });
+
+    it('cria ativo e na clínica quando não existe', async () => {
+      const repo = buildRepo(null);
+      dataSource.manager = buildManager(repo);
+
+      await expect(
+        service.resolveOrCreateHealthPlanId('SULAMERICA', 'owner-1'),
+      ).resolves.toBe('novo');
+      expect(repo.save).toHaveBeenCalledWith({
+        active: true,
+        name: 'SULAMERICA',
+        ownerId: 'owner-1',
+      });
+      expect(dataSource.manager.transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('corrida no hospital: devolve o registro criado pela outra requisição', async () => {
+      const repo = buildRepo(null);
+      repo.qb.getOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'h-vencedor' });
+      repo.save.mockRejectedValueOnce(
+        violacao('uq_hospitals_owner_name_active'),
+      );
+      const manager = buildManager(repo);
+      jest
+        .spyOn((service as any).logger, 'warn')
+        .mockImplementation(() => undefined);
+
+      await expect(
+        service.resolveOrCreateHospitalId('Santa Casa', 'owner-1', manager),
+      ).resolves.toBe('h-vencedor');
+      expect(manager.transaction).toHaveBeenCalledTimes(1);
+      expect(repo.qb.andWhere).toHaveBeenLastCalledWith(
+        'lower(e.name) = lower(:name)',
+        { name: 'Santa Casa' },
+      );
+    });
+
+    it('corrida no convênio: devolve o registro criado pela outra requisição', async () => {
+      const repo = buildRepo(null);
+      repo.qb.getOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'hp-vencedor' });
+      repo.save.mockRejectedValueOnce(
+        violacao('uq_health_plans_owner_name_active'),
+      );
+      dataSource.manager = buildManager(repo);
+      jest
+        .spyOn((service as any).logger, 'warn')
+        .mockImplementation(() => undefined);
+
+      await expect(
+        service.resolveOrCreateHealthPlanId('Unimed', 'owner-1'),
+      ).resolves.toBe('hp-vencedor');
+    });
+
+    it('violação de outro índice continua subindo', async () => {
+      const repo = buildRepo(null);
+      const erro = violacao('outro_indice');
+      repo.save.mockRejectedValueOnce(erro);
+      dataSource.manager = buildManager(repo);
+
+      await expect(
+        service.resolveOrCreateHospitalId('Santa Casa', 'owner-1'),
+      ).rejects.toBe(erro);
+    });
+
+    it('relança a violação se o vencedor não for encontrado', async () => {
+      const repo = buildRepo(null);
+      const erro = violacao('uq_hospitals_owner_name_active');
+      repo.save.mockRejectedValueOnce(erro);
+      dataSource.manager = buildManager(repo);
+
+      await expect(
+        service.resolveOrCreateHospitalId('Santa Casa', 'owner-1'),
+      ).rejects.toBe(erro);
+    });
+
+    it('nome vazio não cria nada', async () => {
+      await expect(
+        service.resolveOrCreateHospitalId('   ', 'owner-1'),
+      ).resolves.toBeUndefined();
+    });
+
+    it('não cria procedimento com nome acima de 255 caracteres', async () => {
+      const repo = buildRepo(null);
+      dataSource.manager = { getRepository: jest.fn(() => repo) };
+
+      await expect(
+        service.resolveOrCreateProcedureId('A'.repeat(256), 'owner-1'),
+      ).resolves.toBeUndefined();
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  it('erro de SQL na busca de candidatos não some em silêncio (log de warn)', async () => {
+    const warn = jest
+      .spyOn((service as any).logger, 'warn')
+      .mockImplementation(() => undefined);
+    dataSource.getRepository.mockReturnValue({
+      createQueryBuilder: () => {
+        throw new Error('function unaccent does not exist');
+      },
+    });
+
+    const result = await service.resolveCandidates(
+      { hospital: 'Hospital X' },
+      'user-1',
+    );
+
+    expect(result.hospital).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('unaccent does not exist'),
+    );
   });
 });

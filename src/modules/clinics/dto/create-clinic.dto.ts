@@ -10,14 +10,6 @@ import {
 import { BusinessHours } from 'src/shared/business-hours/business-hours.types';
 import { validateBusinessHours } from 'src/shared/business-hours/business-hours.util';
 
-/**
- * Casca fina em cima de `validateBusinessHours`: a regra vive na função pura
- * (testada isoladamente) e o decorator só repassa a mensagem já em português.
- *
- * Versão sem estado: o class-validator reutiliza a mesma instância entre
- * validações, então guardar a mensagem numa propriedade causaria vazamento
- * entre requisições concorrentes. Calculamos a mensagem direto no `defaultMessage`.
- */
 @ValidatorConstraint({ name: 'businessHours', async: false })
 export class BusinessHoursConstraint implements ValidatorConstraintInterface {
   validate(value: unknown): boolean {

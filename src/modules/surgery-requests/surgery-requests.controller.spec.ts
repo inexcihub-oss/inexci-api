@@ -8,7 +8,7 @@ import { ActivitiesController } from './activities/activities.controller';
 import { DocumentsController } from './documents/documents.controller';
 import { OpmeController } from './opme/opme.controller';
 import { PendenciesController } from './pendencies/pendencies.controller';
-import { ProceduresController } from './procedures/procedures.controller';
+import { SurgeryRequestProceduresController } from './procedures/procedures.controller';
 import { ReportsController } from '../reports/reports.controller';
 
 describe('Permissões declaradas no módulo de SC', () => {
@@ -20,7 +20,6 @@ describe('Permissões declaradas no módulo de SC', () => {
     ]);
   });
 
-  /** A agenda usa este endpoint para o filtro de médico. */
   it('deixa available-doctors aberto a qualquer autenticado', () => {
     expect(
       reflector.get(
@@ -30,13 +29,6 @@ describe('Permissões declaradas no módulo de SC', () => {
     ).toEqual([]);
   });
 
-  /**
-   * Ponte deliberada: quem atende vê as cirurgias do paciente que está
-   * atendendo (aba Histórico / timeline), mas não navega a carteira
-   * cirúrgica da clínica. A metade que o decorator não consegue expressar
-   * (exigir `patientId` quando falta SOLICITACOES) é responsabilidade do
-   * `SurgeryRequestsService.findAll`.
-   */
   it('abre findAll para SOLICITACOES ou ATENDIMENTO', () => {
     expect(
       reflector.get(
@@ -46,7 +38,6 @@ describe('Permissões declaradas no módulo de SC', () => {
     ).toEqual([Permission.SOLICITACOES, Permission.ATENDIMENTO]);
   });
 
-  /** O CidPicker da ficha de atendimento consome este controller. */
   it('não exige solicitações na busca de CID', () => {
     expect(reflector.get(PERMISSIONS_KEY, CidController)).toBeUndefined();
   });
@@ -56,7 +47,7 @@ describe('Permissões declaradas no módulo de SC', () => {
     ['DocumentsController', DocumentsController],
     ['OpmeController', OpmeController],
     ['PendenciesController', PendenciesController],
-    ['ProceduresController', ProceduresController],
+    ['SurgeryRequestProceduresController', SurgeryRequestProceduresController],
     ['ReportsController', ReportsController],
   ];
 
@@ -72,6 +63,7 @@ describe('Permissões declaradas no módulo de SC', () => {
 
 describe('SurgeryRequestsController', () => {
   let surgeryRequestsService: any;
+  let workflowService: any;
   let fromDocumentService: any;
   let documentExtractionJobsService: any;
   let controller: SurgeryRequestsController;
@@ -79,6 +71,10 @@ describe('SurgeryRequestsController', () => {
   beforeEach(() => {
     surgeryRequestsService = {
       createSurgeryRequest: jest.fn(),
+    };
+    workflowService = {
+      sendRequest: jest.fn().mockResolvedValue({ sent: true }),
+      closeSurgeryRequest: jest.fn().mockResolvedValue(undefined),
     };
     fromDocumentService = {
       createFromDocument: jest.fn(),
@@ -92,6 +88,7 @@ describe('SurgeryRequestsController', () => {
 
     controller = new SurgeryRequestsController(
       surgeryRequestsService,
+      workflowService,
       fromDocumentService,
       documentExtractionJobsService,
     );
@@ -148,5 +145,22 @@ describe('SurgeryRequestsController', () => {
       'user-1',
     );
     expect(result).toEqual({ status: 'processing' });
+  });
+
+  it('ações de workflow vão direto ao SurgeryRequestWorkflowService (rotas inalteradas)', async () => {
+    const user = { userId: 'user-1' } as any;
+    await controller.sendRequest('sc-1', { method: 'download' } as any, user);
+    await controller.closeSurgeryRequest('sc-1', { reason: 'x' }, user);
+
+    expect(workflowService.sendRequest).toHaveBeenCalledWith(
+      'sc-1',
+      { method: 'download' },
+      'user-1',
+    );
+    expect(workflowService.closeSurgeryRequest).toHaveBeenCalledWith(
+      'sc-1',
+      { reason: 'x' },
+      'user-1',
+    );
   });
 });

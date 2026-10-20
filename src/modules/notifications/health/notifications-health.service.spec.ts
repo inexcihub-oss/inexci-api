@@ -56,7 +56,6 @@ describe('NotificationsHealthService', () => {
 
   describe('checkRedis', () => {
     it('lança HealthCheckError quando Redis não está acessível', async () => {
-      // Porta improvável para forçar timeout/erro
       jest
         .spyOn(configService, 'get')
         .mockImplementation((key: string, def?: any) => {

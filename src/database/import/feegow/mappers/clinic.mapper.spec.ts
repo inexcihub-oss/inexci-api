@@ -44,7 +44,7 @@ describe('planejarClinica — e-mail maior que clinics.email', () => {
           email2: 'contato@clinica.com',
         },
       ],
-    } as unknown as Record<string, LinhaCsv[]>);
+    });
     const clinica = planejarClinica(exp, ctx);
     expect(clinica?.email).toBe('contato@clinica.com');
     expect(ctx.relatorio.avisos).toContainEqual(

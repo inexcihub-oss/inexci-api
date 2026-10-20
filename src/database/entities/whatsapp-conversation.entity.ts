@@ -10,12 +10,6 @@ import {
 import { User } from './user.entity';
 import { OperationDraft } from '../../shared/ai/drafts/operation-draft.types';
 
-/**
- * Memória estruturada da conversa, persistida em `conversationMemory`.
- * Mantém slots, fatos confirmados e perguntas em aberto sem precisar
- * reenviar histórico completo ao LLM. Schema flexível para evoluir sem
- * migration.
- */
 export interface ConversationMemory {
   intent?: string;
   patient?: {
@@ -37,20 +31,12 @@ export interface ConversationMemory {
   pending_actions?: string[];
   last_user_goal?: string;
   last_updated_at?: string;
-  /**
-   * Operação aguardando confirmação explícita do usuário ("sim"/"confirmo").
-   * Gravado pelo orchestrator após o LLM chamar uma tool de mutação com
-   * `confirm: false` (preview). Lido no turno seguinte para re-executar a
-   * tool com `confirm: true` quando o usuário confirma — evita o LLM
-   * "esquecer" o que ele acabou de propor.
-   */
   pending_confirmation?: {
     tool: string;
     args: Record<string, unknown>;
     description: string;
     createdAt: string;
   } | null;
-  /** Contagem de falhas consecutivas em updateSummaryAndMemory. */
   summary_failures?: number;
   [key: string]: unknown;
 }
@@ -114,11 +100,6 @@ export class WhatsappConversation {
   })
   conversationMemory: ConversationMemory;
 
-  /**
-   * Draft estruturado da operação em andamento (criação de SC, cadastro,
-   * faturamento, contestação, agendamento, atualização). Schema discriminado
-   * por `type`. Quando `null`, não há operação ativa.
-   */
   @Column({ name: 'operation_draft', type: 'jsonb', nullable: true })
   operationDraft: OperationDraft | null;
 

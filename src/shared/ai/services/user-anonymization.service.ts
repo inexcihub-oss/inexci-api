@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { errorMessage } from '../../utils/error-message.util';
 import { OnEvent } from '@nestjs/event-emitter';
 import { WhatsappConversationRepository } from '../../../database/repositories/whatsapp-conversation.repository';
 import { WhatsappConversationMessageRepository } from '../../../database/repositories/whatsapp-conversation-message.repository';
@@ -25,7 +26,7 @@ export class UserAnonymizationService {
     try {
       const conversations = await this.conversationRepo.findMany({
         userId,
-      } as any);
+      });
 
       for (const conv of conversations) {
         const hashed = hashPhone(conv.phone);
@@ -33,7 +34,7 @@ export class UserAnonymizationService {
         await this.conversationRepo.getRepository().update(conv.id, {
           phone: hashed,
           active: false,
-        } as any);
+        });
 
         const messages = await this.messageRepo.findRecentByConversation(
           conv.id,
@@ -43,17 +44,17 @@ export class UserAnonymizationService {
           await this.messageRepo.getRepository().update(msg.id, {
             content: '[ANONIMIZADO]',
             metadata: null,
-          } as any);
+          });
         }
       }
 
       this.logger.log(
         `Anonimização concluída para user=${userId}: ${conversations.length} conversas processadas`,
       );
-    } catch (error: any) {
+    } catch (error) {
       this.logger.error(
-        `Falha na anonimização para user=${userId}: ${error?.message}`,
-        error?.stack,
+        `Falha na anonimização para user=${userId}: ${errorMessage(error)}`,
+        error instanceof Error ? error.stack : undefined,
       );
     }
   }

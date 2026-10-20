@@ -15,7 +15,7 @@ export class IngestionService {
     category: string;
     title: string;
     content: string;
-    metadata?: Record<string, any>;
+    metadata?: Record<string, unknown>;
     maxTokens?: number;
     overlapTokens?: number;
   }): Promise<void> {
@@ -45,25 +45,12 @@ export class IngestionService {
     );
   }
 
-  async ingestFaq(
-    items: Array<{ question: string; answer: string }>,
-  ): Promise<void> {
-    for (const item of items) {
-      const text = `Pergunta: ${item.question}\nResposta: ${item.answer}`;
-      await this.ingest({
-        category: 'faq',
-        title: item.question,
-        content: text,
-      });
-    }
-  }
-
   async replaceCategory(
     category: string,
     items: Array<{
       title: string;
       content: string;
-      metadata?: Record<string, any>;
+      metadata?: Record<string, unknown>;
     }>,
     options?: { maxTokens?: number; overlapTokens?: number },
   ): Promise<void> {
@@ -73,19 +60,6 @@ export class IngestionService {
     }
   }
 
-  /**
-   * Divide o texto em chunks baseados em tokens (heurística `chars/4`) com
-   * overlap configurável.
-   *
-   * Fase 7 do `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`:
-   *  - Antes: por parágrafo, sem overlap → recall baixo em queries longas.
-   *  - Agora: por janela de tokens com sliding window de `overlapTokens` →
-   *    contexto preservado nas bordas de cada chunk.
-   *
-   * O overlap é implementado mantendo os últimos `overlapTokens` de caracteres
-   * do chunk anterior no início do próximo. Isso garante que frases partidas
-   * na fronteira de um chunk apareçam completas em pelo menos um deles.
-   */
   splitIntoChunks(text: string, maxTokens = 500, overlapTokens = 50): string[] {
     const maxChars = maxTokens * 4;
     const overlapChars = overlapTokens * 4;
@@ -98,22 +72,17 @@ export class IngestionService {
     while (start < text.length) {
       let end = Math.min(start + maxChars, text.length);
 
-      // Tenta quebrar no limite de parágrafo ou frase mais próximo antes de `end`.
       if (end < text.length) {
         const paraBreak = text.lastIndexOf('\n\n', end);
         const sentBreak = text.lastIndexOf('. ', end);
         const breakAt = Math.max(paraBreak, sentBreak);
         if (breakAt > start + overlapChars) {
-          end =
-            breakAt === paraBreak
-              ? breakAt + 2 // após '\n\n'
-              : breakAt + 2; // após '. '
+          end = breakAt === paraBreak ? breakAt + 2 : breakAt + 2;
         }
       }
 
       chunks.push(text.slice(start, end).trim());
 
-      // Avança deslocando `overlapChars` para trás do final do chunk.
       const nextStart = end - overlapChars;
       start = nextStart > start ? nextStart : end;
     }

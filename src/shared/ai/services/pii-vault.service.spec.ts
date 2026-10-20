@@ -1,4 +1,4 @@
-import { PiiVaultService } from './pii-vault.service';
+import { PiiVaultService, cnsValido, cpfValido } from './pii-vault.service';
 
 describe('PiiVaultService', () => {
   let service: PiiVaultService;
@@ -53,7 +53,7 @@ describe('PiiVaultService', () => {
         'patient_name',
       );
       expect(token).toBe('{{patient_name_1}}');
-      expect(service.hasSession('lazy-session')).toBe(true);
+      expect(service.snapshot('lazy-session')).toHaveLength(1);
     });
 
     it('sem sessionId (string vazia) não tokeniza e devolve o valor', () => {
@@ -194,7 +194,7 @@ describe('PiiVaultService', () => {
     it('endSession remove bindings da sessão', () => {
       service.tokenize(sid, 'João', 'patient_name');
       service.endSession(sid);
-      expect(service.hasSession(sid)).toBe(false);
+      expect(service.snapshot(sid)).toHaveLength(0);
     });
 
     it('sessões diferentes não compartilham bindings', () => {
@@ -212,9 +212,6 @@ describe('PiiVaultService', () => {
   describe('serializeSession / restoreSession', () => {
     it('serializeSession devolve cópia dos bindings (JSON-safe)', () => {
       service.tokenize(sid, 'João Silva', 'patient_name');
-      // tokenize de protocolo NORMALIZA o realValue (strip SC-), porque o
-      // banco armazena o protocolo sem prefixo. As tools prefixam "SC-"
-      // FORA do placeholder na resposta para o usuário (regressão SC-SC-).
       service.tokenize(sid, 'SC-0042', 'protocol');
 
       const snapshot = service.serializeSession(sid);
@@ -231,7 +228,6 @@ describe('PiiVaultService', () => {
         },
       ]);
 
-      // Mutar o snapshot não deve afetar a sessão.
       snapshot.push({
         token: '{{cpf_1}}',
         category: 'cpf',
@@ -241,8 +237,6 @@ describe('PiiVaultService', () => {
     });
 
     it('restoreSession permite detokenizar placeholders salvos em turno anterior', () => {
-      // Simula bindings persistidos no turno anterior (Redis/banco).
-      // Note: realValue de protocol é armazenado SEM prefixo "SC-".
       const persisted = [
         {
           token: '{{protocol_1}}',
@@ -265,9 +259,6 @@ describe('PiiVaultService', () => {
       );
     });
 
-    // Regressão SC-SC-: bindings persistidos ANTES do fix gravavam
-    // realValue="SC-0042". Sem normalização no restoreSession, o detokenize
-    // de "SC-{{protocol_1}}" produzia "SC-SC-0042" no WhatsApp.
     it('restoreSession normaliza realValue de protocol legado removendo prefixo SC-', () => {
       const persistedLegacy = [
         {
@@ -379,9 +370,6 @@ describe('PiiVaultService', () => {
     });
 
     it('NÃO transforma laudos longos (> 1500 chars) em payload_blob por padrão', () => {
-      // Comportamento esperado pós-fix: o blobThreshold padrão é Infinity.
-      // Antes (default 1500) qualquer laudo médico era reduzido a um único
-      // `{{payload_blob_n}}` e o classifier devolvia `kind=unknown`.
       const longLaudo =
         'Diagnóstico: artrose. ' +
         'Lorem ipsum dolor sit amet, consectetur adipiscing elit. '.repeat(40);
@@ -430,6 +418,99 @@ describe('PiiVaultService', () => {
 
     it('retorna string vazia para input vazio', () => {
       expect(service.hashValue('')).toBe('');
+    });
+  });
+
+  describe('padrões ampliados (CPF com espaços, CNS, carteirinha rotulada)', () => {
+    const tokenizados = (texto: string) =>
+      service.preprocessUserInput(sid, texto);
+
+    it.each([
+      ['529 982 247 25'],
+      ['529.982.247 25'],
+      ['529 . 982 . 247 - 25'],
+      ['529-982-247-25'],
+    ])('tokeniza CPF válido com separadores variados: %s', (cpf) => {
+      const out = tokenizados(`CPF do paciente ${cpf} ok`);
+      expect(out).toContain('{{cpf_1}}');
+      expect(out).not.toMatch(/529/);
+      expect(service.detokenize(sid, out)).toContain(cpf);
+    });
+
+    it('não tokeniza sequência 3-3-3-2 com dígito verificador inválido', () => {
+      const out = tokenizados('lote 123 456 789 00 recebido');
+      expect(out).toContain('123 456 789 00');
+      expect(out).not.toContain('{{cpf_');
+    });
+
+    it.each([['898 0012 3456 7891'], ['898001234567891'], ['700000000000005']])(
+      'tokeniza CNS válido: %s',
+      (cns) => {
+        const out = tokenizados(`Cartão SUS ${cns}`);
+        expect(out).toContain('{{cns_1}}');
+        expect(service.detokenize(sid, out)).toContain(cns);
+      },
+    );
+
+    it('não tokeniza número de 15 dígitos com CNS inválido nem iniciado por 3-6', () => {
+      expect(tokenizados('código 898 0012 3456 7890')).not.toContain('{{cns_');
+      expect(tokenizados('código 300000000000005')).not.toContain('{{cns_');
+    });
+
+    it.each([
+      ['carteirinha: 0 123 456789012 3', '0 123 456789012 3'],
+      ['Carteirinha do convênio é 987654321', '987654321'],
+      ['matrícula 00123456', '00123456'],
+      ['nº da carteirinha 12.345.678/9', '12.345.678/9'],
+      ['número do plano: 4455667788', '4455667788'],
+    ])('tokeniza carteirinha rotulada: %s', (texto, numero) => {
+      const out = tokenizados(texto);
+      expect(out).toContain('{{health_plan_card_1}}');
+      expect(out).not.toContain(numero);
+      expect(service.detokenize(sid, out)).toBe(texto);
+    });
+
+    it('carteirinha rotulada não engole palavras seguintes', () => {
+      const out = tokenizados('carteirinha 123456 vence em breve');
+      expect(out).toBe('carteirinha {{health_plan_card_1}} vence em breve');
+    });
+
+    it.each([
+      ['TUSS 30715016 (artroscopia)'],
+      ['cirurgia em 10/10/2026 às 14:00'],
+      ['CID M17.1 e S83.2'],
+      ['protocolo SC-123456'],
+      ['carteirinha vence 2027'],
+      ['data 2026-10-10'],
+    ])('não gera falso positivo: %s', (texto) => {
+      expect(tokenizados(texto)).toBe(texto);
+    });
+
+    it('detectResidualPii aponta CPF com espaços e CNS válidos', () => {
+      const findings = service.detectResidualPii(
+        'cpf 529 982 247 25 e cns 898 0012 3456 7891',
+      );
+      expect(findings.map((f) => f.category)).toEqual(
+        expect.arrayContaining(['cpf', 'cns']),
+      );
+    });
+
+    it('maskLiteralPii mascara CNS e CPF com espaços', () => {
+      const { text, masked } = service.maskLiteralPii(
+        'cns 898 0012 3456 7891 cpf 529 982 247 25',
+      );
+      expect(text).not.toContain('7891');
+      expect(text).not.toContain('529 982');
+      expect(masked.map((m) => m.category)).toEqual(
+        expect.arrayContaining(['cpf', 'cns']),
+      );
+    });
+
+    it('validadores', () => {
+      expect(cpfValido('529.982.247-25')).toBe(true);
+      expect(cpfValido('111.111.111-11')).toBe(false);
+      expect(cnsValido('898001234567891')).toBe(true);
+      expect(cnsValido('398001234567891')).toBe(false);
     });
   });
 });

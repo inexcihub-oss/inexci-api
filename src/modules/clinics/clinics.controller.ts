@@ -38,11 +38,6 @@ import {
 @ApiTags('Clínicas')
 @ApiBearerAuth()
 @Controller('clinics')
-// Cadastrar local de atendimento é ato de administração — diferente dos
-// cadastros transversais (hospitais, convênios), que qualquer área cria.
-// Mas a LEITURA abre em `@RequireAnyArea()`: quem só tem Agenda precisa da
-// lista para escolher a unidade da consulta e para o aviso de "fora do
-// horário". Exceção deliberada; não "corrija" fechando os GETs.
 @RequirePermission(Permission.ADMINISTRACAO)
 export class ClinicsController {
   constructor(
@@ -107,9 +102,6 @@ export class ClinicsController {
   ) {
     return this.clinicsService.bulkDelete(data.ids, user.userId);
   }
-  // ─── Salas (consultórios) ───
-  // Ler segue a clínica: qualquer área (a Agenda escolhe a sala da consulta).
-  // Cadastrar, renomear, desativar e excluir: Administração (decorator da classe).
 
   @Get(':id/rooms')
   @RequireAnyArea()

@@ -1,25 +1,8 @@
 import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 
-/**
- * Pré-requisitos de `PENDING -> SENT`.
- *
- * `PendencyValidatorService.assertCanAdvance()` (fonte de verdade em
- * `pendencies.config.ts`) exige 5 pendências bloqueantes para sair de PENDING:
- * `patient_data`, `hospital_data`, `tuss_procedures`, `opme_items` e
- * `medical_report`. As duas primeiras vêm do próprio payload de criação da SC;
- * as outras três precisam ser resolvidas por rota, e é o que estes helpers
- * fazem. Sem isso, `POST /:id/send` responde 400 com a lista de pendências e
- * todo o restante do fluxo fica preso em PENDING.
- */
-
 const authHeader = (token: string) => ({ Authorization: `Bearer ${token}` });
 
-/**
- * `medical_report` também cobra "Assinatura do médico configurada" — grava
- * `doctor_profiles.signature_url` via a rota de perfil médico (o `:id` aqui é
- * o **userId** do médico, não o id do profile).
- */
 export async function configurarAssinaturaDoMedico(
   app: INestApplication,
   token: string,
@@ -32,10 +15,6 @@ export async function configurarAssinaturaDoMedico(
     .expect(200);
 }
 
-/**
- * `opme_items` fica pendente enquanto `hasOpme` for indefinido — não basta não
- * ter itens, é preciso declarar que a SC não usa OPME.
- */
 export async function declararSemOpme(
   app: INestApplication,
   token: string,
@@ -48,7 +27,6 @@ export async function declararSemOpme(
     .expect(200);
 }
 
-/** `medical_report` exige ao menos uma seção de laudo preenchida. */
 export async function criarSecaoDeLaudo(
   app: INestApplication,
   token: string,
@@ -64,7 +42,6 @@ export async function criarSecaoDeLaudo(
     .expect(201);
 }
 
-/** `tuss_procedures` exige ao menos um procedimento TUSS na SC. */
 export async function adicionarProcedimentoTuss(
   app: INestApplication,
   token: string,
@@ -86,10 +63,6 @@ export async function adicionarProcedimentoTuss(
     .expect(201);
 }
 
-/**
- * Resolve de uma vez as três pendências que dependem de rota, deixando a SC
- * pronta para `POST /:id/send`.
- */
 export async function prepararScParaEnvio(
   app: INestApplication,
   token: string,

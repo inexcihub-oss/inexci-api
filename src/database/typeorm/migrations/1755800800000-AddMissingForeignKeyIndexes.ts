@@ -1,31 +1,8 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Dois acertos nas tabelas criadas pelas migrations 1755800300000 a
- * 1755800700000, sem mexer em dado nenhum:
- *
- * 1. **Índices nas FKs com `ON DELETE SET NULL`** que ficaram sem índice:
- *    `appointments.health_plan_id`, `appointments.created_by_id` e
- *    `schedule_blocks.created_by_id`. Sem eles, excluir um convênio ou um
- *    usuário varre a tabela inteira para anular as referências.
- *
- * 2. **Nomes explícitos de constraint.** Aquelas migrations declararam FK e
- *    CHECK inline (`REFERENCES ...`, `CHECK (...)`), e o Postgres os batizou
- *    sozinho (`<tabela>_<coluna>_fkey`, `<tabela>_<coluna>_check`). O TypeORM
- *    compara constraint por nome: com o nome automático de um lado e o hash do
- *    naming strategy do outro, `migration:generate` sairia derrubando e
- *    recriando tudo. Aqui os nomes viram `FK_<tabela>_<relação>` /
- *    `CHK_<tabela>_<coluna>` — os mesmos declarados nas entidades.
- *
- * Só renomeia e cria índice comum: não aperta o schema, não precisa de
- * pré-flight. A renomeação localiza a constraint pela coluna (não pelo nome
- * automático), então funciona mesmo se o Postgres tiver escolhido outro nome.
- */
-
 interface Renomeacao {
   tabela: string;
   coluna: string;
-  /** `f` = chave estrangeira, `c` = CHECK (como em `pg_constraint.contype`). */
   tipo: 'f' | 'c';
   nome: string;
 }
@@ -123,16 +100,10 @@ const RENOMEACOES: Renomeacao[] = [
   },
 ];
 
-/** Nome que o Postgres dá a FK/CHECK inline de uma coluna só. */
 function nomeAutomatico({ tabela, coluna, tipo }: Renomeacao): string {
   return `${tabela}_${coluna}_${tipo === 'f' ? 'fkey' : 'check'}`;
 }
 
-/**
- * Renomeia a constraint de uma coluna só (do tipo pedido) para `destino`.
- * Aborta se ela não existir: significa que o schema não é o que as migrations
- * anteriores deixaram, e seguir adiante esconderia o problema.
- */
 async function renomear(
   queryRunner: QueryRunner,
   renomeacao: Renomeacao,

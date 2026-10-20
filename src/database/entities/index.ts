@@ -1,7 +1,3 @@
-// ============================================
-// NOVA ARQUITETURA DE ENTIDADES (v4)
-// ============================================
-
 import { User, UserRole, UserStatus } from './user.entity';
 import { DoctorProfile } from './doctor-profile.entity';
 import { DoctorHeader } from './doctor-header.entity';
@@ -52,7 +48,6 @@ import { SurgeryRequestActivityMention } from './surgery-request-activity-mentio
 import { Document } from './document.entity';
 import { Notification, NotificationType } from './notification.entity';
 import { UserNotificationSettings } from './user-notification-settings.entity';
-import { PatientNotificationSettings } from './patient-notification-settings.entity';
 import { RecoveryCode } from './recovery-code.entity';
 import { SubscriptionPlan, BillingPeriod } from './subscription-plan.entity';
 import { Subscription, SubscriptionStatus } from './subscription.entity';
@@ -72,15 +67,13 @@ import { WhatsappConversationMessage } from './whatsapp-conversation-message.ent
 import { AiKnowledgeChunk } from './ai-knowledge-chunk.entity';
 import { AiTokenUsageLog } from './ai-token-usage-log.entity';
 import { AiPiiRedactionLog } from './ai-pii-redaction-log.entity';
+import { ClinicalAccessAudit } from './clinical-access-audit.entity';
 
-// Re-exportar tudo
-// USUÁRIOS E ACESSO
 export { User, UserRole, UserStatus };
 export { DoctorProfile };
 export { DoctorHeader };
 export { UserDoctorAccess, UserDoctorAccessStatus };
 
-// ENTIDADES DE NEGÓCIO (não fazem login)
 export { Patient };
 export { Appointment, AppointmentType, AppointmentStatus };
 export { ClinicalRecord };
@@ -97,10 +90,8 @@ export { HealthPlan };
 export { Manufacturer };
 export { Supplier };
 
-// DADOS DE REFERÊNCIA
 export { Procedure };
 
-// SOLICITAÇÃO CIRÚRGICA E RELACIONADOS
 export { SurgeryRequest, SurgeryRequestStatus, SurgeryRequestPriority };
 export { OpmeItem };
 export { SurgeryRequestQuotation };
@@ -112,25 +103,19 @@ export { SurgeryRequestTussItem };
 export { SurgeryRequestActivity, ActivityType };
 export { SurgeryRequestActivityMention };
 
-// DOCUMENTOS
 export { Document };
 
-// COMUNICAÇÃO
 export { Notification, NotificationType };
 export { UserNotificationSettings };
-export { PatientNotificationSettings };
 export { ReportSection };
 
-// PLANOS DE ASSINATURA / BILLING
 export { SubscriptionPlan, BillingPeriod };
 export { Subscription, SubscriptionStatus };
 export { SubscriptionQuotaPeriod };
 export { PaymentGatewayEvent };
 
-// AUTENTICAÇÃO
 export { RecoveryCode };
 
-// OBSERVABILIDADE
 export {
   NotificationSendLog,
   NotificationChannel,
@@ -140,14 +125,13 @@ export {
 };
 export { StaleNotificationLog };
 
-// IA / WHATSAPP CONVERSAÇÃO
 export { WhatsappConversation };
 export { WhatsappConversationMessage };
 export { AiKnowledgeChunk };
 export { AiTokenUsageLog };
 export { AiPiiRedactionLog };
+export { ClinicalAccessAudit };
 
-// Array apenas com classes de entidade (sem enums) para TypeORM
 export const ENTITIES = [
   User,
   DoctorProfile,
@@ -182,7 +166,6 @@ export const ENTITIES = [
   Document,
   Notification,
   UserNotificationSettings,
-  PatientNotificationSettings,
   RecoveryCode,
   SubscriptionPlan,
   Subscription,
@@ -196,4 +179,5 @@ export const ENTITIES = [
   AiKnowledgeChunk,
   AiTokenUsageLog,
   AiPiiRedactionLog,
+  ClinicalAccessAudit,
 ];

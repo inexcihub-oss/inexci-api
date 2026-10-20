@@ -10,6 +10,7 @@ import { MailService } from 'src/shared/mail/mail.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { NotificationType } from 'src/database/entities/notification.entity';
 import { UserRole } from 'src/database/entities/user.entity';
+import { Permission } from 'src/shared/permissions';
 import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 
 describe('NotificationsService', () => {
@@ -32,11 +33,11 @@ describe('NotificationsService', () => {
   let mockUserRepository: {
     findOne: jest.Mock;
     findByOwnerId: jest.Mock;
+    getPatientNotificationSettings: jest.Mock;
+    updatePatientNotificationSettings: jest.Mock;
   };
   let mockMailService: {
-    sendRaw: jest.Mock;
     sendGenericNotification: jest.Mock;
-    sendStatusChangeStakeholder: jest.Mock;
   };
   let mockWhatsappService: {
     sendTemplate: jest.Mock;
@@ -105,12 +106,12 @@ describe('NotificationsService', () => {
     mockUserRepository = {
       findOne: jest.fn(),
       findByOwnerId: jest.fn(),
+      getPatientNotificationSettings: jest.fn(),
+      updatePatientNotificationSettings: jest.fn(),
     };
 
     mockMailService = {
-      sendRaw: jest.fn().mockResolvedValue(undefined),
       sendGenericNotification: jest.fn().mockResolvedValue(undefined),
-      sendStatusChangeStakeholder: jest.fn().mockResolvedValue(undefined),
     };
     mockWhatsappService = {
       sendTemplate: jest.fn().mockResolvedValue(undefined),
@@ -152,7 +153,6 @@ describe('NotificationsService', () => {
     expect(service).toBeDefined();
   });
 
-  // ─── Paginação ────────────────────────────────────────────────────────────
   describe('getSettings', () => {
     it('cria as preferências com o e-mail de menção ligado', async () => {
       mockSettingsRepository.findByUserId.mockResolvedValue(null);
@@ -165,6 +165,43 @@ describe('NotificationsService', () => {
       expect(mockSettingsRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({ mentionEmails: true }),
       );
+    });
+  });
+
+  describe('patient settings (avisos ao paciente)', () => {
+    it('lê a configuração da conta pelo ownerId', async () => {
+      const settings = {
+        appointmentScheduled: true,
+        appointmentReminder: false,
+        appointmentCancelled: true,
+      };
+      mockUserRepository.getPatientNotificationSettings.mockResolvedValue(
+        settings,
+      );
+
+      await expect(service.getPatientSettings('acc-1')).resolves.toEqual(
+        settings,
+      );
+      expect(
+        mockUserRepository.getPatientNotificationSettings,
+      ).toHaveBeenCalledWith('acc-1');
+    });
+
+    it('grava só as chaves booleanas conhecidas', async () => {
+      mockUserRepository.updatePatientNotificationSettings.mockResolvedValue({
+        appointmentScheduled: false,
+        appointmentReminder: true,
+        appointmentCancelled: true,
+      });
+
+      await service.updatePatientSettings('acc-1', {
+        appointmentScheduled: false,
+        intrusa: true,
+      } as never);
+
+      expect(
+        mockUserRepository.updatePatientNotificationSettings,
+      ).toHaveBeenCalledWith('acc-1', { appointmentScheduled: false });
     });
   });
 
@@ -199,7 +236,6 @@ describe('NotificationsService', () => {
     });
   });
 
-  // ─── Operações por id ─────────────────────────────────────────────────────
   describe('markAsRead / deleteNotification', () => {
     it('confirma a leitura quando a notificação do usuário foi alterada', async () => {
       mockNotificationRepository.markAsRead.mockResolvedValue(1);
@@ -209,9 +245,6 @@ describe('NotificationsService', () => {
       });
     });
 
-    // Sem checar o `affected`, um id inexistente (ou de outro usuário, barrado
-    // pelo `user_id` no WHERE) recebia 200 confirmando uma operação que não
-    // aconteceu.
     it('devolve 404 quando nada foi marcado como lido', async () => {
       mockNotificationRepository.markAsRead.mockResolvedValue(0);
 
@@ -237,7 +270,6 @@ describe('NotificationsService', () => {
     });
   });
 
-  // ─── WebSocket: emitToUser ────────────────────────────────────────────────
   describe('createNotification', () => {
     it('chama gateway.emitToUser após persistir notificação', async () => {
       const notification = {
@@ -402,7 +434,6 @@ describe('NotificationsService', () => {
     });
   });
 
-  // ─── PRD: Notificações — 6.1 AdminNotification ───────────────────────────
   describe('notifyAdminsOfAction', () => {
     it('envia notificação para admins quando ator é colaborador (6.1.1)', async () => {
       mockUserRepository.findOne.mockResolvedValue(collaboratorUser);
@@ -437,7 +468,6 @@ describe('NotificationsService', () => {
 
       await service.notifyAdminsOfAction('admin-1', 'Ação', 'Admin fez algo');
 
-      // Deve criar bulk vazio ou não chamar createBulk
       const bulkCall = mockNotificationRepository.createBulk.mock.calls[0];
       if (bulkCall) {
         expect(
@@ -461,9 +491,31 @@ describe('NotificationsService', () => {
       expect(items.some((n: any) => n.userId === 'admin-2')).toBe(true);
     });
 
+    it('admin delegado (colaborador com ADMINISTRACAO) também recebe o alerta', async () => {
+      const delegado = {
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'acc-1',
+        permissions: [Permission.ADMINISTRACAO],
+        name: 'Gerente',
+      };
+      mockUserRepository.findOne.mockResolvedValue(collaboratorUser);
+      mockUserRepository.findByOwnerId.mockResolvedValue([
+        adminUser,
+        delegado,
+        collaboratorUser,
+      ]);
+
+      await service.notifyAdminsOfAction('collab-1', 'Ação', 'Mensagem');
+
+      const [items] = mockNotificationRepository.createBulk.mock.calls[0];
+      const ids = items.map((n: { userId: string }) => n.userId).sort();
+      expect(ids).toEqual(['admin-1', 'delegado-1']);
+    });
+
     it('não chama createBulk se não há admins outros que o ator', async () => {
       mockUserRepository.findOne.mockResolvedValue(adminUser);
-      mockUserRepository.findByOwnerId.mockResolvedValue([adminUser]); // só o admin ator
+      mockUserRepository.findByOwnerId.mockResolvedValue([adminUser]);
 
       await service.notifyAdminsOfAction('admin-1', 'Ação', 'Mensagem');
 
@@ -479,7 +531,6 @@ describe('NotificationsService', () => {
     });
   });
 
-  // ─── PRD: Notificações — 6.2 StatusChangeNotification ───────────────────
   describe('notifyStatusChange', () => {
     const surgeryRequestId = 'req-1';
     const doctorId = 'doctor-1';
@@ -650,9 +701,6 @@ describe('NotificationsService', () => {
         actorId,
       );
 
-      expect(
-        mockMailService.sendStatusChangeStakeholder,
-      ).not.toHaveBeenCalled();
       expect(mockMailService.sendGenericNotification).not.toHaveBeenCalled();
     });
 
@@ -662,7 +710,7 @@ describe('NotificationsService', () => {
         statusUpdate: true,
       });
       mockUserRepository.findOne
-        .mockResolvedValueOnce(collaboratorUser) // actor
+        .mockResolvedValueOnce(collaboratorUser)
         .mockResolvedValueOnce({
           id: 'doctor-1',
           email: 'doctor@test.com',
@@ -743,14 +791,8 @@ describe('NotificationsService', () => {
       expect(mockWhatsappService.sendTemplate).not.toHaveBeenCalled();
     });
   });
-  // ─── Resposta do paciente ao template de confirmação de consulta ─────────
 
   describe('notifyAppointmentPatientResponse', () => {
-    /**
-     * Instância própria: o módulo de teste acima não injeta o
-     * `AccessControlService` (é `@Optional`), e aqui ele é justamente o que
-     * define quem enxerga a agenda daquele médico.
-     */
     function comAcesso(accessibleByUser: Record<string, string[]>) {
       const accessControl = {
         getAccessibleDoctorIds: jest.fn(
@@ -802,11 +844,6 @@ describe('NotificationsService', () => {
       ]);
     });
 
-    /**
-     * O `AccessControlService` é `@Optional`: sem ele o recorte por acesso não
-     * existe e a notificação saía para ninguém, em silêncio — justamente o
-     * médico dono da agenda ficava sem saber que o paciente cancelou.
-     */
     it('avisa o médico mesmo sem o serviço de acesso injetado', async () => {
       const svc = new NotificationsService(
         mockNotificationRepository as any,
@@ -815,7 +852,7 @@ describe('NotificationsService', () => {
         mockSurgeryRequestRepository as any,
         mockWhatsappService as any,
         mockGateway as any,
-        undefined as any,
+        undefined,
       );
 
       await svc.notifyAppointmentPatientResponse(params);
@@ -824,7 +861,6 @@ describe('NotificationsService', () => {
       expect(userIds.map((n: any) => n.userId)).toContain('doctor-1');
     });
 
-    /** O dono da agenda nunca depende do recorte para ser avisado. */
     it('avisa o médico mesmo quando o recorte de acesso falha para ele', async () => {
       const accessControl = {
         getAccessibleDoctorIds: jest.fn(async () => {
@@ -877,7 +913,6 @@ describe('NotificationsService', () => {
       expect(notificacoes[0].message.toLowerCase()).not.toContain('cancel');
     });
 
-    /** Notificar é efeito colateral: nunca pode derrubar o webhook do Twilio. */
     it('não propaga erro quando a busca de usuários falha', async () => {
       mockUserRepository.findByOwnerId.mockRejectedValue(new Error('db down'));
       const { svc } = comAcesso({});
@@ -887,7 +922,6 @@ describe('NotificationsService', () => {
       ).resolves.toBeUndefined();
     });
 
-    /** Ninguém da equipe enxerga aquele médico — mas o próprio médico enxerga. */
     it('avisa só o médico quando mais ninguém tem acesso a ele', async () => {
       const { svc } = comAcesso({});
 

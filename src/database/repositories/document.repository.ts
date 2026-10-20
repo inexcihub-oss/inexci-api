@@ -4,6 +4,13 @@ import { Repository, FindOptionsWhere } from 'typeorm';
 import { Document } from '../entities/document.entity';
 import { BaseRepository } from './base.repository';
 
+export interface DocumentAccessScope {
+  surgeryRequestId: string | null;
+  clinicalRecordId: string | null;
+  surgeryRequestDoctorId: string | null;
+  clinicalRecordDoctorId: string | null;
+}
+
 @Global()
 @Injectable()
 export class DocumentRepository extends BaseRepository<Document> {
@@ -37,7 +44,6 @@ export class DocumentRepository extends BaseRepository<Document> {
     return await this.repository.findOne({ where });
   }
 
-  /** Documentos anexados a uma solicitação cirúrgica. */
   async findBySurgeryRequestId(surgeryRequestId: string): Promise<Document[]> {
     return await this.repository.find({
       where: { surgeryRequestId },
@@ -45,7 +51,6 @@ export class DocumentRepository extends BaseRepository<Document> {
     });
   }
 
-  /** Documentos de um paciente (exames/anexos do prontuário), mais recentes primeiro. */
   async findByPatientId(patientId: string): Promise<Document[]> {
     return await this.repository.find({
       where: { patientId },
@@ -53,23 +58,47 @@ export class DocumentRepository extends BaseRepository<Document> {
     });
   }
 
-  /**
-   * Valida posse de um documento pelo tenant. O vínculo pode ser via
-   * solicitação cirúrgica, paciente ou ficha de atendimento — qualquer um
-   * cujo ownerId case libera a signed URL.
-   */
-  async existsByUriAndOwner(uri: string, ownerId: string): Promise<boolean> {
-    const count = await this.repository
+  async findByPatientIdForDoctors(
+    patientId: string,
+    doctorIds: string[],
+  ): Promise<Document[]> {
+    const query = this.repository
+      .createQueryBuilder('doc')
+      .leftJoin('doc.clinicalRecord', 'cr')
+      .where('doc.patientId = :patientId', { patientId })
+      .orderBy('doc.createdAt', 'DESC');
+
+    if (doctorIds.length === 0) {
+      query.andWhere('doc.clinicalRecordId IS NULL');
+    } else {
+      query.andWhere(
+        '(doc.clinicalRecordId IS NULL OR cr.doctorId IN (:...doctorIds))',
+        { doctorIds },
+      );
+    }
+
+    return await query.getMany();
+  }
+
+  async findAccessScopesByUriAndOwner(
+    uri: string,
+    ownerId: string,
+  ): Promise<DocumentAccessScope[]> {
+    const rows = await this.repository
       .createQueryBuilder('doc')
       .leftJoin('doc.surgeryRequest', 'sr')
       .leftJoin('doc.patient', 'patient')
       .leftJoin('doc.clinicalRecord', 'cr')
+      .select('doc.surgeryRequestId', 'surgeryRequestId')
+      .addSelect('doc.clinicalRecordId', 'clinicalRecordId')
+      .addSelect('sr.doctorId', 'surgeryRequestDoctorId')
+      .addSelect('cr.doctorId', 'clinicalRecordDoctorId')
       .where('doc.uri = :uri', { uri })
       .andWhere(
         '(sr.ownerId = :ownerId OR patient.ownerId = :ownerId OR cr.ownerId = :ownerId)',
         { ownerId },
       )
-      .getCount();
-    return count > 0;
+      .getRawMany<DocumentAccessScope>();
+    return rows;
   }
 }

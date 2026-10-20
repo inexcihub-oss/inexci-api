@@ -4,19 +4,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-/**
- * Converte exceções HTTP do NestJS em mensagens curtas em português
- * adequadas para retornar ao LLM via `buildToolResult`.
- *
- * Garante que erros técnicos (stack traces, IDs internos) nunca
- * cheguem ao modelo de linguagem.
- */
 export function translateServiceError(err: unknown): string {
   if (err instanceof ConflictException) {
     const response = err.getResponse();
     if (typeof response === 'string') return response;
     if (typeof response === 'object' && response !== null) {
-      const msg = (response as any).message;
+      const msg = (response as { message?: unknown }).message;
       if (typeof msg === 'string') return msg;
     }
     return 'Já existe um registro com esses dados.';
@@ -26,7 +19,7 @@ export function translateServiceError(err: unknown): string {
     const response = err.getResponse();
     if (typeof response === 'string') return response;
     if (typeof response === 'object' && response !== null) {
-      const msg = (response as any).message;
+      const msg = (response as { message?: unknown }).message;
       if (Array.isArray(msg)) return msg.join('; ');
       if (typeof msg === 'string') return msg;
     }
@@ -37,7 +30,7 @@ export function translateServiceError(err: unknown): string {
     const response = err.getResponse();
     if (typeof response === 'string') return response;
     if (typeof response === 'object' && response !== null) {
-      const msg = (response as any).message;
+      const msg = (response as { message?: unknown }).message;
       if (typeof msg === 'string') return msg;
     }
     return 'Registro não encontrado.';

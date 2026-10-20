@@ -21,7 +21,6 @@ import { autoresDoFeegow, LEDGER_PROFISSIONAL } from './team.mapper';
 export const LEDGER_SALA = 'room';
 export const LEDGER_CONSULTA = 'appointment';
 
-/** Duração quando o Feegow não guardou (ou guardou lixo como "03"). */
 const DURACAO_PADRAO = 30;
 
 export interface NovaSala {
@@ -59,22 +58,10 @@ export interface Colisao {
   agendamentos: string[];
 }
 
-/**
- * Chave do nome de sala igual à de `uq_clinic_rooms_clinic_name_active`
- * (`lower(btrim(name))`, por clínica, entre as não excluídas).
- */
 export function chaveDeSala(nome: string): string {
   return nome.trim().toLowerCase();
 }
 
-/**
- * Salas: os `locais` ativos do Feegow viram salas da clínica importada.
- * Exigem a clínica no ledger (fase `cadastro`). Dois locais com o mesmo nome
- * (sem diferenciar maiúsculas/espaços nas pontas) viram **uma** sala — o
- * índice único recusaria a segunda e derrubaria a fase; o segundo local
- * aponta para a mesma sala no ledger. Sala de mesmo nome que já esteja no
- * banco é tratada na gravação (`gravarAgenda`).
- */
 export function planejarSalas(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
@@ -127,11 +114,6 @@ export function planejarSalas(
   return novas;
 }
 
-/**
- * Consultas: `agendamentos` ativos com paciente e profissional importados.
- * Sem checagem de conflito (o Feegow permitia sobreposição por sala e por
- * encaixe): as sobreposições vão para o relatório.
- */
 export function planejarConsultas(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
@@ -165,14 +147,13 @@ export function planejarConsultas(
   const autorPorUsuario = autoresDoFeegow(exp, ctx);
 
   const consultas: NovaConsulta[] = [];
-  // uuid gerado → ids do Feegow, para o relatório falar a língua do cliente.
   const origem = new Map<
     string,
     { agendamento: string; profissional: string }
   >();
   for (const a of exp.tabela('agendamentos')) {
     const idOrigem = a.id!;
-    if (a.sys_active !== '1') continue; // -1 = excluído no Feegow
+    if (a.sys_active !== '1') continue;
     if (ctx.ledger.resolver(LEDGER_CONSULTA, idOrigem)) {
       rel.pular('consulta');
       continue;
@@ -237,8 +218,6 @@ export function planejarConsultas(
       [canal ? `[${canal}]` : null, (a.Notas ?? '').trim() || null]
         .filter(Boolean)
         .join(' '),
-      // O tipo da consulta na INEXCI não diz qual serviço foi marcado
-      // ("Consulta - Dor", "CONSULTA PRE CIRURGICA"…): o nome vai nas notas.
       procedimento ? `Procedimento no Feegow: ${procedimento}` : null,
     ]
       .filter(Boolean)
@@ -268,10 +247,6 @@ export function planejarConsultas(
       durationMinutes: duracao,
       notes: notas || null,
       cancellationReason: status.cancellationReason,
-      // Futura: a INEXCI lembra (nulo), salvo `--sem-lembretes`. Passada
-      // (antes de `--hoje`) sai marcada: o cron pega o que começa nas
-      // próximas 24 h, e um `--hoje` adiantado deixaria consulta "passada"
-      // dentro dessa janela. Reagendar/reativar pela tela zera a marca.
       reminderSentAt:
         passada || (futuraAtiva && ctx.opcoes.semLembretes) ? agora : null,
       createdAt: criadoEm,
@@ -290,11 +265,6 @@ export function planejarConsultas(
   };
 }
 
-/**
- * Nome do procedimento do Feegow, sem as aspas e espaços que o cadastro às
- * vezes traz. Sem ao menos duas letras seguidas ("S", "N", vazio) não diz
- * nada: `null`.
- */
 export function nomeDeProcedimento(
   nome: string | null | undefined,
 ): string | null {
@@ -312,23 +282,12 @@ export function clinicaImportada(
   return ctx.ledger.resolver(LEDGER_CLINICA, unidade?.id ?? '0');
 }
 
-/** Intervalo já ocupado na agenda de um profissional (consulta existente). */
 export interface HorarioOcupado {
   doctorId: string;
   scheduledAt: Date;
   durationMinutes: number;
 }
 
-/**
- * Sobreposições do mesmo profissional entre consultas que ocupam a agenda
- * (`OCCUPYING_APPOINTMENT_STATUSES`, realizada inclusive) e não são encaixe.
- * A INEXCI recusa isso no banco (`EX_appointments_doctor_no_overlap`), mas o
- * Feegow aceitava: a consulta que chega por último no horário entra como
- * encaixe — ela de fato foi encaixada — e a colisão vai para o relatório.
- * `ocupados` são consultas que já estão no banco e não podem ser mexidas:
- * nunca viram encaixe, então qualquer importada que as sobreponha (antes ou
- * depois delas) é que entra como encaixe.
- */
 export function encaixarSobrepostas(
   consultas: NovaConsulta[],
   origem: Map<string, { agendamento: string; profissional: string }>,
@@ -375,11 +334,6 @@ export function encaixarSobrepostas(
       });
     };
 
-    // 1) Contra as que já estão no banco, nos dois sentidos: a existente
-    // nunca vira encaixe, então a importada sobreposta vira — comece ela
-    // antes ou depois. Só olhar "quem vem depois" deixava passar a importada
-    // que começa antes e invade a existente, e o INSERT violava
-    // `EX_appointments_doctor_no_overlap` abortando a fase inteira.
     const restantes: Item[] = [];
     for (const item of importadas) {
       const existente = existentes.find(
@@ -389,13 +343,12 @@ export function encaixarSobrepostas(
       else restantes.push(item);
     }
 
-    // 2) Entre as importadas: a que chega por último no horário é o encaixe.
     let fimAnterior = 0;
     let anterior: Item | null = null;
     for (const item of restantes) {
       if (anterior && item.inicio < fimAnterior) {
         encaixar(item, anterior);
-        continue; // encaixe não ocupa: não estende o horário ocupado
+        continue;
       }
       if (item.fim > fimAnterior) {
         fimAnterior = item.fim;

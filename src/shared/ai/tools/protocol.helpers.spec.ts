@@ -70,9 +70,6 @@ describe('protocol.helpers', () => {
 
     it('NÃO tolera SC-SC-XXXX (a defesa correta é impedir a duplicação na saída)', () => {
       const candidates = buildProtocolCandidates('SC-SC-468131');
-      // Não devolve "468131" porque "SC-SC-468131" não é um identificador
-      // válido — o `collapseDuplicatedScPrefixes` no orchestrator é quem
-      // sanea esse caso antes que ele chegue ao lookup.
       expect(candidates).not.toContain('468131');
     });
 

@@ -1,42 +1,54 @@
 import * as Joi from 'joi';
 
-/**
- * Schema de validacao de variaveis de ambiente.
- * O app falha no startup se uma variavel obrigatoria estiver ausente.
- */
+export const MARCADOR_VALOR_DE_DEV = 'dev-only';
+
+function segredoQueNaoPodeSerDeDev(nome: string) {
+  return Joi.string()
+    .min(32)
+    .required()
+    .when('NODE_ENV', {
+      is: 'production',
+      then: Joi.string()
+        .min(32)
+        .required()
+        .pattern(new RegExp(MARCADOR_VALOR_DE_DEV, 'i'), { invert: true })
+        .messages({
+          'string.pattern.invert.base': `${nome} está com o valor de exemplo de desenvolvimento. Gere um segredo novo para produção.`,
+        }),
+    });
+}
+
 export const envValidationSchema = Joi.object({
-  // ── Core ─────────────────────────────────────────────
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'test')
     .default('development'),
   PORT: Joi.number().default(8088),
   DASHBOARD_URL: Joi.string().uri().required(),
 
-  // ── Auth ─────────────────────────────────────────────
-  JWT_SECRET: Joi.string().min(32).required(),
+  JWT_SECRET: segredoQueNaoPodeSerDeDev('JWT_SECRET'),
   JWT_ISSUER: Joi.string().required(),
   JWT_AUDIENCE: Joi.string().required(),
 
-  // ── Database ─────────────────────────────────────────
-  DATABASE_URL: Joi.string().required(),
-  // Tamanho máximo do pool de conexões do Postgres (P4/P16). Default = 10
-  // (default histórico do driver `pg`), agora explícito e ajustável por env.
-  DATABASE_POOL_MAX: Joi.number().default(10),
+  TURNSTILE_SECRET_KEY: Joi.string().allow('').default(''),
 
-  // ── CORS ─────────────────────────────────────────────
+  DATABASE_URL: Joi.string().required(),
+  DATABASE_POOL_MAX: Joi.number().default(10),
+  DB_SSL: Joi.string().valid('true', 'false', '').default('false'),
+  DB_SSL_REJECT_UNAUTHORIZED: Joi.string()
+    .valid('true', 'false', '')
+    .default('true'),
+  DB_SSL_CA: Joi.string().allow('').default(''),
+
   CORS_ORIGINS: Joi.string().required(),
 
-  // ── Redis ────────────────────────────────────────────
   REDIS_HOST: Joi.string().default('localhost'),
   REDIS_PORT: Joi.number().default(6379),
 
-  // ── Cloudflare R2 (Storage) ──────────────────────────────
   R2_ACCOUNT_ID: Joi.string().required(),
   R2_ACCESS_KEY_ID: Joi.string().required(),
   R2_SECRET_ACCESS_KEY: Joi.string().required(),
   R2_BUCKET: Joi.string().required(),
 
-  // ── Email (SMTP) ─────────────────────────────────────
   MAIL_HOST: Joi.string().allow('').default('smtp.example.com'),
   MAIL_PORT: Joi.number().default(587),
   MAIL_SECURE: Joi.string().allow('').default('false'),
@@ -47,7 +59,6 @@ export const envValidationSchema = Joi.object({
     .allow('')
     .default('no-reply@mg.inexci.com.br'),
 
-  // ── Twilio (WhatsApp) ────────────────────────────────
   TWILIO_ACCOUNT_SID: Joi.string().allow('').default(''),
   TWILIO_AUTH_TOKEN: Joi.string()
     .allow('')
@@ -57,9 +68,8 @@ export const envValidationSchema = Joi.object({
       then: Joi.string().min(1).required(),
     }),
   TWILIO_WHATSAPP_FROM: Joi.string().allow('').default('whatsapp:+14155238886'),
-  TWILIO_VALIDATE_SIGNATURE: Joi.string().allow('').default('false'),
+  TWILIO_VALIDATE_SIGNATURE: Joi.string().allow('').default('true'),
 
-  // ── Security (criptografia / hash) ───────────────────
   DB_ENCRYPTION_KEY: Joi.string()
     .allow('')
     .default('')
@@ -67,9 +77,8 @@ export const envValidationSchema = Joi.object({
       is: 'production',
       then: Joi.string().hex().length(64).required(),
     }),
-  PHONE_HASH_SALT: Joi.string().min(32).required(),
+  PHONE_HASH_SALT: segredoQueNaoPodeSerDeDev('PHONE_HASH_SALT'),
 
-  // ── OpenAI / IA conversa ─────────────────────────────
   OPENAI_API_KEY: Joi.string().allow('').default(''),
   OPENAI_MODEL: Joi.string().allow('').default('gpt-4o'),
   OPENAI_EMBEDDING_MODEL: Joi.string()
@@ -85,22 +94,14 @@ export const envValidationSchema = Joi.object({
   AI_PROCESS_TIMEOUT_MS: Joi.number().default(90000),
   CONVERSATION_CLEANUP_DAYS: Joi.number().default(15),
 
-  // ── Observabilidade / OpenTelemetry ─────────────────
-  /** URL do coletor OTLP. Omitir = OTel desligado (acompanhamento via logs). */
   OTEL_EXPORTER_OTLP_ENDPOINT: Joi.string().uri().allow('').optional(),
-  /** Fração de traces amostrados (0–1). Default automático: 1.0 em dev, 0.1 em prod. */
   OTEL_TRACES_SAMPLER_ARG: Joi.number().min(0).max(1).optional(),
   OTEL_EXPORTER_OTLP_HEADERS: Joi.string().allow('').optional(),
-  /** Liga o pipeline de métricas OTel (histogramas p50/p90/p99). Fase 2 do PLANO-OBSERVABILIDADE-GRAFANA.md. */
   OTEL_METRICS_ENABLED: Joi.string().allow('').default('false'),
 
-  // ── RAG ─────────────────────────────────────────────
-  /** Número de resultados retornados pelo RAG (default 3). */
   AI_RAG_TOP_K: Joi.number().default(3),
-  /** Score mínimo de similaridade coseno para incluir um chunk (default 0.65). */
   AI_RAG_MIN_SCORE: Joi.number().default(0.65),
 
-  // ── IA WhatsApp (Áudio/STT) ─────────────────────────
   AI_AUDIO_ENABLED: Joi.string().allow('').default('true'),
   AI_AUDIO_DOWNLOAD_TIMEOUT_MS: Joi.number().default(15000),
   AI_AUDIO_MAX_BYTES: Joi.number().default(15 * 1024 * 1024),
@@ -108,8 +109,6 @@ export const envValidationSchema = Joi.object({
   AI_AUDIO_ALLOWED_MIME: Joi.string()
     .allow('')
     .default('audio/ogg,audio/mpeg,audio/mp4,audio/webm,audio/wav,audio/x-wav'),
-  // Grava cópia de mídia inbound (áudio do paciente) em disco para debug. Só
-  // local — proibido em produção (persistiria PII/áudio clínico em /tmp).
   AI_AUDIO_DEBUG_PERSIST: Joi.string()
     .allow('')
     .default('false')
@@ -129,13 +128,13 @@ export const envValidationSchema = Joi.object({
   AI_STT_FASTER_WHISPER_URL: Joi.string()
     .uri()
     .default('http://stt-service:8000'),
+  AI_STT_SHARED_TOKEN: Joi.string().allow('').default(''),
   AI_STT_ENABLE_FALLBACK: Joi.string().allow('').default('false'),
   AI_STT_OPENAI_MODEL: Joi.string().allow('').default('whisper-1'),
   AI_STT_OPENAI_URL: Joi.string()
     .uri()
     .default('https://api.openai.com/v1/audio/transcriptions'),
 
-  // ── IA WhatsApp (Documentos / OCR) ──────────────────
   AI_DOC_ENABLED: Joi.string().allow('').default('true'),
   AI_DOC_MAX_BYTES: Joi.number().default(10 * 1024 * 1024),
   AI_DOC_ALLOWED_IMAGE_MIME: Joi.string()
@@ -146,8 +145,6 @@ export const envValidationSchema = Joi.object({
   AI_DOC_OCR_PARALLEL_WORKERS: Joi.number().default(3),
   AI_DOC_PENDING_TTL_MINUTES: Joi.number().default(10),
 
-  // Menções (@) em comentários da solicitação: minutos de espera antes do
-  // e-mail, que só sai se a notificação in-app continuar não lida.
   MENTION_EMAIL_DELAY_MINUTES: Joi.number().default(10),
   AI_DOC_TMP_FOLDER: Joi.string().allow('').default('whatsapp-tmp'),
   AI_DOC_TMP_RETENTION_HOURS: Joi.number().default(1),
@@ -165,16 +162,12 @@ export const envValidationSchema = Joi.object({
     .valid('auto', 'low', 'high')
     .default('auto'),
 
-  // ── Puppeteer ────────────────────────────────────────
   PUPPETEER_EXECUTABLE_PATH: Joi.string().allow('').optional(),
 
-  // ── Billing / Payment Gateway ────────────────────────
-  PAYMENT_GATEWAY_PROVIDER: Joi.string().valid('stripe').default('stripe'),
   STRIPE_SECRET_KEY: Joi.string().allow('').default(''),
   STRIPE_WEBHOOK_SECRET: Joi.string().allow('').default(''),
   STRIPE_REQUEST_TIMEOUT_MS: Joi.number().default(15000),
   BILLING_TRIAL_DAYS: Joi.number().default(15),
-  // Price IDs da Stripe por plano (Test ou Live conforme o ambiente)
   STRIPE_PRICE_STARTER_MONTHLY: Joi.string().allow('').default(''),
   STRIPE_PRICE_STARTER_YEARLY: Joi.string().allow('').default(''),
   STRIPE_PRICE_ESSENCIAL_MONTHLY: Joi.string().allow('').default(''),
@@ -184,17 +177,13 @@ export const envValidationSchema = Joi.object({
   STRIPE_PRICE_AVANCADO_MONTHLY: Joi.string().allow('').default(''),
   STRIPE_PRICE_AVANCADO_YEARLY: Joi.string().allow('').default(''),
 
-  // ── BullBoard ────────────────────────────────────────
   BULL_BOARD_USER: Joi.string().allow('').default(''),
   BULL_BOARD_PASS: Joi.string().allow('').default(''),
 
-  // ── Logging / Observabilidade ────────────────────────
   LOG_LEVEL: Joi.string()
     .valid('error', 'warn', 'log', 'debug', 'verbose')
     .default('log'),
   LOG_PRETTY: Joi.string().allow('').default(''),
-  // Loga SQL completo COM parâmetros (CPF, telefone, prontuário). Só para
-  // debug local — proibido em produção (vazaria PII sensível no Loki).
   DB_LOG_FULL_QUERIES: Joi.string()
     .allow('')
     .default('false')
@@ -209,5 +198,7 @@ export const envValidationSchema = Joi.object({
   LOG_RETENTION_AI_USAGE_DAYS: Joi.number().default(365),
   LOG_RETENTION_PII_DAYS: Joi.number().default(180),
   LOG_RETENTION_STALE_DAYS: Joi.number().default(60),
+  LOG_RETENTION_READ_NOTIFICATION_DAYS: Joi.number().default(90),
+  LOG_RETENTION_CLINICAL_AUDIT_DAYS: Joi.number().default(1825),
   SLOW_REQUEST_THRESHOLD_MS: Joi.number().positive().default(1500),
 }).options({ allowUnknown: true });

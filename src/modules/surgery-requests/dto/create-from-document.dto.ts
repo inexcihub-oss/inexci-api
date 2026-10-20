@@ -68,7 +68,6 @@ export class NewPatientFromDocumentDto {
   @IsString()
   zipCode?: string;
 
-  /** Número da carteirinha do convênio. */
   @IsOptional()
   @IsString()
   healthPlanNumber?: string;
@@ -118,17 +117,14 @@ export class ReportSectionFromDocumentDto {
 }
 
 export class CreateFromDocumentDto {
-  /** ID do médico responsável (obrigatório). */
   @IsString()
   @IsNotEmpty()
   doctorId: string;
 
-  /** Paciente existente — exclusivo com `newPatient`. */
   @IsOptional()
   @IsString()
   patientId?: string;
 
-  /** Novo paciente a cadastrar — exclusivo com `patientId`. */
   @IsOptional()
   @ValidateNested()
   @Type(() => NewPatientFromDocumentDto)
@@ -138,7 +134,6 @@ export class CreateFromDocumentDto {
   @IsString()
   procedureId?: string;
 
-  /** Nome do procedimento extraído/ajustado (usado quando não há `procedureId`). */
   @IsOptional()
   @IsString()
   procedureName?: string;
@@ -147,7 +142,6 @@ export class CreateFromDocumentDto {
   @IsString()
   hospitalId?: string;
 
-  /** Nome do hospital extraído (usado quando não há `hospitalId`). */
   @IsOptional()
   @IsString()
   hospitalName?: string;
@@ -156,12 +150,10 @@ export class CreateFromDocumentDto {
   @IsString()
   healthPlanId?: string;
 
-  /** Nome do convênio extraído (usado quando não há `healthPlanId`). */
   @IsOptional()
   @IsString()
   healthPlanName?: string;
 
-  /** Número da carteirinha para backfill no paciente existente. */
   @IsOptional()
   @IsString()
   healthPlanNumber?: string;
@@ -174,7 +166,6 @@ export class CreateFromDocumentDto {
   @IsString()
   notes?: string;
 
-  /** Seções estruturadas do laudo (título + descrição) — tem prioridade sobre `notes`. */
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
@@ -193,18 +184,15 @@ export class CreateFromDocumentDto {
   @Type(() => OpmeItemFromDocumentDto)
   opmeItems?: OpmeItemFromDocumentDto[];
 
-  /** Fornecedores sugeridos pelo classificador (aplicados aos itens OPME). */
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   suggestedSuppliers?: string[];
 
-  /** Caminho no storage retornado pelo endpoint de extração. */
   @IsOptional()
   @IsString()
   tempStoragePath?: string;
 
-  /** Nome original do arquivo (para exibição no documento anexado). */
   @IsOptional()
   @IsString()
   originalFileName?: string;

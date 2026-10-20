@@ -10,7 +10,7 @@ describe('OperationDraftService', () => {
     storedConversation = {
       id: 'conv-1',
       operationDraft: null,
-    } as any;
+    };
     mockRepo = {
       findOne: jest
         .fn()
@@ -19,7 +19,7 @@ describe('OperationDraftService', () => {
         storedConversation = { ...storedConversation, ...patch };
       }),
     };
-    service = new OperationDraftService(mockRepo as any);
+    service = new OperationDraftService(mockRepo);
   });
 
   it('start cria um draft do tipo informado em status collecting', async () => {
@@ -117,7 +117,6 @@ describe('OperationDraftService', () => {
   });
 
   it('finalizeCommit com parent retoma pai e injeta returnField', async () => {
-    // Cenário: create_patient aberto como sub-draft de create_sc.
     const parentSnapshot = {
       type: 'create_sc',
       startedAt: new Date().toISOString(),

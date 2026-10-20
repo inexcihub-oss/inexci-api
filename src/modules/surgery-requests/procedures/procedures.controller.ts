@@ -15,7 +15,7 @@ import { Permission } from 'src/shared/permissions';
 @ApiBearerAuth()
 @Controller('surgery-requests/procedures')
 @RequirePermission(Permission.SOLICITACOES)
-export class ProceduresController {
+export class SurgeryRequestProceduresController {
   constructor(private readonly proceduresService: ProceduresService) {}
 
   @Post()

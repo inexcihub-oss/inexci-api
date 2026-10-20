@@ -15,7 +15,9 @@ const baseContext: ToolContext = {
 };
 
 describe('GeneralTools — query_patients', () => {
-  const tools = buildGeneralTools(mockPatientsService as any);
+  const tools = buildGeneralTools({
+    patientsService: mockPatientsService as any,
+  });
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
 
   beforeEach(() => jest.clearAllMocks());
@@ -150,6 +152,7 @@ describe('GeneralTools — query_patients', () => {
     expect(mockPatientsService.findOne).toHaveBeenCalledWith(
       '123e4567-e89b-12d3-a456-426614174000',
       'user-1',
+      { origin: 'ai' },
     );
     expect(result).toContain('Carlos Silva');
     expect(result).not.toContain('12345678900');

@@ -55,9 +55,6 @@ function buildConversation(
 function buildConfig(overrides: Record<string, any> = {}): ConfigService {
   const map: Record<string, any> = {
     AI_MAX_RECENT_MESSAGES: 4,
-    // 7000 dá espaço suficiente para o SYSTEM_PROMPT real (~4900 tokens
-    // após v1.7.x) mais summary/memory/recent. Em produção o budget é
-    // 10000, com folga ainda maior.
     AI_CONTEXT_TOKEN_BUDGET: 7000,
     AI_SUMMARY_TRIGGER_EVERY_MESSAGES: 5,
     AI_SUMMARY_MAX_TOKENS: 450,
@@ -226,7 +223,6 @@ describe('ConversationContextService', () => {
         conversation: buildConversation(),
       });
 
-      // Default test config: AI_MAX_RECENT_MESSAGES = 4
       expect(result.recentCount).toBe(4);
     });
 
@@ -272,9 +268,6 @@ describe('ConversationContextService', () => {
       });
 
       expect(result.breakdown.rag_tokens).toBe(0);
-      // system_prompt é imutável (nunca cortado); o par final é sempre preservado.
-      // Margem de 300 tokens acomoda crescimentos pontuais do system prompt sem
-      // precisar atualizar o número a cada adição de instrução.
       expect(result.breakdown.totalTokens).toBeLessThanOrEqual(
         7300 + estimateTokens(longContent),
       );
@@ -492,26 +485,6 @@ describe('ConversationContextService', () => {
       const trimmed = service.trimRecentMessages(msgs, 5);
       expect(trimmed.length).toBe(5);
       expect(trimmed[0].content).toBe('msg 15');
-    });
-  });
-
-  describe('enforceTokenBudget', () => {
-    it('corta na ordem rag → recent → summary', () => {
-      const blocks = [
-        { kind: 'system' as const, content: 's'.repeat(40) },
-        { kind: 'memory' as const, content: 'm'.repeat(40) },
-        { kind: 'summary' as const, content: 'r'.repeat(80) },
-        { kind: 'rag' as const, content: 'g'.repeat(200) },
-        { kind: 'recent' as const, content: 'a'.repeat(80) },
-        { kind: 'recent' as const, content: 'b'.repeat(80) },
-      ];
-      const { blocks: out, droppedKinds } = service.enforceTokenBudget(
-        blocks,
-        50,
-      );
-      expect(droppedKinds[0]).toBe('rag');
-      expect(out.find((b) => b.kind === 'system')).toBeDefined();
-      expect(out.find((b) => b.kind === 'memory')).toBeDefined();
     });
   });
 });

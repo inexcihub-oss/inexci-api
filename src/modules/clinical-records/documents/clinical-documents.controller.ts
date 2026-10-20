@@ -35,7 +35,8 @@ import {
 } from 'src/shared/decorators/current-user.decorator';
 import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
 import { Permission } from 'src/shared/permissions';
-import { MAX_STORAGE_FILE_SIZE } from 'src/config/storage.config';
+import { limitesDeUpload } from 'src/shared/storage/limites-upload';
+import { MAX_DOCUMENTO_TAMANHO } from 'src/shared/storage/tipo-arquivo';
 
 @ApiTags('Documentos do Atendimento')
 @ApiBearerAuth()
@@ -51,9 +52,7 @@ export class ClinicalDocumentsController {
   @ApiOperation({ summary: 'Enviar documento/exame do paciente' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    FileInterceptor('document', {
-      limits: { fileSize: MAX_STORAGE_FILE_SIZE },
-    }),
+    FileInterceptor('document', limitesDeUpload(MAX_DOCUMENTO_TAMANHO)),
   )
   create(
     @Body() data: CreateClinicalDocumentDto,
@@ -62,10 +61,6 @@ export class ClinicalDocumentsController {
   ) {
     return this.clinicalDocumentsService.create(data, user.userId, file);
   }
-
-  // ── Documentos emitidos a partir da ficha (PDF gerado pelo sistema) ───────
-  // Caminhos fixos abaixo de `clinical-records/documents`, para não disputar
-  // rota com o `clinical-records/:id` do controller de fichas.
 
   @Post('prescription')
   @ApiOperation({ summary: 'Emitir receita do atendimento' })
@@ -107,15 +102,6 @@ export class ClinicalDocumentsController {
       user.userId,
     );
   }
-
-  // ── Pré-visualização ──────────────────────────────────────────────────────
-  // Devolve o HTML do documento (mesmo template da emissão) para o médico
-  // conferir na tela. Nada é gravado, e nenhum PDF é gerado: subir o Chromium
-  // a cada clique em "Visualizar" custa segundos e o arquivo seria descartado.
-  //
-  // A ficha é opcional aqui (e só aqui): conferir um documento não pode criar
-  // prontuário. Sem `clinicalRecordId`, o HTML é montado a partir do paciente e
-  // dos campos que estão na tela — ver `PreviewTargetDto`.
 
   @Post('prescription/preview')
   @HttpCode(HttpStatus.OK)

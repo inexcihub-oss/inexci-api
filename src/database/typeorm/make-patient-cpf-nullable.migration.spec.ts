@@ -1,11 +1,6 @@
 import { QueryRunner } from 'typeorm';
 import { MakePatientCpfNullable1755800000000 } from './migrations/1755800000000-MakePatientCpfNullable';
 
-/**
- * O `up` só afrouxa (DROP NOT NULL). Quem aperta é o `down`: reverter com
- * paciente sem CPF quebraria com o erro cru do Postgres, então ele olha o dado
- * antes e aborta com a lista de pacientes.
- */
 describe('MakePatientCpfNullable1755800000000', () => {
   const SQL_SEM_CPF = 'WHERE p."cpf" IS NULL';
 

@@ -3,7 +3,6 @@ import { DoctorResolutionService } from './doctor-resolution.service';
 import { AccessControlService } from './access-control.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 
-/** MIG-02: SC é de médico (CRM), não de qualquer profissional com perfil. */
 describe('DoctorResolutionService', () => {
   const access = {
     getAccessibleDoctorIds: jest.fn(),

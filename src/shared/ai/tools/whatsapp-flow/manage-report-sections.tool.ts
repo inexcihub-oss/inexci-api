@@ -1,15 +1,15 @@
-import OpenAI from 'openai';
 import { AiTool } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { detokenizeArg } from '../../pii/tool-pii-helpers';
 import { buildToolResult } from '../tool-result';
 import { WhatsappFlowToolDeps } from './_types';
+import { asNonEmptyString, asScalarArg } from '../helpers/arg-parsers';
 import {
-  asNonEmptyString,
   ensurePendingForMutation,
   getAuthorizedRequest,
-} from './_helpers';
+  recordAiActivity,
+} from '../helpers/surgery-request-access';
+import { errorMessage } from '../../../utils/error-message.util';
 
 export function buildManageReportSectionsTool(
   deps: WhatsappFlowToolDeps,
@@ -18,6 +18,8 @@ export function buildManageReportSectionsTool(
   return {
     name: 'manage_report_sections',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {
@@ -60,7 +62,7 @@ export function buildManageReportSectionsTool(
           required: ['surgeryRequestId', 'operation'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
@@ -218,7 +220,9 @@ export function buildManageReportSectionsTool(
       try {
         switch (operation) {
           case 'create': {
-            const title = asNonEmptyString(detokenizeArg(context, args.title));
+            const title = asNonEmptyString(
+              detokenizeArg(context, asScalarArg(args.title)),
+            );
             if (!title) {
               return buildToolResult({
                 status: 'needs_input',
@@ -231,7 +235,8 @@ export function buildManageReportSectionsTool(
             const detokenizedDescription =
               args.description == null
                 ? undefined
-                : (detokenizeArg(context, args.description) ?? undefined);
+                : (detokenizeArg(context, asScalarArg(args.description)) ??
+                  undefined);
 
             const section = await surgeryRequestsService.createReportSection(
               auth.request.id,
@@ -239,12 +244,12 @@ export function buildManageReportSectionsTool(
               context.userId as string,
             );
 
-            await activityRepo.create({
-              surgeryRequestId: auth.request.id,
-              userId: context.userId as string,
-              type: ActivityType.SYSTEM,
-              content: `[WhatsApp IA] Seção de laudo criada (${section.id}).`,
-            });
+            await recordAiActivity(
+              activityRepo,
+              context,
+              auth.request.id,
+              `Seção de laudo criada (${section.id}).`,
+            );
 
             return buildToolResult({
               status: 'ok',
@@ -279,21 +284,23 @@ export function buildManageReportSectionsTool(
                 title:
                   args.title == null
                     ? undefined
-                    : (detokenizeArg(context, args.title) ?? undefined),
+                    : (detokenizeArg(context, asScalarArg(args.title)) ??
+                      undefined),
                 description:
                   args.description == null
                     ? undefined
-                    : (detokenizeArg(context, args.description) ?? undefined),
+                    : (detokenizeArg(context, asScalarArg(args.description)) ??
+                      undefined),
               },
               context.userId as string,
             );
 
-            await activityRepo.create({
-              surgeryRequestId: auth.request.id,
-              userId: context.userId as string,
-              type: ActivityType.SYSTEM,
-              content: `[WhatsApp IA] Seção de laudo atualizada (${updated.id}).`,
-            });
+            await recordAiActivity(
+              activityRepo,
+              context,
+              auth.request.id,
+              `Seção de laudo atualizada (${updated.id}).`,
+            );
 
             return buildToolResult({
               status: 'ok',
@@ -318,12 +325,12 @@ export function buildManageReportSectionsTool(
               context.userId as string,
             );
 
-            await activityRepo.create({
-              surgeryRequestId: auth.request.id,
-              userId: context.userId as string,
-              type: ActivityType.SYSTEM,
-              content: `[WhatsApp IA] Seção de laudo removida (${sectionId}).`,
-            });
+            await recordAiActivity(
+              activityRepo,
+              context,
+              auth.request.id,
+              `Seção de laudo removida (${sectionId}).`,
+            );
 
             return buildToolResult({
               status: 'ok',
@@ -360,12 +367,12 @@ export function buildManageReportSectionsTool(
               context.userId as string,
             );
 
-            await activityRepo.create({
-              surgeryRequestId: auth.request.id,
-              userId: context.userId as string,
-              type: ActivityType.SYSTEM,
-              content: `[WhatsApp IA] Seções de laudo reordenadas (${args.ids.length} itens).`,
-            });
+            await recordAiActivity(
+              activityRepo,
+              context,
+              auth.request.id,
+              `Seções de laudo reordenadas (${args.ids.length} itens).`,
+            );
 
             return buildToolResult({
               status: 'ok',
@@ -378,10 +385,10 @@ export function buildManageReportSectionsTool(
           status: 'needs_input',
           message: 'Operação não suportada.',
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
-          message: `Erro ao gerenciar seções do laudo: ${err?.message || 'erro desconhecido'}`,
+          message: `Erro ao gerenciar seções do laudo: ${errorMessage(err) || 'erro desconhecido'}`,
         });
       }
     },

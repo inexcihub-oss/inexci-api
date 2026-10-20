@@ -8,6 +8,8 @@ import {
   NotificationType,
 } from 'src/database/entities/notification.entity';
 import { NotificationsGateway } from './notifications.gateway';
+import { errorMessage } from 'src/shared/utils';
+import { UserNotificationSettings } from 'src/database/entities/user-notification-settings.entity';
 
 export interface DispatchNotificationDto {
   userId: string;
@@ -15,23 +17,11 @@ export interface DispatchNotificationDto {
   title: string;
   message: string;
   link?: string;
-  metadata?: Record<string, any>;
-  /** Dados para WhatsApp template (opcional) */
+  metadata?: Record<string, unknown>;
   whatsappContentSid?: string;
   whatsappVariables?: Record<string, string>;
 }
 
-/**
- * Despacha notificações para usuários do sistema respeitando suas preferências.
- *
- * Canais suportados:
- *  - Push (in-app + WebSocket): controlado por `pushNotifications` + tipo
- *  - WhatsApp: controlado por `whatsappNotifications` + tipo (quando um
- *    `whatsappContentSid` é fornecido)
- *
- * E-mail não é mais um canal de notificação para usuários do sistema. O único
- * e-mail enviado é o resumo semanal (`WeeklySummaryService`).
- */
 @Injectable()
 export class NotificationDispatcherService {
   private readonly logger = new Logger(NotificationDispatcherService.name);
@@ -50,7 +40,6 @@ export class NotificationDispatcherService {
     const typeEnabled = this.isTypeEnabled(settings, dto.type);
     let criada: Notification | null = null;
 
-    // Push (in-app + WS)
     try {
       if (settings?.pushNotifications !== false && typeEnabled) {
         const notification = await this.notificationRepository.create({
@@ -72,13 +61,12 @@ export class NotificationDispatcherService {
           createdAt: notification.createdAt,
         });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.logger.warn(
-        `Falha ao criar notificação in-app para ${userId}: ${err?.message}`,
+        `Falha ao criar notificação in-app para ${userId}: ${errorMessage(err)}`,
       );
     }
 
-    // WhatsApp
     try {
       if (
         dto.whatsappContentSid &&
@@ -94,35 +82,25 @@ export class NotificationDispatcherService {
           );
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.logger.warn(
-        `Falha ao enviar WhatsApp para ${userId}: ${err?.message}`,
+        `Falha ao enviar WhatsApp para ${userId}: ${errorMessage(err)}`,
       );
     }
 
     return criada;
   }
 
-  async dispatchToMany(
-    userIds: string[],
-    data: Omit<DispatchNotificationDto, 'userId'>,
-  ): Promise<void> {
-    await Promise.all(
-      userIds.map((userId) => this.dispatch({ ...data, userId })),
-    );
-  }
-
   private getSettings(userId: string) {
     return this.settingsRepository.findByUserId(userId);
   }
 
-  private isTypeEnabled(settings: any, type: NotificationType): boolean {
+  private isTypeEnabled(
+    settings: UserNotificationSettings | null,
+    type: NotificationType,
+  ): boolean {
     if (!settings) return true;
     switch (type) {
-      // Menção é ato direcionado de uma pessoa a outra, não alerta
-      // automático: não entra no liga/desliga por tipo. Quem quiser cortar
-      // o in-app desliga `pushNotifications`; o toggle `mentionEmails`
-      // existe só para o canal de e-mail (ver MentionEmailsProcessor).
       case NotificationType.MENTION:
         return true;
       case NotificationType.NEW_SURGERY_REQUEST:

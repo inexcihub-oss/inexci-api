@@ -7,11 +7,6 @@ import { ClinicalRecordTemplatesController } from './clinical-record-templates.c
 import { ClinicalRecordTemplatesService } from './clinical-record-templates.service';
 import { ClinicalRecordsModule } from '../clinical-records.module';
 
-/**
- * `clinical-records/templates` é mais um caminho fixo competindo com o
- * `clinical-records/:id` das fichas — mesma armadilha já resolvida em
- * `clinical-records/documents`. Estes testes prendem a ordem de registro.
- */
 describe('Modelos de anamnese (rotas)', () => {
   let app: INestApplication;
 

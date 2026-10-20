@@ -1,28 +1,11 @@
 import { ConfigService } from '@nestjs/config';
 
-/**
- * Download endurecido de mídia inbound do WhatsApp (Twilio) para uso nas AI
- * tools.
- *
- * As cópias anteriores em `manage/_helpers.ts` e `doctor-profile.tools.ts`
- * faziam `fetch(url)` cru, sem allowlist de host, sem timeout e sem limite de
- * bytes, enviando as credenciais Twilio (`Basic <SID:TOKEN>`) no header. Como a
- * `url` vem do corpo do webhook Twilio (`context.inboundMedia`), um webhook
- * forjado (ver a validação de assinatura fora de produção) podia apontar para
- * um host interno / metadata endpoint e vazar as credenciais — SSRF clássico.
- *
- * Este helper aplica a mesma allowlist do `WhatsappMediaService.ensureTwilioUrl`
- * mais timeout e corte de tamanho.
- */
-
 const TRUSTED_MEDIA_PREFIXES = [
   'https://api.twilio.com/',
   'https://mms.twiliocdn.com/',
   'https://media.twiliocdn.com/',
 ];
 
-// 15 MB cobre imagens/PDFs de laudo com folga; alinhado ao teto de mídia do
-// WhatsappMediaService.
 const DEFAULT_MAX_BYTES = 15 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 15000;
 

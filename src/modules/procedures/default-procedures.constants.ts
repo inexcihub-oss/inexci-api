@@ -1,7 +1,3 @@
-/**
- * Procedimentos padrão usados para inicializar o catálogo de uma nova conta.
- * Mantém os mesmos nomes utilizados no seed de desenvolvimento.
- */
 export const DEFAULT_PROCEDURE_NAMES: string[] = [
   'Colecistectomia videolaparoscópica',
   'Herniorrafia inguinal bilateral',

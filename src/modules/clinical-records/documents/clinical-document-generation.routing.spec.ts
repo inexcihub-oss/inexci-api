@@ -7,11 +7,6 @@ import { ClinicalDocumentsController } from './clinical-documents.controller';
 import { ClinicalDocumentsService } from './clinical-documents.service';
 import { ClinicalDocumentGenerationService } from './clinical-document-generation.service';
 
-/**
- * Os documentos emitidos no atendimento entram por caminhos fixos abaixo de
- * `clinical-records/documents`, justamente para não disputar rota com o
- * `clinical-records/:id` do controller de fichas.
- */
 describe('Emissão de documentos do atendimento (rotas)', () => {
   let app: INestApplication;
 
@@ -62,7 +57,6 @@ describe('Emissão de documentos do atendimento (rotas)', () => {
       req.user = { userId: 'user-1', ownerId: 'owner-1', role: 'admin' };
       next();
     });
-    // Mesma configuração do main.ts — o payload precisa ser validado igual.
     app.useGlobalPipes(
       new ValidationPipe({
         transform: true,
@@ -168,8 +162,6 @@ describe('Emissão de documentos do atendimento (rotas)', () => {
         })
         .expect(200);
 
-      // HTML (não PDF): a prévia é só para conferir na tela, e gerar PDF aqui
-      // custaria segundos de Puppeteer por clique.
       expect(response.body).toEqual({ html: '<html>previa</html>' });
       expect(generationService.previewPrescription).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -181,11 +173,6 @@ describe('Emissão de documentos do atendimento (rotas)', () => {
       expect(generationService.generatePrescription).not.toHaveBeenCalled();
     });
 
-    /**
-     * D-11: "Visualizar" não pode criar ficha. Sem `clinicalRecordId` a prévia
-     * ainda tem que passar — é o payload que o frontend manda em um atendimento
-     * ainda não salvo.
-     */
     it('aceita a prévia sem ficha, com paciente e ficha em memória', async () => {
       await request(app.getHttpServer())
         .post('/clinical-records/documents/prescription/preview')
@@ -220,7 +207,6 @@ describe('Emissão de documentos do atendimento (rotas)', () => {
       );
     });
 
-    /** A emissão continua exigindo a ficha — só a prévia é que dispensa. */
     it('não afrouxa a emissão: receita sem ficha continua recusada', async () => {
       await request(app.getHttpServer())
         .post('/clinical-records/documents/prescription')

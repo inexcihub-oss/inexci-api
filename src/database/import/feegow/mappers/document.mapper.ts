@@ -8,10 +8,8 @@ import { LEDGER_FICHA } from './clinical-record.mapper';
 import { LEDGER_PACIENTE } from './patient.mapper';
 
 export const LEDGER_DOCUMENTO = 'document';
-/** Paciente do Feegow → paciente que recebeu a foto (o caminho fica no banco). */
 export const LEDGER_FOTO = 'patient-photo';
 
-/** Tipos aceitos no upload; foto de paciente só aceita imagem (MIG-01). */
 const CONTENT_TYPE: Record<string, string> = {
   '.pdf': 'application/pdf',
   '.png': 'image/png',
@@ -36,7 +34,6 @@ export interface NovoAnexo {
   type: string;
   key: string;
   name: string;
-  /** Preenchido depois do upload. */
   uri: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -45,12 +42,10 @@ export interface NovoAnexo {
 
 export interface NovaFoto {
   patientId: string;
-  /** Preenchido depois do upload. */
   photoPath: string | null;
   arquivo: ArquivoLocal;
 }
 
-/** Acesso ao disco, trocável nos testes. */
 export interface Disco {
   existe(caminho: string): boolean;
   listar(pasta: string): string[];
@@ -61,10 +56,6 @@ export const discoReal: Disco = {
   listar: (pasta) => (existsSync(pasta) ? readdirSync(pasta) : []),
 };
 
-/**
- * Anexos do paciente (`arquivos` com `PacienteID ≠ 0`) e fotos de perfil
- * (`pacientes.foto` em `Client/Perfil`). Só planeja: o upload é da fase.
- */
 export function planejarAnexos(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
@@ -75,7 +66,7 @@ export function planejarAnexos(
 
   for (const a of exp.tabela('arquivos')) {
     const idOrigem = a.id!;
-    if (!a.PacienteID || a.PacienteID === '0') continue; // arquivo da clínica
+    if (!a.PacienteID || a.PacienteID === '0') continue;
     if (a.sysActive !== '1') continue;
     if (ctx.ledger.resolver(LEDGER_DOCUMENTO, idOrigem)) {
       rel.pular('anexo');
@@ -126,7 +117,7 @@ export function planejarAnexos(
       continue;
     }
     const patientId = ctx.ledger.resolver(LEDGER_PACIENTE, p.id);
-    if (!patientId) continue; // paciente excluído/rejeitado no cadastro
+    if (!patientId) continue;
     const arquivo = arquivoLocal(exp, 'Perfil', p.foto, disco);
     if (typeof arquivo === 'string') {
       rel.rejeitar('foto', p.id!, arquivo);
@@ -166,7 +157,6 @@ function arquivoLocal(
   disco: Disco,
 ): ArquivoLocal | string {
   if (!nome) return 'sem nome de arquivo';
-  // `exp.arquivo` já recusa o que sai da pasta; aqui só dá o motivo certo.
   if (isAbsolute(nome) || nome.split(/[\\/]/).includes('..')) {
     return `nome de arquivo inválido, fora da pasta do export (${nome})`;
   }

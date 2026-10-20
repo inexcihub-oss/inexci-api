@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { EntityManager } from 'typeorm';
 
 import { SubscriptionRepository } from 'src/database/repositories/subscription.repository';
 import { SubscriptionQuotaPeriodRepository } from 'src/database/repositories/subscription-quota-period.repository';
@@ -9,21 +10,16 @@ import { BillingRequiredException } from '../billing.exceptions';
 export interface QuotaSnapshot {
   used: number;
   limit: number;
-  /** -1 = ilimitado. */
   isUnlimited: boolean;
   remaining: number;
   periodStart: Date;
   periodEnd: Date;
 }
 
-/**
- * Recorte da cota seguro para **qualquer** usuário da conta (não só o dono).
- *
- * Diferente do `QuotaSnapshot`, `remaining` é `null` quando o plano é
- * ilimitado. O snapshot usa `Number.POSITIVE_INFINITY` ali, e
- * `JSON.stringify(Infinity)` serializa como `null` — o campo já chegava nulo
- * no cliente, só que com um tipo que dizia `number`. Aqui isso é explícito.
- */
+export interface ConsumeQuotaOptions {
+  manager?: EntityManager;
+}
+
 export interface QuotaStatus {
   used: number;
   limit: number;
@@ -33,16 +29,6 @@ export interface QuotaStatus {
   periodEnd: Date;
 }
 
-/**
- * Servi\u00e7o respons\u00e1vel pela contagem e enforcement de cota mensal de
- * solicita\u00e7\u00f5es cir\u00fargicas.
- *
- * A unidade de cota \u00e9 a transi\u00e7\u00e3o PENDING \u2192 SENT (ENVIO para an\u00e1lise).
- * Rascunhos (PENDING) n\u00e3o consomem cota; apenas o envio efetivo consome.
- *
- * O reset acontece no fim do ciclo de cobran\u00e7a da assinatura (n\u00e3o no
- * m\u00eas calend\u00e1rio).
- */
 @Injectable()
 export class QuotaService {
   constructor(
@@ -50,11 +36,6 @@ export class QuotaService {
     private readonly quotaPeriodRepo: SubscriptionQuotaPeriodRepository,
   ) {}
 
-  /**
-   * Garante que o owner pode ENVIAR uma nova solicita\u00e7\u00e3o cir\u00fargica.
-   * Lan\u00e7a se a assinatura estiver suspensa, cancelada ou se a cota foi
-   * atingida.
-   */
   async assertCanSendSurgeryRequest(ownerId: string): Promise<void> {
     const subscription = await this.subscriptionRepo.findByOwnerId(ownerId);
     if (!subscription) {
@@ -88,7 +69,7 @@ export class QuotaService {
       );
     }
 
-    if (period.surgeryRequestsLimit === -1) return; // ilimitado
+    if (period.surgeryRequestsLimit === -1) return;
 
     if (period.surgeryRequestsUsed >= period.surgeryRequestsLimit) {
       throw new BillingRequiredException(
@@ -98,13 +79,11 @@ export class QuotaService {
     }
   }
 
-  /**
-   * Consome 1 unidade da cota corrente. Combina valida\u00e7\u00e3o + UPDATE
-   * condicional at\u00f4mico para evitar race conditions sob concorr\u00eancia.
-   *
-   * Retorna o snapshot p\u00f3s-consumo. Lan\u00e7a se n\u00e3o foi poss\u00edvel consumir.
-   */
-  async consumeSurgeryRequest(ownerId: string): Promise<QuotaSnapshot> {
+  async consumeSurgeryRequest(
+    ownerId: string,
+    options: ConsumeQuotaOptions = {},
+  ): Promise<QuotaSnapshot> {
+    const { manager } = options;
     await this.assertCanSendSurgeryRequest(ownerId);
 
     const subscription = await this.subscriptionRepo.findByOwnerId(ownerId);
@@ -115,6 +94,7 @@ export class QuotaService {
     const period = await this.quotaPeriodRepo.findCurrentForSubscription(
       subscription.id,
       new Date(),
+      manager,
     );
     if (!period) {
       throw new BillingRequiredException(
@@ -124,10 +104,8 @@ export class QuotaService {
     }
 
     if (period.surgeryRequestsLimit !== -1) {
-      const ok = await this.quotaPeriodRepo.tryConsume(period.id);
+      const ok = await this.quotaPeriodRepo.tryConsume(period.id, manager);
       if (!ok) {
-        // Outro request consumiu a \u00faltima unidade entre o assert e o
-        // consume. Refletimos a quota saturada como erro.
         throw new BillingRequiredException(
           `Voc\u00ea atingiu o limite de ${period.surgeryRequestsLimit} solicita\u00e7\u00f5es do seu plano neste ciclo.`,
           'quota_exceeded',
@@ -135,11 +113,10 @@ export class QuotaService {
       }
     }
 
-    const refreshed = await this.quotaPeriodRepo.findOne({ id: period.id });
+    const refreshed = await this.quotaPeriodRepo.findById(period.id, manager);
     return this.toSnapshot(refreshed!);
   }
 
-  /** Snapshot de leitura da cota corrente. Retorna null se sem assinatura. */
   async getQuotaSnapshot(ownerId: string): Promise<QuotaSnapshot | null> {
     const subscription = await this.subscriptionRepo.findByOwnerId(ownerId);
     if (!subscription) return null;
@@ -152,13 +129,6 @@ export class QuotaService {
     return this.toSnapshot(period);
   }
 
-  /**
-   * Cota corrente no formato exposto ao banner de aviso, para qualquer usuário
-   * da conta que possa criar solicitações — não apenas o dono.
-   *
-   * Deliberadamente **não** carrega preço, status de pagamento nem gateway:
-   * esses continuam só em `GET /billing/subscription`, que exige ser o dono.
-   */
   async getQuotaStatus(ownerId: string): Promise<QuotaStatus | null> {
     const snapshot = await this.getQuotaSnapshot(ownerId);
     if (!snapshot) return null;

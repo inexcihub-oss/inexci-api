@@ -28,10 +28,6 @@ import { SurgeryRequestRealtimeModule } from 'src/modules/surgery-requests/realt
     PdfModule,
     QueuesModule,
   ],
-  // Ordem importa: `clinical-records/documents`, `.../templates` e
-  // `.../document-templates` são caminhos fixos que colidem com o `clinical-records/:id` do controller
-  // de fichas. O Nest resolve as rotas na ordem de registro, então os
-  // específicos vêm primeiro.
   controllers: [
     ClinicalDocumentsController,
     ClinicalRecordTemplatesController,

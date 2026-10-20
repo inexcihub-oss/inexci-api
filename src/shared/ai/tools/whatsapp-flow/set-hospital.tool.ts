@@ -1,15 +1,15 @@
-import OpenAI from 'openai';
 import { AiTool } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { detokenizeArg, tokenizePii } from '../../pii/tool-pii-helpers';
 import { buildToolResult } from '../tool-result';
 import { WhatsappFlowToolDeps } from './_types';
+import { asNonEmptyString, asScalarArg } from '../helpers/arg-parsers';
+import { Hospital } from '../../../../database/entities/hospital.entity';
 import {
-  asNonEmptyString,
   ensurePendingForMutation,
   getAuthorizedRequest,
-} from './_helpers';
+  recordAiActivity,
+} from '../helpers/surgery-request-access';
 
 export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
   const {
@@ -22,6 +22,8 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
   return {
     name: 'set_hospital',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {
@@ -43,7 +45,7 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
           required: ['surgeryRequestId'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
@@ -52,12 +54,6 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
       );
       if (!auth.ok) {
         return buildToolResult({ status: 'blocked', message: auth.message });
-      }
-      if (!hospitalRepo) {
-        return buildToolResult({
-          status: 'blocked',
-          message: 'Ferramenta indisponível no momento.',
-        });
       }
 
       const protocolToken = tokenizePii(
@@ -96,12 +92,12 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
             message: `Erro ao remover hospital: ${err instanceof Error ? err.message : 'erro desconhecido'}.`,
           });
         }
-        await activityRepo.create({
-          surgeryRequestId: auth.request.id,
-          userId: context.userId as string,
-          type: ActivityType.SYSTEM,
-          content: '[WhatsApp IA] Hospital removido da solicitação.',
-        });
+        await recordAiActivity(
+          activityRepo,
+          context,
+          auth.request.id,
+          'Hospital removido da solicitação.',
+        );
         return buildToolResult({
           status: 'ok',
           message: `Hospital removido com sucesso da solicitação ${protocolToken}.`,
@@ -111,7 +107,7 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
 
       const hospitalId = asNonEmptyString(args.hospitalId);
       const hospitalName = asNonEmptyString(
-        detokenizeArg(context, args.hospital_name),
+        detokenizeArg(context, asScalarArg(args.hospital_name)),
       );
 
       if (!hospitalId && !hospitalName) {
@@ -123,13 +119,13 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
         });
       }
 
-      let selectedHospital: any = null;
+      let selectedHospital: Hospital | null = null;
 
       if (hospitalId) {
         selectedHospital = await hospitalRepo.findOne({
           id: hospitalId,
           ownerId: auth.request.ownerId,
-        } as any);
+        });
         if (!selectedHospital) {
           return buildToolResult({
             status: 'blocked',
@@ -141,18 +137,18 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
         selectedHospital = await hospitalRepo.findOne({
           name: hospitalName,
           ownerId: auth.request.ownerId,
-        } as any);
-        if (!selectedHospital && entityResolver) {
+        });
+        if (!selectedHospital) {
           const candidates = await hospitalRepo.findMany(
-            { ownerId: auth.request.ownerId } as any,
+            { ownerId: auth.request.ownerId },
             0,
             200,
           );
-          const result = entityResolver.resolve<any>({
+          const result = entityResolver.resolve({
             query: hospitalName,
             candidates,
-            getName: (h: any) => String(h.name ?? ''),
-            getId: (h: any) => String(h.id),
+            getName: (h) => String(h.name ?? ''),
+            getId: (h) => String(h.id),
           });
           if (result.status === 'resolved' && result.resolved) {
             selectedHospital = result.resolved.data;
@@ -174,6 +170,15 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
             message: `Hospital "${hospitalName}" não encontrado para essa clínica. Cadastre-o antes ou informe o \`hospitalId\`.`,
           });
         }
+      }
+
+      if (!selectedHospital) {
+        return buildToolResult({
+          status: 'needs_input',
+          message:
+            'Parâmetro inválido: informe `hospitalId` ou `hospital_name`. Para remover, use `clear=true`.',
+          nextRequiredFields: ['hospitalId'],
+        });
       }
 
       const previewName = String(selectedHospital.name);

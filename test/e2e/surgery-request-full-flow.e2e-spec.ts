@@ -1,11 +1,3 @@
-/**
- * TESTE E2E - FLUXO COMPLETO DE SOLICITACAO CIRURGICA
- *
- * Setup feito exclusivamente via rotas HTTP da API (sem SQL direto).
- * Fluxo: PENDING -> SENT -> IN_ANALYSIS -> IN_SCHEDULING -> SCHEDULED
- *        -> PERFORMED -> INVOICED -> FINALIZED
- */
-
 import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import {
@@ -46,7 +38,6 @@ const STATUS_LABEL: Record<number, string> = {
 const DOCTOR = {
   name: 'Dr. Teste Fluxo E2E',
   email: `dr.e2e.flow.${Date.now()}@inexci.test`,
-  // `phone` passou a ser obrigatorio no RegisterDto.
   phone: '11977770003',
   password: 'Senha@12345',
   isDoctor: true,
@@ -79,23 +70,16 @@ async function assertStatus(id: string, expected: number): Promise<void> {
   expect(actual).toBe(expected);
 }
 
-// ----------------------------------------------------------------
-// Setup global - todos os pre-requisitos via API
-// ----------------------------------------------------------------
-
 beforeAll(async () => {
   app = await createTestApp();
   await cleanDatabase(app);
 
-  // 1. Registrar medico (isDoctor: true cria doctor_profile automaticamente)
   const registerRes = await request(app.getHttpServer())
     .post('/auth/register')
     .send(DOCTOR)
     .expect(201);
   userId = registerRes.body.user.id;
 
-  // `/auth/register` não devolve mais `access_token`; o login exige
-  // e-mail confirmado e o `ConsentsGuard` exige os aceites.
   await prepararUsuarioParaLogin(app, DOCTOR.email);
   const loginRes = await request(app.getHttpServer())
     .post('/auth/login')
@@ -105,7 +89,6 @@ beforeAll(async () => {
   expect(token).toBeDefined();
   expect(userId).toBeDefined();
 
-  // 2. Criar procedimento
   const procedureRes = await request(app.getHttpServer())
     .post('/procedures')
     .set(authHeader())
@@ -114,7 +97,6 @@ beforeAll(async () => {
   const procedureId: string = procedureRes.body.id;
   expect(procedureId).toBeDefined();
 
-  // 3. Criar plano de saude
   const healthPlanRes = await request(app.getHttpServer())
     .post('/health_plans')
     .set(authHeader())
@@ -127,7 +109,6 @@ beforeAll(async () => {
   const healthPlanId: string = healthPlanRes.body.id;
   expect(healthPlanId).toBeDefined();
 
-  // 4. Criar hospital
   const hospitalRes = await request(app.getHttpServer())
     .post('/hospitals')
     .set(authHeader())
@@ -136,7 +117,6 @@ beforeAll(async () => {
   const hospitalId: string = hospitalRes.body.id;
   expect(hospitalId).toBeDefined();
 
-  // 5. Criar paciente
   const patientRes = await request(app.getHttpServer())
     .post('/patients')
     .set(authHeader())
@@ -155,14 +135,12 @@ beforeAll(async () => {
   const patientId: string = patientRes.body.id;
   expect(patientId).toBeDefined();
 
-  // 6. Criar solicitacao cirurgica
   const srRes = await request(app.getHttpServer())
     .post('/surgery-requests')
     .set(authHeader())
     .send({
       procedureId: procedureId,
       patientId: patientId,
-      // `manager_id` virou `doctorId` no DTO da SC.
       doctorId: userId,
       healthPlanId: healthPlanId,
       hospitalId: hospitalId,
@@ -177,10 +155,6 @@ afterAll(async () => {
   await closeTestApp(app);
 });
 
-// ----------------------------------------------------------------
-// 1. Status PENDING (criacao)
-// ----------------------------------------------------------------
-
 describe('1. Criacao - Status PENDING (1)', () => {
   it('deve ter status PENDING apos criacao', async () => {
     await assertStatus(surgeryRequestId, Status.PENDING);
@@ -192,14 +166,7 @@ describe('1. Criacao - Status PENDING (1)', () => {
   });
 });
 
-// ----------------------------------------------------------------
-// 2. PENDING -> SENT
-// ----------------------------------------------------------------
-
 describe('2. Transicao PENDING -> SENT (2)', () => {
-  // As 5 pendências bloqueantes de PENDING (pendencies.config.ts) precisam
-  // estar resolvidas antes do envio; `patient_data` e `hospital_data` já vieram
-  // do payload de criação, as outras três são resolvidas aqui.
   it('deve declarar que a solicitacao nao usa OPME', async () => {
     await declararSemOpme(app, token, surgeryRequestId);
   });
@@ -261,10 +228,6 @@ describe('2. Transicao PENDING -> SENT (2)', () => {
   });
 });
 
-// ----------------------------------------------------------------
-// 3. SENT -> IN_ANALYSIS
-// ----------------------------------------------------------------
-
 describe('3. Transicao SENT -> IN_ANALYSIS (3)', () => {
   it('deve registrar o inicio da analise', async () => {
     await request(app.getHttpServer())
@@ -283,15 +246,9 @@ describe('3. Transicao SENT -> IN_ANALYSIS (3)', () => {
   });
 });
 
-// ----------------------------------------------------------------
-// 4. IN_ANALYSIS -> IN_SCHEDULING
-// ----------------------------------------------------------------
-
 describe('4. Transicao IN_ANALYSIS -> IN_SCHEDULING (4)', () => {
   it('deve aceitar autorizacao com 3 opcoes de data', async () => {
     const today = new Date();
-    // `AcceptAuthorizationDto` recusa data sem horário explícito (e meia-noite
-    // UTC é o sentinela de "horário não preenchido"), então o ISO vai completo.
     const d = (n: number) => {
       const dt = new Date(today);
       dt.setDate(dt.getDate() + n);
@@ -309,10 +266,6 @@ describe('4. Transicao IN_ANALYSIS -> IN_SCHEDULING (4)', () => {
     await assertStatus(surgeryRequestId, Status.IN_SCHEDULING);
   });
 
-  // `dateOptions` virou opcional de propósito (podem ser definidas depois, já
-  // em Agendamento — quem garante as datas antes de Agendada é o pendency
-  // bloqueante `schedule_dates`). O que o DTO recusa é data SEM horário: a
-  // validação roda no pipe, antes do service, então não depende do status.
   it('nao deve aceitar data sem horario explicito', async () => {
     const res = await request(app.getHttpServer())
       .post(`/surgery-requests/${surgeryRequestId}/accept-authorization`)
@@ -321,10 +274,6 @@ describe('4. Transicao IN_ANALYSIS -> IN_SCHEDULING (4)', () => {
     expect(res.status).toBe(400);
   });
 });
-
-// ----------------------------------------------------------------
-// 5. IN_SCHEDULING -> SCHEDULED
-// ----------------------------------------------------------------
 
 describe('5. Transicao IN_SCHEDULING -> SCHEDULED (5)', () => {
   it('deve confirmar a data escolhida (indice 0)', async () => {
@@ -340,10 +289,6 @@ describe('5. Transicao IN_SCHEDULING -> SCHEDULED (5)', () => {
   });
 });
 
-// ----------------------------------------------------------------
-// 6. SCHEDULED -> PERFORMED
-// ----------------------------------------------------------------
-
 describe('6. Transicao SCHEDULED -> PERFORMED (6)', () => {
   it('deve marcar a cirurgia como realizada', async () => {
     await request(app.getHttpServer())
@@ -357,10 +302,6 @@ describe('6. Transicao SCHEDULED -> PERFORMED (6)', () => {
     await assertStatus(surgeryRequestId, Status.PERFORMED);
   });
 });
-
-// ----------------------------------------------------------------
-// 7. PERFORMED -> INVOICED
-// ----------------------------------------------------------------
 
 describe('7. Transicao PERFORMED -> INVOICED (7)', () => {
   it('deve registrar o faturamento', async () => {
@@ -385,10 +326,6 @@ describe('7. Transicao PERFORMED -> INVOICED (7)', () => {
   });
 });
 
-// ----------------------------------------------------------------
-// 8. INVOICED -> FINALIZED
-// ----------------------------------------------------------------
-
 describe('8. Transicao INVOICED -> FINALIZED (8)', () => {
   it('deve confirmar o recebimento do pagamento', async () => {
     await request(app.getHttpServer())
@@ -407,10 +344,6 @@ describe('8. Transicao INVOICED -> FINALIZED (8)', () => {
   });
 });
 
-// ----------------------------------------------------------------
-// 9. Verificacao final
-// ----------------------------------------------------------------
-
 describe('9. Verificacao final do fluxo', () => {
   it('a solicitacao deve estar FINALIZED ao final', async () => {
     const sr = await fetchSurgeryRequest(surgeryRequestId);
@@ -421,10 +354,6 @@ describe('9. Verificacao final do fluxo', () => {
     );
   });
 });
-
-// ----------------------------------------------------------------
-// 10. Protecao de maquina de estados
-// ----------------------------------------------------------------
 
 describe('10. Protecao de maquina de estados (transicoes invalidas)', () => {
   it('nao deve aceitar send em FINALIZED', async () => {

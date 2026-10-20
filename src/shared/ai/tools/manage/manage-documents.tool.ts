@@ -1,20 +1,28 @@
-import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { tokenizePii } from '../../pii/tool-pii-helpers';
 import { translateServiceError } from '../helpers/service-error-translator';
 import { STORAGE_FOLDERS } from '../../../../config/storage.config';
 import { buildToolResult } from '../tool-result';
 import { ManageToolDeps } from './_types';
+import { asNonEmptyString, sanitizeAlphaNumKey } from '../helpers/arg-parsers';
 import {
-  asNonEmptyString,
   classifyDocumentType,
   downloadInboundMedia,
-  getAuthorizedRequest,
   REPORT_IMAGE_KEY,
-  sanitizeAlphaNumKey,
-} from './_helpers';
+} from '../helpers/documents';
+import {
+  getAuthorizedRequest,
+  recordAiActivity,
+} from '../helpers/surgery-request-access';
+import { errorMessage } from '../../../utils/error-message.util';
+import { Document } from '../../../../database/entities/document.entity';
+
+import { MIME_DOCUMENTOS_PERMITIDOS } from '../../../storage/tipo-arquivo';
+import {
+  ArquivoRecebidoInvalidoError,
+  tiparArquivoRecebido,
+} from '../../utils/arquivo-recebido';
 
 export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
   const {
@@ -28,6 +36,8 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
   return {
     name: 'manage_documents',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {
@@ -78,7 +88,7 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
           required: ['surgeryRequestId', 'operation'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
@@ -109,8 +119,8 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
       if (operation === 'list') {
         const docs = await documentRepo.findMany({
           surgeryRequestId: auth.request.id,
-        } as any);
-        const filtered = docs.filter((d: any) => d.key !== REPORT_IMAGE_KEY);
+        });
+        const filtered = docs.filter((d) => d.key !== REPORT_IMAGE_KEY);
         if (!filtered.length) {
           return buildToolResult({
             status: 'ok',
@@ -118,7 +128,7 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
             data: [],
           });
         }
-        const lines = filtered.map((d: any, index: number) => {
+        const lines = filtered.map((d, index: number) => {
           const date = d.createdAt
             ? new Date(d.createdAt).toLocaleDateString('pt-BR')
             : '';
@@ -185,20 +195,34 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
             media.url,
             configService,
           );
+          let tipo: { mime: string; nome: string };
+          try {
+            tipo = await tiparArquivoRecebido(
+              downloaded.buffer,
+              computedName,
+              MIME_DOCUMENTOS_PERMITIDOS,
+            );
+          } catch (err) {
+            if (err instanceof ArquivoRecebidoInvalidoError) {
+              return buildToolResult({
+                status: 'blocked',
+                message:
+                  'Formato de arquivo não suportado. Envie PDF, imagem (JPG, PNG ou WEBP) ou documento Word.',
+              });
+            }
+            throw err;
+          }
           const path = await storageService.create(
             {
-              originalname: computedName,
-              mimetype:
-                media.contentType ||
-                downloaded.contentType ||
-                'application/octet-stream',
+              originalname: tipo.nome,
+              mimetype: tipo.mime,
               buffer: downloaded.buffer,
-            } as any,
+            },
             STORAGE_FOLDERS.DOCUMENTS,
             auth.request.ownerId,
           );
 
-          let created: any;
+          let created: Document;
           try {
             created = await documentsService.createFromPath({
               surgeryRequestId: auth.request.id,
@@ -206,10 +230,7 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
               type: detectedType,
               name: computedName,
               key: computedKey,
-              contentType:
-                media.contentType ||
-                downloaded.contentType ||
-                'application/octet-stream',
+              contentType: tipo.mime,
               createdById: context.userId as string,
             });
           } catch (err) {
@@ -219,27 +240,26 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
             });
           }
 
-          await activityRepo.create({
-            surgeryRequestId: auth.request.id,
-            userId: context.userId as string,
-            type: ActivityType.SYSTEM,
-            content: `[WhatsApp IA] Documento anexado: ${computedName} (tipo: ${detectedType}).`,
-          });
+          await recordAiActivity(
+            activityRepo,
+            context,
+            auth.request.id,
+            `Documento anexado: ${computedName} (tipo: ${detectedType}).`,
+          );
 
           return buildToolResult({
             status: 'ok',
-            message: `Documento ${computedName} anexado com sucesso (id: ${(created as any).id}).`,
-            affected: [{ kind: 'document', id: (created as any).id }],
+            message: `Documento ${computedName} anexado com sucesso (id: ${created.id}).`,
+            affected: [{ kind: 'document', id: created.id }],
           });
-        } catch (err: any) {
+        } catch (err) {
           return buildToolResult({
             status: 'error',
-            message: `Erro ao anexar documento: ${err?.message || 'erro desconhecido'}`,
+            message: `Erro ao anexar documento: ${errorMessage(err) || 'erro desconhecido'}`,
           });
         }
       }
 
-      // operation === 'remove'
       const documentId = asNonEmptyString(args.documentId);
       if (!documentId) {
         return buildToolResult({
@@ -252,7 +272,7 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
       const doc = await documentRepo.findOne({
         id: documentId,
         surgeryRequestId: auth.request.id,
-      } as any);
+      });
       if (!doc) {
         return buildToolResult({
           status: 'blocked',
@@ -287,12 +307,12 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
         surgeryRequestId: auth.request.id,
       });
 
-      await activityRepo.create({
-        surgeryRequestId: auth.request.id,
-        userId: context.userId as string,
-        type: ActivityType.SYSTEM,
-        content: `[WhatsApp IA] Documento removido: ${doc.name} (tipo: ${doc.type}).`,
-      });
+      await recordAiActivity(
+        activityRepo,
+        context,
+        auth.request.id,
+        `Documento removido: ${doc.name} (tipo: ${doc.type}).`,
+      );
 
       return buildToolResult({
         status: 'ok',

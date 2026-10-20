@@ -12,10 +12,6 @@ export interface PlanoHistorico {
   atividades: NovaAtividade[];
 }
 
-/**
- * Fase `historico`: linha do tempo das consultas (`appointment_activities`)
- * a partir do `log_marcacoes`. Depende da fase `agenda` no ledger.
- */
 export function planejarHistorico(
   exp: ExportFeegow,
   ctx: ContextoImportacao,

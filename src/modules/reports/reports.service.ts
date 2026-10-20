@@ -15,6 +15,17 @@ import {
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { withActiveSpan } from 'src/shared/observability/span.util';
 
+const MS_PER_DAY = 86_400_000;
+const PENDING_ALERT_DAYS = 5;
+
+type RawTotalRow = { total: string | number } & Record<string, unknown>;
+
+function withNumericTotal<T extends RawTotalRow>(
+  row: T,
+): Omit<T, 'total'> & { total: number } {
+  return { ...row, total: parseInt(String(row.total), 10) };
+}
+
 export interface ReportFilters {
   hospitalId?: string;
   healthPlanId?: string;
@@ -71,11 +82,10 @@ export class ReportsService {
     const [counts, totalInvoiced, rawHealthPlan, rawStatus, rawHospital]: [
       { total: number; scheduled: number; performed: number; invoiced: number },
       { invoicedValue: number; receivedValue: number },
-      any,
-      any,
-      any,
+      RawTotalRow[],
+      RawTotalRow[],
+      RawTotalRow[],
     ] = await Promise.all([
-      // 4 counts (total/agendada/realizada/faturada) em UMA query (P13).
       this.surgeryRequestRepository.countsByStatus(doctorIds, filters),
       this.surgeryRequestRepository.sumInvoiced({ doctorIds }),
       this.surgeryRequestRepository.totalByHealthPlan(doctorIds, filters),
@@ -88,24 +98,9 @@ export class ReportsService {
     const respPerformed = counts.performed;
     const respInvoiced = counts.invoiced;
 
-    let totalByHealthPlan = rawHealthPlan;
-    let totalByStatus = rawStatus;
-    let totalByHospital = rawHospital;
-
-    totalByHealthPlan = totalByHealthPlan.map((item: any) => {
-      item.total = parseInt(item.total);
-      return item;
-    });
-
-    totalByStatus = totalByStatus.map((item: any) => {
-      item.total = parseInt(item.total);
-      return item;
-    });
-
-    totalByHospital = totalByHospital.map((item: any) => {
-      item.total = parseInt(item.total);
-      return item;
-    });
+    const totalByHealthPlan = rawHealthPlan.map(withNumericTotal);
+    const totalByStatus = rawStatus.map(withNumericTotal);
+    const totalByHospital = rawHospital.map(withNumericTotal);
 
     return {
       surgeryRequest: {
@@ -148,7 +143,7 @@ export class ReportsService {
 
     const endDate = filters?.endDate || new Date();
     const startDate =
-      filters?.startDate || new Date(endDate.getTime() - days * 86400000);
+      filters?.startDate || new Date(endDate.getTime() - days * MS_PER_DAY);
 
     const results = await this.surgeryRequestRepository.getTemporalEvolution(
       where,
@@ -173,9 +168,8 @@ export class ReportsService {
   async pendingNotifications(userId: string, filters?: ReportFilters) {
     const { where } = await this.getWhereConditions(userId, filters);
 
-    // Considerar como pendentes: solicitações em análise ou reanálise há mais de 5 dias
     const fiveDaysAgo = new Date();
-    fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
+    fiveDaysAgo.setDate(fiveDaysAgo.getDate() - PENDING_ALERT_DAYS);
 
     const pendingAnalysis = await this.surgeryRequestRepository.total({
       ...where,
@@ -183,7 +177,6 @@ export class ReportsService {
       updatedAt: LessThan(fiveDaysAgo),
     });
 
-    // Status CLOSED representa o fechamento manual (era inReanalysis no sistema legado)
     const pendingClosed = await this.surgeryRequestRepository.total({
       ...where,
       status: SurgeryRequestStatus.IN_SCHEDULING,
@@ -215,12 +208,6 @@ export class ReportsService {
     }));
   }
 
-  /**
-   * Endpoint consolidado do dashboard (P13): reúne as 5 consultas antes
-   * servidas por endpoints separados numa única resposta/round-trip. Cada
-   * método reusa `getAccessibleDoctorIds` (cache de 30s), então a resolução de
-   * acesso não é refeita 5×.
-   */
   async dashboardFull(
     userId: string,
     filters?: ReportFilters,

@@ -17,7 +17,7 @@ function grade(parcial: object = {}) {
     id: 'g1',
     doctorId: DOC,
     clinicId: null,
-    weekday: 1, // segunda
+    weekday: 1,
     startTime: '08:00:00',
     endTime: '10:00:00',
     slotMinutes: 30,
@@ -280,7 +280,6 @@ describe('AvailabilityService (MIG-05)', () => {
       await expect(service.foraDaGrade(DOC, start, end, null)).resolves.toBe(
         true,
       );
-      // Sem informar a clínica, a clínica não é considerada.
       await expect(service.foraDaGrade(DOC, start, end)).resolves.toBe(false);
     });
 
@@ -293,9 +292,9 @@ describe('AvailabilityService (MIG-05)', () => {
     });
 
     it('dentro, atravessando o fim e em outro dia da semana', async () => {
-      await expect(em('2026-10-05T11:00:00.000Z')).resolves.toBe(false); // 08:00 seg
-      await expect(em('2026-10-05T12:45:00.000Z')).resolves.toBe(true); // 09:45–10:15
-      await expect(em('2026-10-06T11:00:00.000Z')).resolves.toBe(true); // terça
+      await expect(em('2026-10-05T11:00:00.000Z')).resolves.toBe(false);
+      await expect(em('2026-10-05T12:45:00.000Z')).resolves.toBe(true);
+      await expect(em('2026-10-06T11:00:00.000Z')).resolves.toBe(true);
     });
   });
 
@@ -303,7 +302,6 @@ describe('AvailabilityService (MIG-05)', () => {
     const b = (doctorId: string | null, clinicId: string | null) =>
       ({ doctorId, clinicId }) as never;
     it.each([
-      // [bloqueio médico, bloqueio clínica, item clínica, atinge]
       [null, null, 'c1', true],
       [null, null, null, true],
       [DOC, null, 'c1', true],

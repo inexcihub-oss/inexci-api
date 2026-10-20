@@ -53,11 +53,6 @@ export class SurgeryRequestActivityMentionRepository extends BaseRepository<Surg
     await this.repository.update(id, { notificationId });
   }
 
-  /**
-   * Reserva o envio do e-mail: carimba `email_sent_at` só se ainda estiver
-   * vazio, num único UPDATE. Devolve `false` quando outra tentativa do job
-   * já reservou — é o que impede o retry do Bull de mandar o e-mail de novo.
-   */
   async claimEmailSend(id: string): Promise<boolean> {
     const result = await this.repository.update(
       { id, emailSentAt: IsNull() },
@@ -66,7 +61,6 @@ export class SurgeryRequestActivityMentionRepository extends BaseRepository<Surg
     return (result.affected ?? 0) > 0;
   }
 
-  /** Desfaz a reserva quando o envio falhou, para o retry poder tentar. */
   async releaseEmailSend(id: string): Promise<void> {
     await this.repository.update(id, { emailSentAt: null });
   }

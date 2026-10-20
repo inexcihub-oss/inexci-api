@@ -1,25 +1,6 @@
 import { Logger as NestLogger } from '@nestjs/common';
 import type { Logger as TypeOrmLogger } from 'typeorm';
 
-/**
- * Logger compacto para o TypeORM.
- *
- * Em vez de despejar a query SQL inteira (com colunas, joins e parâmetros —
- * incluindo embeddings vetoriais do RAG, que são gigantes), emite uma única
- * linha curta no formato `OPERAÇÃO tabela`, por exemplo:
- *
- *   [TypeORM] SELECT whatsapp_conversations
- *   [TypeORM] INSERT ai_token_usage_log
- *   [TypeORM] UPDATE surgery_requests
- *   [TypeORM] BEGIN
- *
- * Erros de query continuam logados em `error` (com a mensagem do banco) e
- * slow queries em `warn` (com tempo). Para ver a query completa quando
- * necessário, defina `DB_LOG_FULL_QUERIES=true`.
- *
- * Para silenciar completamente o sumário de queries (mantendo apenas erros e
- * slow), basta subir o `LOG_LEVEL` para `warn`.
- */
 export class CompactTypeOrmLogger implements TypeOrmLogger {
   private readonly logger = new NestLogger('TypeORM');
   private readonly fullQueries: boolean;
@@ -75,10 +56,6 @@ export class CompactTypeOrmLogger implements TypeOrmLogger {
   }
 }
 
-/**
- * Extrai apenas a operação (SELECT/INSERT/UPDATE/DELETE/...) e a tabela
- * principal envolvida. Função pura/testável.
- */
 export function summarizeQuery(rawQuery: string): string {
   const query = rawQuery.trim().replace(/\s+/g, ' ');
   if (!query) return '(empty)';

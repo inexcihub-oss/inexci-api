@@ -7,6 +7,7 @@ import { OperationDraftType } from '../../drafts/operation-draft.types';
 import { MODEL_COST_PER_1K } from '../../constants/ai.constants';
 import { PhoneNormalizerService } from './phone-normalizer.service';
 import { PiiVaultService } from '../pii-vault.service';
+import { errorMessage } from '../../../utils/error-message.util';
 
 export interface CompletionUsageSnapshot {
   stage: string;
@@ -15,20 +16,10 @@ export interface CompletionUsageSnapshot {
   totalTokens: number;
   model?: string;
   latencyMs?: number;
-  /**
-   * Tokens reaproveitados via prompt caching da OpenAI nesta chamada
-   * (`usage.prompt_tokens_details.cached_tokens`). Mede o hit rate por
-   * stage — instrumentação base da Fase 0 (telemetria) e validação da
-   * Fase 1 (`prompt_cache_key`) do PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA.
-   */
   cachedTokens?: number;
-  /** Valor enviado em `prompt_cache_key` (ou `none`). */
   cacheKey?: string;
-  /** Quantidade de tool definitions enviadas no request. */
   toolsCount?: number;
-  /** Draft ativo no início da chamada (ou `null` quando não havia draft). */
   draftType?: OperationDraftType | null;
-  /** Breakdown por bloco do contexto montado (apenas no estágio inicial). */
   contextBreakdown?: {
     system_tokens: number;
     summary_tokens: number;
@@ -37,12 +28,7 @@ export interface CompletionUsageSnapshot {
     recent_tokens: number;
     totalTokens: number;
   };
-  /** Estratégia aplicada (`history_only` vs `hybrid`). */
   contextStrategy?: ContextStrategy;
-  /**
-   * Métricas de qualidade da busca RAG desta chamada.
-   * Fase 7 do `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`.
-   */
   rag?: {
     hitsCount: number;
     topScore: number;
@@ -59,11 +45,6 @@ export interface CaptureUsageExtra {
   rag?: CompletionUsageSnapshot['rag'];
 }
 
-/**
- * Serviço de telemetria do orchestrator: captura snapshots de uso da OpenAI,
- * agrega para log resumido por mensagem, persiste no `ai_token_usage_log` e
- * estima o custo em centavos com base em `MODEL_COST_PER_1K`.
- */
 @Injectable()
 export class OrchestratorTelemetryService {
   private readonly logger = new Logger(OrchestratorTelemetryService.name);
@@ -84,8 +65,7 @@ export class OrchestratorTelemetryService {
     if (!completion?.usage) return;
 
     const cachedTokens =
-      (completion.usage as any)?.prompt_tokens_details?.cached_tokens ??
-      undefined;
+      completion.usage.prompt_tokens_details?.cached_tokens ?? undefined;
 
     snapshots.push({
       stage,
@@ -194,9 +174,9 @@ export class OrchestratorTelemetryService {
         costEstimateCents: costCents,
         breakdown: snapshots,
       });
-    } catch (error: any) {
+    } catch (error) {
       this.logger.warn(
-        `Falha ao persistir AI_TOKEN_USAGE sid=${messageSid}: ${error?.message || 'erro desconhecido'}`,
+        `Falha ao persistir AI_TOKEN_USAGE sid=${messageSid}: ${errorMessage(error) || 'erro desconhecido'}`,
       );
     }
   }
@@ -215,11 +195,6 @@ export class OrchestratorTelemetryService {
     return hasPricing ? Math.round(total) : null;
   }
 
-  /**
-   * Métrica de uso do vault por sessão (T0.11). Emite um único log estruturado
-   * que pode ser raspado por agregadores (Datadog/CloudWatch) ou substituído
-   * por contador Prometheus em iteração futura.
-   */
   logPiiVaultUsage(messageSid: string, conversationId: string): void {
     try {
       const counts = this.piiVault.categoryCounts(conversationId);
@@ -230,9 +205,9 @@ export class OrchestratorTelemetryService {
       this.logger.log(
         `[AI_PII_USAGE] sid=${messageSid} total=${total} ${breakdown}`,
       );
-    } catch (err: any) {
+    } catch (err) {
       this.logger.debug(
-        `Falha ao calcular métrica de PII: ${err?.message || 'erro desconhecido'}`,
+        `Falha ao calcular métrica de PII: ${errorMessage(err) || 'erro desconhecido'}`,
       );
     }
   }

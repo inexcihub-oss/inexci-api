@@ -1,13 +1,5 @@
 import { LinhaCsv } from '../../core/csv';
 
-/**
- * O Feegow não tem "médico responsável" no paciente; a INEXCI exige
- * (`patients.doctor_id`). Deriva do histórico: o profissional com mais
- * consultas ativas do paciente; empate → o da consulta mais recente.
- *
- * Devolve os ids de profissional do Feegow em ordem de preferência, para o
- * chamador pular quem não foi importado. Vazio = paciente sem consulta.
- */
 export function profissionaisPorPaciente(
   agendamentos: LinhaCsv[],
 ): Map<string, string[]> {

@@ -6,7 +6,6 @@ import { AppointmentStatus } from 'src/database/entities/appointment.entity';
 
 describe('FindAppointmentsDto', () => {
   function transform(payload: Record<string, unknown>) {
-    // Reproduz o ValidationPipe global (transform: true).
     return plainToInstance(FindAppointmentsDto, payload, {
       enableImplicitConversion: false,
     });

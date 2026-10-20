@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TranscriptionService } from '../../transcription/transcription.service';
 import {
-  InboundWhatsappMedia,
   WhatsappMediaService,
   WhatsappMediaValidationError,
 } from '../../../whatsapp/whatsapp-media.service';
@@ -29,13 +28,6 @@ export interface AudioProcessingResult {
     | null;
 }
 
-/**
- * Gerencia o pipeline de processamento de áudio inbound do WhatsApp:
- * download, transcrição e mapeamento de erros para mensagens amigáveis.
- *
- * Extraído de `AiOrchestratorService` na Fase 5 do
- * `PLANO-CORRECOES-CODE-REVIEW-2026-05-13.md`.
- */
 @Injectable()
 export class AudioIntakeService {
   private readonly logger = new Logger(AudioIntakeService.name);
@@ -76,9 +68,8 @@ export class AudioIntakeService {
     }
 
     try {
-      const downloaded = await this.whatsappMediaService.downloadInboundAudio(
-        audioMedia as InboundWhatsappMedia,
-      );
+      const downloaded =
+        await this.whatsappMediaService.downloadInboundAudio(audioMedia);
 
       const transcription = await this.transcriptionService.transcribe({
         audioBuffer: downloaded.buffer,
@@ -147,10 +138,6 @@ export class AudioIntakeService {
     }
   }
 
-  /**
-   * Mapeia o motivo da falha do STT para uma resposta amigável e
-   * acionável ao usuário, em vez do genérico "não consegui transcrever".
-   */
   buildAudioFailureUserMessage(reason: string | undefined): string {
     switch (reason) {
       case 'AUDIO_NOT_ALLOWED':
@@ -188,10 +175,6 @@ export class AudioIntakeService {
     return '';
   }
 
-  /**
-   * Resolve a fonte da entrada do usuário com base na presença de texto
-   * digitado e/ou transcrição de áudio.
-   */
   resolveInboundSource(
     textInput: string,
     transcriptionContext: { text: string } | null,

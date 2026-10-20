@@ -1,15 +1,23 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
+import { draftConfirmationFingerprint } from '../../helpers/draft-fingerprint';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
-import { ActivityType } from '../../../../../database/entities/surgery-request-activity.entity';
 import { FlowDraftDeps } from '../_types';
+import {
+  getAuthorizedRequest,
+  recordAiActivity,
+} from '../../helpers/surgery-request-access';
+import { errorMessage } from '../../../../utils/error-message.util';
 
 export function buildInvoiceDraftCommitTool(deps: FlowDraftDeps): AiTool {
-  const { draftService, workflowService, activityRepo } = deps;
+  const { draftService, workflowService, activityRepo, surgeryRequestRepo } =
+    deps;
   return {
     name: 'invoice_draft_commit',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
+    requiresConfirmation: true,
+    confirmationFingerprint: draftConfirmationFingerprint(deps.draftService),
     definition: {
       type: 'function',
       function: {
@@ -22,12 +30,12 @@ export function buildInvoiceDraftCommitTool(deps: FlowDraftDeps): AiTool {
           required: ['confirm'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context) {
       if (!context.userId) {
         return buildToolResult({ status: 'error', message: 'Acesso negado.' });
       }
-      if (!(args as any).confirm) {
+      if (!args.confirm) {
         return buildToolResult({
           status: 'pending_confirmation',
           message:
@@ -45,6 +53,14 @@ export function buildInvoiceDraftCommitTool(deps: FlowDraftDeps): AiTool {
         });
       }
       const fields = v.draft.fields;
+      const acesso = await getAuthorizedRequest(
+        surgeryRequestRepo,
+        fields.surgeryRequestId,
+        context,
+      );
+      if (!acesso.ok) {
+        return buildToolResult({ status: 'error', message: acesso.message });
+      }
       try {
         await workflowService.invoiceRequest(
           fields.surgeryRequestId!,
@@ -58,25 +74,26 @@ export function buildInvoiceDraftCommitTool(deps: FlowDraftDeps): AiTool {
           },
           context.userId,
         );
-        await activityRepo.create({
-          surgeryRequestId: fields.surgeryRequestId!,
-          userId: context.userId,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Faturamento registrado. Protocolo: ${fields.invoiceProtocol}, valor: ${fields.invoiceValue?.toFixed(2)}.`,
-        });
+        await recordAiActivity(
+          activityRepo,
+          context,
+          fields.surgeryRequestId!,
+          `Faturamento registrado. Protocolo: ${fields.invoiceProtocol}, valor: ${fields.invoiceValue?.toFixed(2)}.`,
+        );
         await draftService.finalizeCommit(context.conversationId, {
           id: fields.surgeryRequestId,
           label: fields.surgeryRequestLabel,
         });
         return buildToolResult({
           status: 'ok',
+          affected: [{ kind: 'surgery_request', id: fields.surgeryRequestId! }],
           data: { surgeryRequestId: fields.surgeryRequestId },
           message: `Faturamento registrado com sucesso para a solicitação ${fields.surgeryRequestLabel ?? fields.surgeryRequestId}.`,
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
-          message: `Erro ao faturar: ${err?.message || 'erro desconhecido'}`,
+          message: `Erro ao faturar: ${errorMessage(err) || 'erro desconhecido'}`,
         });
       }
     },

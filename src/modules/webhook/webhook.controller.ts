@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { ApiExcludeController } from '@nestjs/swagger';
-import { Public } from '../../shared/decorator/is-public.decorator';
+import { Public } from '../../shared/decorators/is-public.decorator';
 import { WebhookService } from './webhook.service';
 import { AiOrchestratorService } from '../../shared/ai/services/ai-orchestrator.service';
 import { maskPhone } from '../../shared/utils';
@@ -77,7 +77,7 @@ export class WebhookController {
   @Public()
   @HttpCode(200)
   async handleTwilioWebhook(
-    @Body() body: Record<string, any>,
+    @Body() body: Record<string, unknown>,
     @Headers('x-twilio-signature') signature: string,
     @Req() req: Request,
   ): Promise<string> {
@@ -171,6 +171,19 @@ export class WebhookController {
       return '<Response></Response>';
     }
 
+    let firstDelivery = true;
+    try {
+      firstDelivery = await this.aiOrchestrator.claimInboundMessage(messageSid);
+    } catch (error) {
+      this.logger.warn(
+        `Falha ao checar duplicidade do webhook (${messageSid}): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (!firstDelivery) {
+      this.logger.log(`Webhook Twilio duplicado ignorado (${messageSid})`);
+      return '<Response></Response>';
+    }
+
     try {
       const schedulingHandled =
         await this.webhookService.tryHandleSchedulingSelection({
@@ -190,9 +203,6 @@ export class WebhookController {
       );
     }
 
-    // Os dois handlers têm ids de botão próprios e não disputam payload, então
-    // a ordem entre eles é indiferente: cada um devolve `false` de imediato
-    // para o botão do outro.
     try {
       const appointmentHandled =
         await this.webhookService.tryHandleAppointmentConfirmation({

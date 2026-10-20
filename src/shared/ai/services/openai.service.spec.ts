@@ -48,9 +48,6 @@ describe('OpenaiService', () => {
   });
 
   it('cria o client OpenAI com maxRetries: 0 (retry único, controlado manualmente em chatCompletionWithRetry)', async () => {
-    // beforeEach já limpou o histórico de chamadas do mock (jest.clearAllMocks);
-    // criamos um módulo próprio aqui para capturar os args do construtor antes
-    // de qualquer clear subsequente.
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OpenaiService,

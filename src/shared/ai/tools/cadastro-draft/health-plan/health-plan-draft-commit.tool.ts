@@ -1,5 +1,5 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
+import { draftConfirmationFingerprint } from '../../helpers/draft-fingerprint';
 import { ALL_PERMISSIONS } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { translateServiceError } from '../../helpers/service-error-translator';
@@ -11,11 +11,10 @@ export function buildHealthPlanDraftCommitTool(
   const { draftService, healthPlansService } = deps;
   return {
     name: 'health_plan_draft_commit',
-    // Mesma regra do HTTP: `HealthPlansController.create` herda o
-    // `@RequireAnyArea()` da classe — convênio é cadastro transversal, então
-    // qualquer área cria, mas o colaborador sem área nenhuma não. Excluir
-    // continua sendo ato do admin e não tem tool.
     requiredPermission: ALL_PERMISSIONS,
+    mutates: true,
+    requiresConfirmation: true,
+    confirmationFingerprint: draftConfirmationFingerprint(deps.draftService),
     definition: {
       type: 'function',
       function: {
@@ -28,12 +27,12 @@ export function buildHealthPlanDraftCommitTool(
           required: ['confirm'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context) {
       if (!context.userId) {
         return buildToolResult({ status: 'error', message: 'Acesso negado.' });
       }
-      if (!(args as any).confirm) {
+      if (!args.confirm) {
         return buildToolResult({
           status: 'pending_confirmation',
           message:

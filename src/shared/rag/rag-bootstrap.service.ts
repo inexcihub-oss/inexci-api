@@ -55,18 +55,6 @@ interface StructuredKnowledgeFile {
   };
 }
 
-const STATUS_LABEL_PT: Record<string, string> = {
-  Pendente: 'Pendente',
-  Enviada: 'Enviada',
-  'Em Análise': 'Em Análise',
-  'Em Agendamento': 'Em Agendamento',
-  Agendada: 'Agendada',
-  Realizada: 'Realizada',
-  Faturada: 'Faturada',
-  Finalizada: 'Finalizada',
-  Encerrada: 'Encerrada',
-};
-
 @Injectable()
 export class RagBootstrapService implements OnModuleInit {
   private readonly logger = new Logger(RagBootstrapService.name);
@@ -129,10 +117,6 @@ export class RagBootstrapService implements OnModuleInit {
     }
   }
 
-  /**
-   * Apenas valida (não cria/altera) presença de tabela e coluna `embedding`.
-   * DDL deve ser aplicada exclusivamente via migrations TypeORM.
-   */
   private async isRagSchemaReady(): Promise<boolean> {
     try {
       const tableExists = await this.dataSource.query(
@@ -201,7 +185,7 @@ export class RagBootstrapService implements OnModuleInit {
         source: 'faq',
         ...(item.id ? { id: item.id } : {}),
         ...(item.tags && item.tags.length ? { tags: item.tags } : {}),
-      } as Record<string, any>,
+      },
     }));
 
     const workflow = (data.categories?.workflow || []).map((item) => ({
@@ -210,7 +194,7 @@ export class RagBootstrapService implements OnModuleInit {
       metadata: {
         source: item.source ?? 'workflow',
         ...(item.id ? { id: item.id } : {}),
-      } as Record<string, any>,
+      },
     }));
 
     const glossary = (data.categories?.glossary || []).map((item) => ({
@@ -219,7 +203,7 @@ export class RagBootstrapService implements OnModuleInit {
       metadata: {
         source: item.source ?? 'glossary',
         term: item.term,
-      } as Record<string, any>,
+      },
     }));
 
     const whatsappCapabilities = (
@@ -227,7 +211,7 @@ export class RagBootstrapService implements OnModuleInit {
     ).map((item) => ({
       title: 'Capacidade do assistente no WhatsApp',
       content: item,
-      metadata: { source: 'assistant_capabilities' } as Record<string, any>,
+      metadata: { source: 'assistant_capabilities' },
     }));
 
     const faqCandidates = (
@@ -235,10 +219,7 @@ export class RagBootstrapService implements OnModuleInit {
     ).map((item) => ({
       title: 'Pergunta candidata do repositório',
       content: item,
-      metadata: { source: 'faq_candidates_from_repository' } as Record<
-        string,
-        any
-      >,
+      metadata: { source: 'faq_candidates_from_repository' },
     }));
 
     const whatsappGapItems = [
@@ -249,14 +230,11 @@ export class RagBootstrapService implements OnModuleInit {
     const whatsappGaps = whatsappGapItems.map((item) => ({
       title: 'Lacuna para fluxo completo via WhatsApp',
       content: item,
-      metadata: { source: 'whatsapp_full_flow_gap_analysis' } as Record<
-        string,
-        any
-      >,
+      metadata: { source: 'whatsapp_full_flow_gap_analysis' },
     }));
 
     const pendencies = (data.categories?.pendencies || []).map((item) => {
-      const labelPt = STATUS_LABEL_PT[item.status] ?? item.status;
+      const statusLabel = item.status;
       const blocking = item.blocking_items?.length
         ? item.blocking_items.map((b) => `- ${b}`).join('\n')
         : '- (nenhum)';
@@ -265,9 +243,9 @@ export class RagBootstrapService implements OnModuleInit {
         : '- (nenhum)';
       const noteLine = item.note ? `\nObservação: ${item.note}` : '';
       return {
-        title: `Pendências para status: ${labelPt}`,
+        title: `Pendências para status: ${statusLabel}`,
         content:
-          `Status: ${labelPt}\n` +
+          `Status: ${statusLabel}\n` +
           `Pendências bloqueantes:\n${blocking}\n` +
           `Pendências não bloqueantes:\n${nonBlocking}` +
           noteLine,
@@ -275,7 +253,7 @@ export class RagBootstrapService implements OnModuleInit {
           source: item.source ?? 'pendencies',
           status: item.status,
           category_internal: 'pendencies',
-        } as Record<string, any>,
+        },
       };
     });
 
@@ -284,7 +262,7 @@ export class RagBootstrapService implements OnModuleInit {
     ).map((item) => ({
       title: 'Limitação do assistente',
       content: item,
-      metadata: { source: 'assistant_limitations' } as Record<string, any>,
+      metadata: { source: 'assistant_limitations' },
     }));
 
     const whatsappIntents = (
@@ -298,7 +276,7 @@ export class RagBootstrapService implements OnModuleInit {
         source: 'whatsapp_intents_examples',
         intent: item.intent,
         category_internal: 'whatsapp-intents',
-      } as Record<string, any>,
+      },
     }));
 
     await this.ingestionService.replaceCategory('faq', faq, {
@@ -343,11 +321,6 @@ export class RagBootstrapService implements OnModuleInit {
     );
   }
 
-  /**
-   * Fallback usado apenas em ambientes não-produtivos (dev/test) quando o
-   * arquivo estruturado não estiver disponível. Em produção, ausência do
-   * arquivo é erro fatal — seed nunca cai aqui.
-   */
   private async seedDefault(): Promise<void> {
     await this.ingestionService.replaceCategory(
       'faq',

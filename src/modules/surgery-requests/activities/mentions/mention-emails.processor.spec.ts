@@ -28,7 +28,7 @@ describe('MentionEmailsProcessor', () => {
       authorName: 'Dra. Ana',
       content: 'confere o laudo',
       inAppNotified: true,
-    } as MentionEmailJobData,
+    },
   } as Job<MentionEmailJobData>;
 
   beforeEach(async () => {
@@ -121,8 +121,6 @@ describe('MentionEmailsProcessor', () => {
     await processor.handleSend(job);
 
     const [, assunto] = mailService.sendGenericNotification.mock.calls[0];
-    // O assunto vaza para prévia de notificação e lista da caixa de entrada;
-    // nenhum e-mail da plataforma identifica paciente ali.
     expect(assunto).not.toContain('João Silva');
   });
 
@@ -150,8 +148,6 @@ describe('MentionEmailsProcessor', () => {
 
     await processor.handleSend(job);
 
-    // O e-mail é o último aviso de uma menção não lida: identificar a SC é
-    // ganho de contexto, não pré-requisito.
     expect(mailService.sendGenericNotification).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),

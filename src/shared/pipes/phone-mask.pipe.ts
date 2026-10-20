@@ -1,15 +1,19 @@
-import { Injectable, PipeTransform } from '@nestjs/common';
+import { applyDecorators } from '@nestjs/common';
 import { Transform } from 'class-transformer';
+import { Matches } from 'class-validator';
 import { Mask } from '@tboerc/maskfy';
+import {
+  TELEFONE_BR_CANONICO,
+  TELEFONE_INVALIDO_MENSAGEM,
+  canonicalizarTelefone,
+} from '../utils/phone.util';
 
-/** Remove a máscara de um campo de telefone escalar */
 export function stripPhoneMask(
   value: string | null | undefined,
 ): string | null | undefined {
   return value ? Mask.phone.raw(value) : value;
 }
 
-/** Remove a máscara do campo `phone` de um objeto aninhado */
 export function stripObjectPhoneMask<T extends { phone?: string }>(
   value: T | null | undefined,
 ): T | null | undefined {
@@ -19,15 +23,19 @@ export function stripObjectPhoneMask<T extends { phone?: string }>(
   return value;
 }
 
-/** Decorator para aplicar diretamente em propriedades de DTO com campo de telefone escalar */
 export function PhoneTransform() {
   return Transform(({ value }) => stripPhoneMask(value));
 }
 
-/** Pipe NestJS para remover máscara de telefone de parâmetros individuais */
-@Injectable()
-export class PhoneMaskPipe implements PipeTransform<string, string> {
-  transform(value: string): string {
-    return stripPhoneMask(value) as string;
-  }
+export function normalizarTelefoneDeUsuario(valor: unknown): unknown {
+  if (typeof valor !== 'string') return valor;
+  if (valor.trim() === '') return undefined;
+  return canonicalizarTelefone(valor) ?? valor;
+}
+
+export function UserPhone(): PropertyDecorator {
+  return applyDecorators(
+    Transform(({ value }) => normalizarTelefoneDeUsuario(value)),
+    Matches(TELEFONE_BR_CANONICO, { message: TELEFONE_INVALIDO_MENSAGEM }),
+  );
 }

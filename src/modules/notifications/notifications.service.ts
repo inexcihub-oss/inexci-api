@@ -11,12 +11,22 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { UpdateNotificationSettingsDto } from './dto/update-notification-settings.dto';
+import { UpdatePatientNotificationSettingsDto } from './dto/update-patient-notification-settings.dto';
+import {
+  PATIENT_NOTIFICATION_KINDS,
+  PatientNotificationSettings,
+} from 'src/common/patient-notification-settings';
+import { UserNotificationSettings } from 'src/database/entities/user-notification-settings.entity';
 import { NotificationType } from 'src/database/entities/notification.entity';
-import { UserRole } from 'src/database/entities/user.entity';
+import { canAdministrate } from 'src/shared/permissions';
 import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { WHATSAPP_TEMPLATES } from 'src/shared/whatsapp/whatsapp-templates.constants';
-import { getStatusLabel, getStalePendencyMessage } from 'src/shared/utils';
+import {
+  errorMessage,
+  getStatusLabel,
+  getStalePendencyMessage,
+} from 'src/shared/utils';
 import { NotificationsGateway } from './notifications.gateway';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 
@@ -34,12 +44,9 @@ export class NotificationsService {
     @Optional() private readonly accessControlService?: AccessControlService,
   ) {}
 
-  // ============ Settings ============
-
   async getSettings(userId: string) {
     let settings = await this.settingsRepository.findByUserId(userId);
 
-    // Se não existir, cria com valores padrão
     if (!settings) {
       settings = await this.settingsRepository.create({
         userId: userId,
@@ -61,14 +68,28 @@ export class NotificationsService {
     return await this.settingsRepository.upsert(userId, data);
   }
 
-  // ============ Notifications ============
+  getPatientSettings(ownerId: string): Promise<PatientNotificationSettings> {
+    return this.userRepository.getPatientNotificationSettings(ownerId);
+  }
+
+  updatePatientSettings(
+    ownerId: string,
+    data: UpdatePatientNotificationSettingsDto,
+  ): Promise<PatientNotificationSettings> {
+    const patch: Partial<PatientNotificationSettings> = {};
+    for (const kind of PATIENT_NOTIFICATION_KINDS) {
+      if (typeof data[kind] === 'boolean') patch[kind] = data[kind];
+    }
+    return this.userRepository.updatePatientNotificationSettings(
+      ownerId,
+      patch,
+    );
+  }
 
   async getNotifications(
     userId: string,
     options?: { skip?: number; take?: number; unreadOnly?: boolean },
   ) {
-    // `total` é o total do filtro (para a paginação), não o tamanho da página:
-    // exige um count separado — `notifications.length` nunca passa de `take`.
     const [notifications, unreadCount, total] = await Promise.all([
       this.notificationRepository.findByUserId(userId, options),
       this.notificationRepository.countUnread(userId),
@@ -88,9 +109,6 @@ export class NotificationsService {
     notificationId: string,
     userId: string,
   ): Promise<MessageResponse> {
-    // `user_id` faz parte do WHERE: 0 linhas alteradas significa id inexistente
-    // ou notificação de outro usuário. Sem checar isso, o cliente recebia 200
-    // confirmando uma operação que nunca aconteceu.
     const affected = await this.notificationRepository.markAsRead(
       notificationId,
       userId,
@@ -112,8 +130,6 @@ export class NotificationsService {
     notificationId: string,
     userId: string,
   ): Promise<MessageResponse> {
-    // Mesma checagem do `markAsRead`: sem `affected`, id inexistente respondia
-    // "Notificação removida".
     const affected = await this.notificationRepository.deleteByUser(
       notificationId,
       userId,
@@ -130,25 +146,13 @@ export class NotificationsService {
     try {
       const count = await this.notificationRepository.countUnread(userId);
       this.notificationsGateway.emitUnreadCount(userId, count);
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.logger.warn(
-        `Falha ao emitir unread-count para ${userId}: ${err?.message}`,
+        `Falha ao emitir unread-count para ${userId}: ${errorMessage(err)}`,
       );
     }
   }
 
-  // ============ Create Notifications ============
-
-  /**
-   * Cria notificação in-app + emite via WebSocket (push) para o usuário.
-   *
-   * Política de canais para usuários do sistema (médico/admin/colaborador):
-   *  - Push (in-app + WS): controlado por `pushNotifications` + tipo
-   *  - WhatsApp: enviado pelos services específicos (notifyStatusChange,
-   *    StaleNotificationService) consultando `resolveChannels`
-   *  - E-mail: NUNCA é usado para notificações de status. O único e-mail
-   *    enviado ao usuário é o resumo semanal (WeeklySummaryService).
-   */
   async createNotification(data: CreateNotificationDto) {
     const type = data.type || NotificationType.INFO;
     const channels = await this.resolveChannels(data.userId, type);
@@ -224,22 +228,6 @@ export class NotificationsService {
     return created;
   }
 
-  // ============ Notification Helpers ============
-
-  /**
-   * Resolve quais canais (push/whatsapp) devem ser usados para um usuário
-   * e tipo de notificação. Centraliza a leitura de preferências.
-   *
-   * Regras:
-   *  - Se o usuário ainda não tem registro em `user_notification_settings`,
-   *    todos os canais são considerados habilitados (default).
-   *  - Se o tipo (`statusUpdate`, `pendencies`, etc.) está desligado,
-   *    nenhum canal é usado.
-   *  - Caso contrário, cada canal individual respeita sua própria flag.
-   *
-   * Nota: e-mail não é mais um canal de notificação para usuários do sistema.
-   * O único e-mail enviado é o resumo semanal, controlado por `weeklyReport`.
-   */
   async resolveChannels(
     userId: string,
     type: NotificationType,
@@ -258,7 +246,7 @@ export class NotificationsService {
   }
 
   private isNotificationTypeEnabled(
-    settings: any,
+    settings: UserNotificationSettings | null,
     type: NotificationType,
   ): boolean {
     if (!settings) return true;
@@ -276,57 +264,6 @@ export class NotificationsService {
     }
   }
 
-  // ============ Convenience Methods ============
-
-  notifyStatusUpdate(
-    userId: string,
-    surgeryRequestId: string,
-    newStatus: string,
-  ) {
-    return this.createNotification({
-      userId: userId,
-      type: NotificationType.STATUS_UPDATE,
-      title: 'Status Atualizado',
-      message: `A solicitação cirúrgica foi atualizada para: ${newStatus}`,
-      link: `/solicitacao/${surgeryRequestId}`,
-      metadata: { surgeryRequestId, newStatus },
-    });
-  }
-
-  notifyNewPendency(
-    userId: string,
-    surgeryRequestId: string,
-    pendencyType: string,
-  ) {
-    return this.createNotification({
-      userId: userId,
-      type: NotificationType.PENDENCY,
-      title: 'Nova Pendência',
-      message: `Uma nova pendência foi criada: ${pendencyType}`,
-      link: `/solicitacao/${surgeryRequestId}`,
-      metadata: { surgeryRequestId, pendencyType },
-    });
-  }
-
-  notifyExpiringDocument(
-    userId: string,
-    documentName: string,
-    daysUntilExpiry: number,
-  ) {
-    return this.createNotification({
-      userId: userId,
-      type: NotificationType.EXPIRING_DOCUMENT,
-      title: 'Documento Expirando',
-      message: `O documento "${documentName}" expira em ${daysUntilExpiry} dias`,
-      metadata: { documentName, daysUntilExpiry },
-    });
-  }
-
-  /**
-   * Notifica todos os envolvidos numa solicitação cirúrgica sobre uma mudança de status.
-   * Envolvidos = médico + criador + admins da conta + usuários com atividade registrada.
-   * O próprio ator não recebe notificação.
-   */
   async notifyStatusChange(
     surgeryRequestId: string,
     doctorId: string,
@@ -367,7 +304,7 @@ export class NotificationsService {
           .map((c) => c.userId);
       } else {
         const adminIds = allUsersInAccount
-          .filter((u) => u.role === UserRole.ADMIN)
+          .filter((u) => canAdministrate(u))
           .map((u) => u.id);
         accessibleUserIds = [...new Set([doctorId, createdById, ...adminIds])];
       }
@@ -381,7 +318,6 @@ export class NotificationsService {
       const oldLabel = getStatusLabel(oldStatus);
       const newLabel = getStatusLabel(newStatus);
 
-      // Push (in-app + WS) — respeita pushNotifications + tipo
       await this.createNotificationForUsers(stakeholderIds, {
         type: NotificationType.STATUS_UPDATE,
         title: 'Status da Solicitação Atualizado',
@@ -407,8 +343,6 @@ export class NotificationsService {
 
       const shouldSendWhatsapp = options?.sendWhatsapp !== false;
       if (shouldSendWhatsapp) {
-        // WhatsApp — respeita whatsappNotifications + tipo. E-mail não é mais
-        // enviado para usuários do sistema em mudanças de status.
         await Promise.all(
           stakeholderIds.map(async (uid) => {
             try {
@@ -430,35 +364,27 @@ export class NotificationsService {
                       '5': patientName,
                     },
                   );
-                } catch (waErr: any) {
+                } catch (waErr: unknown) {
                   this.logger.warn(
-                    `Falha ao enviar WhatsApp de status para ${uid}: ${waErr?.message}`,
+                    `Falha ao enviar WhatsApp de status para ${uid}: ${errorMessage(waErr)}`,
                   );
                 }
               }
-            } catch (notifyErr: any) {
+            } catch (notifyErr: unknown) {
               this.logger.warn(
-                `Falha ao notificar stakeholder ${uid}: ${notifyErr?.message}`,
+                `Falha ao notificar stakeholder ${uid}: ${errorMessage(notifyErr)}`,
               );
             }
           }),
         );
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.logger.warn(
-        `Falha ao notificar envolvidos sobre mudança de status: ${err?.message}`,
+        `Falha ao notificar envolvidos sobre mudança de status: ${errorMessage(err)}`,
       );
     }
   }
 
-  /**
-   * Avisa a equipe que o paciente respondeu ao template de confirmação de
-   * consulta pelo WhatsApp. Vai para o médico e para todo colaborador da conta
-   * que enxerga a agenda dele — o mesmo recorte de `notifyStatusChange`.
-   *
-   * Best-effort: é reação a um webhook público do Twilio, e falhar aqui não
-   * pode desfazer a mudança de status que já foi gravada.
-   */
   async notifyAppointmentPatientResponse(params: {
     appointmentId: string;
     ownerId: string;
@@ -485,9 +411,6 @@ export class NotificationsService {
         }),
       );
 
-      // O médico entra sempre, fora do recorte: é a agenda dele que mudou. Sem
-      // isto, um `AccessControlService` ausente (é `@Optional`) ou uma falha na
-      // consulta de acesso deixavam o cancelamento sem ninguém para ver.
       const destinatarios = [
         ...new Set([
           params.doctorId,
@@ -514,23 +437,19 @@ export class NotificationsService {
           response: params.response,
         },
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.logger.warn(
-        `Falha ao notificar resposta do paciente à consulta ${params.appointmentId}: ${err?.message}`,
+        `Falha ao notificar resposta do paciente à consulta ${params.appointmentId}: ${errorMessage(err)}`,
       );
     }
   }
 
-  /**
-   * Notifica todos os admins da conta sobre uma ação realizada por um usuário.
-   * O próprio ator não recebe notificação.
-   */
   async notifyAdminsOfAction(
     actorId: string,
     title: string,
     message: string,
     link?: string,
-    metadata?: Record<string, any>,
+    metadata?: Record<string, unknown>,
   ): Promise<void> {
     try {
       const actor = await this.userRepository.findOne({ id: actorId });
@@ -541,7 +460,7 @@ export class NotificationsService {
       );
 
       const adminIds = allUsersInAccount
-        .filter((u) => u.role === UserRole.ADMIN && u.id !== actorId)
+        .filter((u) => canAdministrate(u) && u.id !== actorId)
         .map((u) => u.id);
 
       if (!adminIds.length) return;
@@ -562,8 +481,8 @@ export class NotificationsService {
           ...actorMetadata,
         },
       });
-    } catch (err: any) {
-      this.logger.warn(`Falha ao notificar admins: ${err?.message}`);
+    } catch (err: unknown) {
+      this.logger.warn(`Falha ao notificar admins: ${errorMessage(err)}`);
     }
   }
 }

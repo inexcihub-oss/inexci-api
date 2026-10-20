@@ -47,6 +47,11 @@ const mockHealthPlanRepo = {
 };
 const mockProcedureRepo = { findOne: jest.fn(), findMany: jest.fn() };
 const mockUserRepo = { findMany: jest.fn() };
+const mockTussService = {
+  search: jest.fn().mockReturnValue([]),
+  findByExactCode: jest.fn(),
+  lookup: jest.fn().mockReturnValue([]),
+};
 
 const baseContext: ToolContext = {
   userId: 'user-1',
@@ -60,32 +65,31 @@ const mockRequest = {
   protocol: 'SC-0042',
   doctorId: 'doctor-1',
   ownerId: 'owner-1',
-  // Status Pendente: alterações em informações gerais, TUSS, OPME e laudo
-  // só são permitidas enquanto a SC está em PENDING.
   status: 1,
 };
 
 const mockSentRequest = { ...mockRequest, status: 2 };
 
 describe('WhatsappFlowTools', () => {
-  const tools = buildWhatsappFlowTools(
-    mockSurgeryRequestRepo as any,
-    mockWorkflowService as any,
-    mockSurgeryRequestsService as any,
-    mockActivityRepo as any,
-    {
-      documentsService: { createFromPath: jest.fn(), delete: jest.fn() } as any,
-    },
-    mockPendencyValidator as any,
-    mockPatientRepo as any,
-    mockHospitalRepo as any,
-    mockHealthPlanRepo as any,
-    mockProcedureRepo as any,
-    mockUserRepo as any,
-    undefined,
-    new EntityResolverService(),
-    mockPatientsService as any,
-  );
+  const tools = buildWhatsappFlowTools({
+    surgeryRequestRepo: mockSurgeryRequestRepo as any,
+    workflowService: mockWorkflowService as any,
+    surgeryRequestsService: mockSurgeryRequestsService as any,
+    activityRepo: mockActivityRepo as any,
+    pendencyValidator: mockPendencyValidator as any,
+    patientRepo: mockPatientRepo as any,
+    hospitalRepo: mockHospitalRepo as any,
+    healthPlanRepo: mockHealthPlanRepo as any,
+    procedureRepo: mockProcedureRepo as any,
+    userRepo: mockUserRepo as any,
+    tussService: mockTussService as any,
+    entityResolver: new EntityResolverService(),
+    patientsService: mockPatientsService as any,
+    documentsService: { createFromPath: jest.fn(), delete: jest.fn() } as any,
+    documentDispatcher: {} as any,
+    storageService: {} as any,
+    documentRepo: {} as any,
+  });
 
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
 
@@ -103,22 +107,12 @@ describe('WhatsappFlowTools', () => {
     });
   });
 
-  // describe('create_surgery_request_from_whatsapp', …) removido em 2026-05-12
-  // (Fase 3.1 do PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA). A tool legacy foi
-  // excluída do registry; os cenários equivalentes (resolução por nome,
-  // ambiguidade, hospital/convênio opcional, preview/commit) já são cobertos
-  // pelo `sc-draft.tools.spec.ts`.
   it('não expõe mais a tool legacy create_surgery_request_from_whatsapp', () => {
     expect(
       tools.find((t) => t.name === 'create_surgery_request_from_whatsapp'),
     ).toBeUndefined();
   });
 
-  // Tools legacy `confirm_date` e `update_date_options` removidas em 2026-05-12
-  // (Sub-fase 3.6 do PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA). Os cenários
-  // equivalentes (validação de índice/data, permissão, preview/commit) agora
-  // são cobertos pelos testes de `scheduling_draft_*` em
-  // `flow-draft.tools.spec.ts`.
   it('não expõe mais as tools legacy confirm_date e update_date_options', () => {
     expect(tools.find((t) => t.name === 'confirm_date')).toBeUndefined();
     expect(tools.find((t) => t.name === 'update_date_options')).toBeUndefined();
@@ -174,12 +168,6 @@ describe('WhatsappFlowTools', () => {
     });
   });
 
-  // Tool legacy `mark_performed` removida em 2026-05-12 (Sub-fase 3.7 do
-  // PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA). Os cenários equivalentes
-  // (validação de data, permissão, preview/commit) — agora também com
-  // checagem de documentos pós-cirúrgicos obrigatórios — são cobertos
-  // pelos testes de `mark_performed_draft_*` em
-  // `flow-draft-transition.tools.spec.ts`.
   it('não expõe mais a tool legacy mark_performed', () => {
     expect(tools.find((t) => t.name === 'mark_performed')).toBeUndefined();
   });
@@ -397,7 +385,6 @@ describe('WhatsappFlowTools', () => {
     });
 
     it('fuzzy: hospital_name parcial casa por similaridade (Einstein → Hospital Israelita Albert Einstein)', async () => {
-      // Match exato falha; usa findMany e EntityResolverService.
       mockHospitalRepo.findOne.mockResolvedValue(null);
       mockHospitalRepo.findMany.mockResolvedValue([
         { id: 'h-1', name: 'Hospital Israelita Albert Einstein' },
@@ -520,7 +507,7 @@ describe('WhatsappFlowTools', () => {
       const tool = getTool('list_sc_creation_catalog');
       const result = await tool.execute(
         { category: 'patients', limit: 5 },
-        { ...baseContext, piiVault },
+        { ...baseContext, ownerId: 'owner-1', piiVault },
       );
 
       expect(result).toContain('Maria do Carmo');
@@ -570,13 +557,21 @@ describe('WhatsappFlowTools', () => {
 
       const summary = await tool.execute(
         {},
-        { ...baseContext, permissions: [Permission.SOLICITACOES] },
+        {
+          ...baseContext,
+          ownerId: 'owner-1',
+          permissions: [Permission.SOLICITACOES],
+        },
       );
       expect(summary).toContain('Modelo padrão');
 
       const explicit = await tool.execute(
         { category: 'templates' },
-        { ...baseContext, permissions: [Permission.SOLICITACOES] },
+        {
+          ...baseContext,
+          ownerId: 'owner-1',
+          permissions: [Permission.SOLICITACOES],
+        },
       );
       expect(explicit).toContain('Modelo padrão');
     });
@@ -589,12 +584,45 @@ describe('WhatsappFlowTools', () => {
     });
   });
 
-  // ---------------------------------------------------------------------
-  // OCR — tools novas do Sprint 3 (attach_document_from_whatsapp e
-  // create_patient_from_document). Construímos um conjunto separado de
-  // tools com as deps de documento mockadas para não poluir os testes
-  // anteriores do `WhatsappFlowTools`.
-  // ---------------------------------------------------------------------
+  describe('list_sc_creation_catalog — isolamento de tenant', () => {
+    beforeEach(() => {
+      mockPatientRepo.findMany = jest.fn().mockResolvedValue([]);
+      (mockHospitalRepo as any).findMany = jest.fn().mockResolvedValue([]);
+      (mockHealthPlanRepo as any).findMany = jest.fn().mockResolvedValue([]);
+      mockUserRepo.findMany.mockResolvedValue([]);
+      mockProcedureRepo.findMany.mockResolvedValue([]);
+      (mockSurgeryRequestsService as any).getTemplates = jest
+        .fn()
+        .mockResolvedValue([]);
+    });
+
+    it('filtra procedimentos, hospitais e convênios pelo ownerId', async () => {
+      const tool = getTool('list_sc_creation_catalog');
+      await tool.execute({}, { ...baseContext, ownerId: 'owner-1' });
+
+      expect(mockProcedureRepo.findMany).toHaveBeenCalledWith(
+        { ownerId: 'owner-1' },
+        0,
+        20,
+      );
+      expect((mockHospitalRepo as any).findMany).toHaveBeenCalledWith(
+        { ownerId: 'owner-1' },
+        0,
+        20,
+      );
+    });
+
+    it('recusa quando o ownerId não pode ser resolvido (fail-closed)', async () => {
+      (mockUserRepo as any).findOne = jest.fn().mockResolvedValue(null);
+      const tool = getTool('list_sc_creation_catalog');
+      const result = await tool.execute({}, { ...baseContext, ownerId: null });
+
+      expect(result).toBe('Acesso negado.');
+      expect(mockProcedureRepo.findMany).not.toHaveBeenCalled();
+      expect((mockHospitalRepo as any).findMany).not.toHaveBeenCalled();
+    });
+  });
+
   describe('OCR — attach_document_from_whatsapp', () => {
     const documentDispatcher = {
       getPending: jest.fn(),
@@ -620,27 +648,25 @@ describe('WhatsappFlowTools', () => {
       delete: jest.fn().mockResolvedValue(undefined),
     };
 
-    const ocrTools = buildWhatsappFlowTools(
-      mockSurgeryRequestRepo as any,
-      mockWorkflowService as any,
-      mockSurgeryRequestsService as any,
-      mockActivityRepo as any,
-      {
-        documentDispatcher: documentDispatcher as any,
-        storageService: storageService as any,
-        documentRepo: documentRepo as any,
-        documentsService: documentsService as any,
-      },
-      mockPendencyValidator as any,
-      mockPatientRepo as any,
-      mockHospitalRepo as any,
-      mockHealthPlanRepo as any,
-      mockProcedureRepo as any,
-      mockUserRepo as any,
-      undefined,
-      new EntityResolverService(),
-      mockPatientsService as any,
-    );
+    const ocrTools = buildWhatsappFlowTools({
+      surgeryRequestRepo: mockSurgeryRequestRepo as any,
+      workflowService: mockWorkflowService as any,
+      surgeryRequestsService: mockSurgeryRequestsService as any,
+      activityRepo: mockActivityRepo as any,
+      pendencyValidator: mockPendencyValidator as any,
+      patientRepo: mockPatientRepo as any,
+      hospitalRepo: mockHospitalRepo as any,
+      healthPlanRepo: mockHealthPlanRepo as any,
+      procedureRepo: mockProcedureRepo as any,
+      userRepo: mockUserRepo as any,
+      tussService: mockTussService as any,
+      entityResolver: new EntityResolverService(),
+      patientsService: mockPatientsService as any,
+      documentDispatcher: documentDispatcher as any,
+      storageService: storageService as any,
+      documentRepo: documentRepo as any,
+      documentsService: documentsService as any,
+    });
 
     const attach = ocrTools.find(
       (t) => t.name === 'attach_document_from_whatsapp',
@@ -764,44 +790,6 @@ describe('WhatsappFlowTools', () => {
       expect(storageService.move).not.toHaveBeenCalled();
     });
 
-    it('retorna mensagem de indisponibilidade quando deps de documento ausentes', async () => {
-      const noDepsTools = buildWhatsappFlowTools(
-        mockSurgeryRequestRepo as any,
-        mockWorkflowService as any,
-        mockSurgeryRequestsService as any,
-        mockActivityRepo as any,
-        {
-          documentsService: {
-            createFromPath: jest.fn(),
-            delete: jest.fn(),
-          } as any,
-        },
-        mockPendencyValidator as any,
-        mockPatientRepo as any,
-        mockHospitalRepo as any,
-        mockHealthPlanRepo as any,
-        mockProcedureRepo as any,
-        mockUserRepo as any,
-        undefined,
-        new EntityResolverService(),
-        mockPatientsService as any,
-      );
-      const tool = noDepsTools.find(
-        (t) => t.name === 'attach_document_from_whatsapp',
-      )!;
-
-      const result = await tool.execute(
-        {
-          surgeryRequestId: 'req-1',
-          documentType: 'medical_report',
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(result).toContain('finalizado');
-    });
-
     it('envelope: status=pending_confirmation para preview', async () => {
       const result = await attach.execute(
         {
@@ -857,28 +845,28 @@ describe('WhatsappFlowTools', () => {
       }),
     };
 
-    const ocrTools = buildWhatsappFlowTools(
-      mockSurgeryRequestRepo as any,
-      mockWorkflowService as any,
-      mockSurgeryRequestsService as any,
-      mockActivityRepo as any,
-      {
-        documentDispatcher: documentDispatcher as any,
-        documentsService: {
-          createFromPath: jest.fn(),
-          delete: jest.fn(),
-        } as any,
-      },
-      mockPendencyValidator as any,
-      mockPatientRepo as any,
-      mockHospitalRepo as any,
-      mockHealthPlanRepo as any,
-      mockProcedureRepo as any,
-      mockUserRepo as any,
-      undefined,
-      new EntityResolverService(),
-      mockOcrPatientsService as any,
-    );
+    const ocrTools = buildWhatsappFlowTools({
+      surgeryRequestRepo: mockSurgeryRequestRepo as any,
+      workflowService: mockWorkflowService as any,
+      surgeryRequestsService: mockSurgeryRequestsService as any,
+      activityRepo: mockActivityRepo as any,
+      pendencyValidator: mockPendencyValidator as any,
+      patientRepo: mockPatientRepo as any,
+      hospitalRepo: mockHospitalRepo as any,
+      healthPlanRepo: mockHealthPlanRepo as any,
+      procedureRepo: mockProcedureRepo as any,
+      userRepo: mockUserRepo as any,
+      tussService: mockTussService as any,
+      entityResolver: new EntityResolverService(),
+      patientsService: mockOcrPatientsService as any,
+      documentDispatcher: documentDispatcher as any,
+      documentsService: {
+        createFromPath: jest.fn(),
+        delete: jest.fn(),
+      } as any,
+      storageService: {} as any,
+      documentRepo: {} as any,
+    });
     const createPatient = ocrTools.find(
       (t) => t.name === 'create_patient_from_document',
     )!;
@@ -1037,18 +1025,12 @@ describe('WhatsappFlowTools', () => {
     });
   });
 
-  // Regressão Sub-fase 3.8 (PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA):
-  // `update_request_clinical_data` e `update_request_admin_data` foram removidas.
   it('não expõe mais update_request_clinical_data nem update_request_admin_data', () => {
     const names = tools.map((t) => t.name);
     expect(names).not.toContain('update_request_clinical_data');
     expect(names).not.toContain('update_request_admin_data');
   });
 
-  // ----------------------------------------------------------------
-  // Fase 2 PLANO-CORRECOES-CODE-REVIEW-2026-05-13: envelope ToolResult
-  // Cada tool migrada deve retornar JSON parseável com status correto.
-  // ----------------------------------------------------------------
   describe('envelope ToolResult — Fase 2', () => {
     describe('reschedule_surgery', () => {
       it('status=pending_confirmation quando sem confirm', async () => {

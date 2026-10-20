@@ -2,11 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { getRequestContext } from 'src/shared/logging/request-context';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 export interface PdfGenerationJobData {
   surgeryRequestId: string;
   userId: string;
-  /** Correlation ID propagado para o processor (logging end-to-end). */
   requestId?: string;
 }
 
@@ -19,11 +19,6 @@ export class PdfGenerationService {
     private readonly pdfGenerationQueue: Queue,
   ) {}
 
-  /**
-   * Enfileira a geração assíncrona do PDF da solicitação cirúrgica.
-   * Chamado após a transição PENDENTE → ENVIADA.
-   * Não lança exceção — falhas apenas são registradas em log.
-   */
   async scheduleGeneration(
     surgeryRequestId: string,
     userId: string,
@@ -47,9 +42,9 @@ export class PdfGenerationService {
       this.logger.log(
         `Geração de PDF enfileirada para solicitação: ${surgeryRequestId}`,
       );
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `Falha ao enfileirar geração de PDF (Redis offline?): requestId="${surgeryRequestId}" — ${err?.message}`,
+        `Falha ao enfileirar geração de PDF (Redis offline?): requestId="${surgeryRequestId}" — ${errorMessage(err)}`,
       );
     }
   }

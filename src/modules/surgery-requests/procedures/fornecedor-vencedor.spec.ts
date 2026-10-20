@@ -1,13 +1,6 @@
 import { ForbiddenException } from '@nestjs/common';
 import { ProceduresService } from './procedures.service';
 
-/**
- * O fornecedor vencedor é gravado aqui, quando o convênio responde. É o campo
- * que alimenta o PDF da solicitação, a coluna Fornecedor da agenda, a tela do
- * fornecedor e o filtro do kanban — por isso ele aceita duas respostas, e
- * nenhuma outra: um dos fornecedores da conta, ou o genérico "Outro", que
- * significa "o convênio aprovou alguém fora dos cotados".
- */
 describe('ProceduresService.authorize — fornecedor vencedor', () => {
   const SC = { id: 'sr-1', ownerId: 'owner-1' };
 
@@ -57,7 +50,7 @@ describe('ProceduresService.authorize — fornecedor vencedor', () => {
     const { service, opmeRepo, supplierRepository } = montar();
 
     await service.authorize(
-      autorizar({ selectedSupplierIsGeneric: true }) as never,
+      autorizar({ selectedSupplierIsGeneric: true }),
       'user-1',
     );
 
@@ -72,7 +65,7 @@ describe('ProceduresService.authorize — fornecedor vencedor', () => {
     const { service, opmeRepo } = montar([{ id: 'sup-1' }]);
 
     await service.authorize(
-      autorizar({ selectedSupplierId: 'sup-1' }) as never,
+      autorizar({ selectedSupplierId: 'sup-1' }),
       'user-1',
     );
 
@@ -82,10 +75,6 @@ describe('ProceduresService.authorize — fornecedor vencedor', () => {
     );
   });
 
-  /**
-   * O id vem do cliente e só era validado como UUID. Apontar o item para o
-   * fornecedor de outra clínica fazia o nome dela sair no PDF da solicitação.
-   */
   it('recusa fornecedor que não pertence à conta', async () => {
     const { service, opmeRepo } = montar([]);
 
@@ -102,7 +91,7 @@ describe('ProceduresService.authorize — fornecedor vencedor', () => {
     const { service, supplierRepository } = montar([{ id: 'sup-1' }]);
 
     await service.authorize(
-      autorizar({ selectedSupplierId: 'sup-1' }) as never,
+      autorizar({ selectedSupplierId: 'sup-1' }),
       'user-1',
     );
 

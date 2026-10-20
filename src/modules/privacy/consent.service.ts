@@ -1,16 +1,19 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { User } from '../../database/entities/user.entity';
+import { UserRepository } from '../../database/repositories/user.repository';
 import { ConsentType, REQUIRED_CONSENTS } from '../../config/consent.config';
 
 export interface ConsentStatus {
   privacyPolicyAcceptedAt: Date | null;
   termsOfUseAcceptedAt: Date | null;
   aiConsentAcceptedAt: Date | null;
-  /** True quando Política e Termos estão aceitos (pré-requisito de uso). */
   requiredConsentsAccepted: boolean;
-  /** Quais consentimentos obrigatórios ainda faltam. */
   pendingRequired: ConsentType[];
 }
 
@@ -19,16 +22,22 @@ export class ConsentService {
   private readonly logger = new Logger(ConsentService.name);
 
   constructor(
-    @InjectRepository(User)
-    private readonly userRepo: Repository<User>,
+    private readonly userRepo: UserRepository,
+    @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {}
+
+  private emitAccessChanged(user: Pick<User, 'id' | 'phone'>): void {
+    this.eventEmitter?.emit('user.access_changed', {
+      userId: user.id,
+      phone: user.phone,
+    });
+  }
 
   async getStatus(userId: string): Promise<ConsentStatus> {
     const user = await this.findUserOrThrow(userId);
     return this.buildStatusFromUser(user);
   }
 
-  /** Aceita Política de Privacidade e Termos de Uso de uma só vez. */
   async acceptTerms(userId: string): Promise<ConsentStatus> {
     const user = await this.findUserOrThrow(userId);
     const now = new Date();
@@ -49,6 +58,7 @@ export class ConsentService {
     const now = new Date();
     await this.userRepo.update(userId, { aiConsentAcceptedAt: now });
     this.logger.log(`[CONSENT_AI_GRANTED] user=${userId}`);
+    this.emitAccessChanged(user);
     return this.buildStatusFromUser({ ...user, aiConsentAcceptedAt: now });
   }
 
@@ -56,27 +66,20 @@ export class ConsentService {
     const user = await this.findUserOrThrow(userId);
     await this.userRepo.update(userId, { aiConsentAcceptedAt: null });
     this.logger.warn(`[CONSENT_AI_REVOKED] user=${userId}`);
+    this.emitAccessChanged(user);
     return this.buildStatusFromUser({ ...user, aiConsentAcceptedAt: null });
   }
 
-  /**
-   * Helper consumido pelo orchestrator de IA: o usuário pode usar a IA
-   * pelo WhatsApp se houver timestamp de aceite.
-   */
   hasValidAiConsent(user: Pick<User, 'aiConsentAcceptedAt'>): boolean {
     return Boolean(user?.aiConsentAcceptedAt);
   }
 
   private async findUserOrThrow(userId: string): Promise<User> {
-    const user = await this.userRepo.findOne({ where: { id: userId } });
+    const user = await this.userRepo.findOne({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado.');
     return user;
   }
 
-  /**
-   * Monta o status de consentimento a partir de um User já carregado
-   * (ex.: timestamps LGPD vindos de `findOneWithProfile` no `/auth/me`).
-   */
   buildStatusFromUser(
     user: Pick<
       User,

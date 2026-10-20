@@ -1,43 +1,42 @@
-import { Reflector } from '@nestjs/core';
-import { Permission } from 'src/shared/permissions';
 import { PERMISSIONS_KEY } from 'src/shared/decorators/require-permission.decorator';
+import { Permission } from 'src/shared/permissions';
 import { NotificationsController } from './notifications.controller';
+import { NotificationsService } from './notifications.service';
 
-describe('NotificationsController — permissões declaradas', () => {
-  const reflector = new Reflector();
-
-  const exigidoEm = (metodo: keyof NotificationsController) =>
-    reflector.get<Permission[]>(
+describe('NotificationsController — avisos ao paciente', () => {
+  const permissoesDe = (metodo: keyof NotificationsController) =>
+    Reflect.getMetadata(
       PERMISSIONS_KEY,
       NotificationsController.prototype[metodo],
     );
 
-  // Desligar um aviso vale para todos os pacientes da conta: é decisão da
-  // administração, não preferência pessoal (essa vive em `settings`).
-  it.each(['getPatientSettings', 'updatePatientSettings'] as const)(
-    'exige administração em %s',
-    (metodo) => {
-      expect(exigidoEm(metodo)).toEqual([Permission.ADMINISTRACAO]);
-    },
-  );
-
-  it('preferências pessoais continuam liberadas para qualquer autenticado', () => {
-    expect(exigidoEm('getSettings')).toBeUndefined();
-    expect(exigidoEm('updateSettings')).toBeUndefined();
+  it('GET e PUT /notifications/patient-settings exigem ADMINISTRACAO', () => {
+    expect(permissoesDe('getPatientSettings')).toEqual([
+      Permission.ADMINISTRACAO,
+    ]);
+    expect(permissoesDe('updatePatientSettings')).toEqual([
+      Permission.ADMINISTRACAO,
+    ]);
   });
 
-  it('as rotas da conta resolvem pelo usuário logado', async () => {
-    const patientSettings = {
-      getForUser: jest.fn().mockResolvedValue({ appointmentReminder: true }),
-      updateForUser: jest
-        .fn()
-        .mockResolvedValue({ appointmentReminder: false }),
+  it('as preferências pessoais continuam abertas a qualquer autenticado', () => {
+    expect(permissoesDe('getSettings')).toBeUndefined();
+  });
+
+  it('escopa a configuração pela conta (ownerId) do usuário', async () => {
+    const service = {
+      getPatientSettings: jest.fn().mockResolvedValue({}),
+      updatePatientSettings: jest.fn().mockResolvedValue({}),
     };
     const controller = new NotificationsController(
-      {} as any,
-      patientSettings as any,
+      service as unknown as NotificationsService,
     );
-    const user = { userId: 'u1' } as any;
+    const user = {
+      userId: 'delegado',
+      ownerId: 'dono',
+      role: 'collaborator',
+      permissions: [Permission.ADMINISTRACAO],
+    } as never;
 
     await controller.getPatientSettings(user);
     await controller.updatePatientSettings(
@@ -45,8 +44,8 @@ describe('NotificationsController — permissões declaradas', () => {
       user,
     );
 
-    expect(patientSettings.getForUser).toHaveBeenCalledWith('u1');
-    expect(patientSettings.updateForUser).toHaveBeenCalledWith('u1', {
+    expect(service.getPatientSettings).toHaveBeenCalledWith('dono');
+    expect(service.updatePatientSettings).toHaveBeenCalledWith('dono', {
       appointmentReminder: false,
     });
   });

@@ -1,20 +1,28 @@
-import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { tokenizePii } from '../../pii/tool-pii-helpers';
 import { translateServiceError } from '../helpers/service-error-translator';
 import { STORAGE_FOLDERS } from '../../../../config/storage.config';
 import { buildToolResult } from '../tool-result';
 import { ManageToolDeps } from './_types';
+import { asNonEmptyString } from '../helpers/arg-parsers';
 import {
-  asNonEmptyString,
   downloadInboundMedia,
-  ensurePendingForMutation,
-  getAuthorizedRequest,
   REPORT_IMAGE_KEY,
   REPORT_IMAGE_TYPE,
-} from './_helpers';
+} from '../helpers/documents';
+import {
+  ensurePendingForMutation,
+  getAuthorizedRequest,
+  recordAiActivity,
+} from '../helpers/surgery-request-access';
+import { errorMessage } from '../../../utils/error-message.util';
+import { Document } from '../../../../database/entities/document.entity';
+import {
+  ArquivoRecebidoInvalidoError,
+  MIME_IMAGENS_RECEBIDAS,
+  tiparArquivoRecebido,
+} from '../../utils/arquivo-recebido';
 
 export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
   const {
@@ -28,6 +36,8 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
   return {
     name: 'manage_report_images',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {
@@ -68,7 +78,7 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
           required: ['surgeryRequestId', 'operation'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
@@ -99,8 +109,8 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
       if (operation === 'list') {
         const all = await documentRepo.findMany({
           surgeryRequestId: auth.request.id,
-        } as any);
-        const images = all.filter((d: any) => d.key === REPORT_IMAGE_KEY);
+        });
+        const images = all.filter((d) => d.key === REPORT_IMAGE_KEY);
         if (!images.length) {
           return buildToolResult({
             status: 'ok',
@@ -108,7 +118,7 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
             data: [],
           });
         }
-        const lines = images.map((d: any, index: number) => {
+        const lines = images.map((d, index: number) => {
           const date = d.createdAt
             ? new Date(d.createdAt).toLocaleDateString('pt-BR')
             : '';
@@ -183,18 +193,34 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
             media.url,
             configService,
           );
+          let tipo: { mime: string; nome: string };
+          try {
+            tipo = await tiparArquivoRecebido(
+              downloaded.buffer,
+              computedName,
+              MIME_IMAGENS_RECEBIDAS,
+            );
+          } catch (err) {
+            if (err instanceof ArquivoRecebidoInvalidoError) {
+              return buildToolResult({
+                status: 'blocked',
+                message:
+                  'O arquivo enviado não é uma imagem válida (JPG, PNG ou WEBP). Envie a foto novamente.',
+              });
+            }
+            throw err;
+          }
           const path = await storageService.create(
             {
-              originalname: computedName,
-              mimetype:
-                media.contentType || downloaded.contentType || 'image/jpeg',
+              originalname: tipo.nome,
+              mimetype: tipo.mime,
               buffer: downloaded.buffer,
-            } as any,
+            },
             STORAGE_FOLDERS.DOCUMENTS,
             auth.request.ownerId,
           );
 
-          let created: any;
+          let created: Document;
           try {
             created = await documentsService.createFromPath({
               surgeryRequestId: auth.request.id,
@@ -202,8 +228,7 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
               type: REPORT_IMAGE_TYPE,
               name: computedName,
               key: REPORT_IMAGE_KEY,
-              contentType:
-                media.contentType || downloaded.contentType || 'image/jpeg',
+              contentType: tipo.mime,
               createdById: context.userId as string,
             });
           } catch (err) {
@@ -213,27 +238,26 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
             });
           }
 
-          await activityRepo.create({
-            surgeryRequestId: auth.request.id,
-            userId: context.userId as string,
-            type: ActivityType.SYSTEM,
-            content: `[WhatsApp IA] Imagem anexada ao laudo: ${computedName}.`,
-          });
+          await recordAiActivity(
+            activityRepo,
+            context,
+            auth.request.id,
+            `Imagem anexada ao laudo: ${computedName}.`,
+          );
 
           return buildToolResult({
             status: 'ok',
-            message: `Imagem "${computedName}" anexada ao laudo com sucesso (id: ${(created as any).id}).`,
-            affected: [{ kind: 'document', id: (created as any).id }],
+            message: `Imagem "${computedName}" anexada ao laudo com sucesso (id: ${created.id}).`,
+            affected: [{ kind: 'document', id: created.id }],
           });
-        } catch (err: any) {
+        } catch (err) {
           return buildToolResult({
             status: 'error',
-            message: `Erro ao anexar imagem: ${err?.message || 'erro desconhecido'}`,
+            message: `Erro ao anexar imagem: ${errorMessage(err) || 'erro desconhecido'}`,
           });
         }
       }
 
-      // operation === 'remove'
       const blockedRemove = ensurePendingForMutation(auth.request);
       if (blockedRemove) {
         return buildToolResult({ status: 'blocked', message: blockedRemove });
@@ -251,7 +275,7 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
       const doc = await documentRepo.findOne({
         id: imageId,
         surgeryRequestId: auth.request.id,
-      } as any);
+      });
       if (!doc || doc.key !== REPORT_IMAGE_KEY) {
         return buildToolResult({
           status: 'blocked',
@@ -278,12 +302,12 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
         surgeryRequestId: auth.request.id,
       });
 
-      await activityRepo.create({
-        surgeryRequestId: auth.request.id,
-        userId: context.userId as string,
-        type: ActivityType.SYSTEM,
-        content: `[WhatsApp IA] Imagem removida do laudo: ${doc.name}.`,
-      });
+      await recordAiActivity(
+        activityRepo,
+        context,
+        auth.request.id,
+        `Imagem removida do laudo: ${doc.name}.`,
+      );
 
       return buildToolResult({
         status: 'ok',

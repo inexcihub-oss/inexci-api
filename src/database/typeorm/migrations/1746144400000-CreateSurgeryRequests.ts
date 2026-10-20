@@ -1,14 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Tabela principal do domínio: solicitações cirúrgicas.
- *
- * Mantida em uma migration separada (sem suas sub-tabelas) para permitir
- * rollback isolado caso seja necessário ajustar apenas esta entidade.
- *
- * O enum `SurgeryRequestStatus` (campo `status`) governa toda a state
- * machine da plataforma — ver `surgery-request.entity.ts` no domínio.
- */
 export class CreateSurgeryRequests1746144400000 implements MigrationInterface {
   name = 'CreateSurgeryRequests1746144400000';
 

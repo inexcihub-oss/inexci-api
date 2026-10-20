@@ -7,38 +7,19 @@ import {
 } from '../entities/appointment.entity';
 import { BaseRepository } from './base.repository';
 
-/** Recorte da agenda. Cada ponta da janela é opcional (lista aberta). */
 export interface FindAgendaOptions {
   from?: Date;
   to?: Date;
   statuses?: AppointmentStatus[];
   order?: 'ASC' | 'DESC';
   take: number;
-  /** Quantas pular (paginação da lista do hub). */
   skip?: number;
 }
 
-/**
- * O que a agenda precisa do paciente: o nome do card. Nada mais.
- *
- * A agenda é liberada por `Permission.AGENDA`, que não implica acesso ao
- * prontuário — um `leftJoinAndSelect` aqui entrega CPF, endereço, nascimento e
- * `medicalNotes` de todo paciente da janela a quem só marca consulta. `Patient`
- * não tem `@Exclude` em campo nenhum, então a entidade inteira sai serializada.
- */
 const COLUNAS_PACIENTE_NO_CARD = ['patient.id', 'patient.name'];
 
-/**
- * O que a agenda precisa da clínica: id e nome. Seleção explícita pelo mesmo
- * motivo do paciente — `leftJoinAndSelect` entregaria CNPJ, endereço e a grade
- * inteira a quem só marca consulta.
- */
 const COLUNAS_CLINICA_NO_CARD = ['clinic.id', 'clinic.name'];
 
-/**
- * Sala, convênio e quem agendou: só id e nome, pelo mesmo motivo — o card não
- * precisa de mais, e `User` tem CPF, telefone e endereço.
- */
 const COLUNAS_EXTRAS_NO_CARD = [
   'room.id',
   'room.name',
@@ -48,12 +29,6 @@ const COLUNAS_EXTRAS_NO_CARD = [
   'createdBy.name',
 ];
 
-/**
- * O que a resposta ao lembrete de WhatsApp precisa da clínica: o endereço, para
- * dizer ao paciente onde é o atendimento. Recorte próprio (e não o do card)
- * porque é um consumidor diferente, com necessidade diferente — o card da
- * agenda continua sem endereço.
- */
 const COLUNAS_CLINICA_NO_AVISO = [
   'clinic.id',
   'clinic.name',
@@ -70,13 +45,6 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
     super(dataSource.getRepository(Appointment));
   }
 
-  /**
-   * Consultas de um conjunto de médicos, opcionalmente recortadas por janela de
-   * datas e status. Traz o paciente para montar o card sem N+1.
-   *
-   * A janela é semiaberta (`>= from`, `< to`) e cada ponta pode ser omitida:
-   * a agenda passa as duas, "Próximas" passa só `from` e "Realizadas" nenhuma.
-   */
   async findAgenda(
     ownerId: string,
     doctorIds: string[],
@@ -84,18 +52,7 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
   ): Promise<{ records: Appointment[]; total: number }> {
     const qb = this.repository
       .createQueryBuilder('appointment')
-      // `withDeleted()` PRECISA vir ANTES dos joins. O TypeORM decide se anexa
-      // `deleted_at IS NULL` à condição do join no instante em que `leftJoin`
-      // é chamado, lendo o flag naquele momento (0.3.28,
-      // `SelectQueryBuilder.join`). Chamado depois, o flag ainda vale para o
-      // root, mas o join da clínica já saiu com o filtro fixado — e a clínica
-      // excluída, que o soft delete existe justamente para preservar no
-      // histórico, volta como `null`.
       .withDeleted()
-      // Condição própria no join do paciente: o `withDeleted()` acima vale
-      // para a query inteira e, de carona, reexibiria o nome de paciente
-      // soft-deletado. A assimetria é proposital — só o paciente tem a
-      // condição; a clínica deve mesmo voltar mesmo excluída.
       .leftJoin('appointment.patient', 'patient', 'patient.deleted_at IS NULL')
       .addSelect(COLUNAS_PACIENTE_NO_CARD)
       .leftJoin('appointment.clinic', 'clinic')
@@ -106,13 +63,6 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
       .addSelect(COLUNAS_EXTRAS_NO_CARD)
       .where('appointment.ownerId = :ownerId', { ownerId })
       .andWhere('appointment.doctorId IN (:...doctorIds)', { doctorIds })
-      // `withDeleted()` desliga o filtro de soft delete do root também, então
-      // ele volta na mão aqui — senão consulta excluída entra na agenda.
-      //
-      // Importante: este `andWhere` precisa vir DEPOIS do `.where()` acima —
-      // `.where()` limpa (`expressionMap.wheres = []`) qualquer condição
-      // adicionada antes dele, então um `andWhere` colocado antes seria
-      // descartado em silêncio e o filtro nunca chegaria ao SQL gerado.
       .andWhere('appointment.deletedAt IS NULL');
 
     if (options.from) {
@@ -127,13 +77,6 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
       });
     }
 
-    // `getManyAndCount` aplica o `take` só às linhas; a contagem é a do
-    // recorte inteiro. É o que permite ao consumidor saber que a lista veio
-    // cortada pelo teto — antes o `total` era o tamanho da página, ou seja,
-    // igual ao teto, e o corte passava despercebido.
-    // Desempate por id: com páginas, duas consultas no mesmo horário não
-    // podem trocar de lugar entre uma requisição e outra (sairiam repetidas
-    // ou sumiriam no "carregar mais").
     const [records, total] = await qb
       .orderBy('appointment.scheduledAt', options.order ?? 'ASC')
       .addOrderBy('appointment.id', 'ASC')
@@ -144,11 +87,6 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
     return { records, total };
   }
 
-  /**
-   * Quantas consultas cada médico tem no mesmo recorte da agenda (janela e
-   * status), sem paginação. Alimenta as contagens do filtro de profissionais,
-   * que precisam valer para a lista inteira, não só para a página carregada.
-   */
   async countByDoctor(
     ownerId: string,
     doctorIds: string[],
@@ -177,105 +115,47 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
     return Object.fromEntries(linhas.map((l) => [l.doctorId, Number(l.total)]));
   }
 
-  /**
-   * Histórico completo de consultas de um paciente (sem janela de data),
-   * escopado à clínica e aos médicos acessíveis. Alimenta a aba "Consultas" e a
-   * timeline.
-   */
   findByPatient(
     ownerId: string,
     doctorIds: string[],
     patientId: string,
   ): Promise<Appointment[]> {
-    return (
-      this.repository
-        .createQueryBuilder('appointment')
-        // `withDeleted()` PRECISA vir ANTES dos joins. O TypeORM decide se anexa
-        // `deleted_at IS NULL` à condição do join no instante em que `leftJoin`
-        // é chamado, lendo o flag naquele momento (0.3.28,
-        // `SelectQueryBuilder.join`). Chamado depois, o flag ainda vale para o
-        // root, mas o join da clínica já saiu com o filtro fixado — e a clínica
-        // excluída, que o soft delete existe justamente para preservar no
-        // histórico, volta como `null`.
-        .withDeleted()
-        // Mesma assimetria proposital de `findAgenda`: condição de soft
-        // delete no join do paciente, clínica sem condição própria.
-        .leftJoin(
-          'appointment.patient',
-          'patient',
-          'patient.deleted_at IS NULL',
-        )
-        .addSelect(COLUNAS_PACIENTE_NO_CARD)
-        .leftJoin('appointment.clinic', 'clinic')
-        .addSelect(COLUNAS_CLINICA_NO_CARD)
-        .leftJoin('appointment.room', 'room')
-        .leftJoin('appointment.healthPlan', 'healthPlan')
-        .leftJoin('appointment.createdBy', 'createdBy')
-        .addSelect(COLUNAS_EXTRAS_NO_CARD)
-        .where('appointment.ownerId = :ownerId', { ownerId })
-        .andWhere('appointment.doctorId IN (:...doctorIds)', { doctorIds })
-        .andWhere('appointment.patientId = :patientId', { patientId })
-        // Mesmo motivo de `findAgenda`: `andWhere` depois do `.where()` acima,
-        // senão `.where()` limpa a condição e a consulta excluída volta na lista.
-        .andWhere('appointment.deletedAt IS NULL')
-        .orderBy('appointment.scheduledAt', 'DESC')
-        .getMany()
-    );
+    return this.repository
+      .createQueryBuilder('appointment')
+      .withDeleted()
+      .leftJoin('appointment.patient', 'patient', 'patient.deleted_at IS NULL')
+      .addSelect(COLUNAS_PACIENTE_NO_CARD)
+      .leftJoin('appointment.clinic', 'clinic')
+      .addSelect(COLUNAS_CLINICA_NO_CARD)
+      .leftJoin('appointment.room', 'room')
+      .leftJoin('appointment.healthPlan', 'healthPlan')
+      .leftJoin('appointment.createdBy', 'createdBy')
+      .addSelect(COLUNAS_EXTRAS_NO_CARD)
+      .where('appointment.ownerId = :ownerId', { ownerId })
+      .andWhere('appointment.doctorId IN (:...doctorIds)', { doctorIds })
+      .andWhere('appointment.patientId = :patientId', { patientId })
+      .andWhere('appointment.deletedAt IS NULL')
+      .orderBy('appointment.scheduledAt', 'DESC')
+      .getMany();
   }
 
-  /**
-   * Consulta por id com paciente e clínica. Serve tanto a leitura da tela
-   * quanto os caminhos de mutação — o root vem completo; os joins só limitam
-   * as colunas das relações.
-   */
   findOneComRelacoes(id: string): Promise<Appointment | null> {
-    return (
-      this.repository
-        .createQueryBuilder('appointment')
-        // `withDeleted()` PRECISA vir ANTES dos joins. O TypeORM decide se anexa
-        // `deleted_at IS NULL` à condição do join no instante em que `leftJoin`
-        // é chamado, lendo o flag naquele momento (0.3.28,
-        // `SelectQueryBuilder.join`). Chamado depois, o flag ainda vale para o
-        // root, mas o join da clínica já saiu com o filtro fixado — e a clínica
-        // excluída, que o soft delete existe justamente para preservar no
-        // histórico, volta como `null`.
-        .withDeleted()
-        // Mesma assimetria proposital de `findAgenda`: condição de soft
-        // delete no join do paciente, clínica sem condição própria.
-        .leftJoin(
-          'appointment.patient',
-          'patient',
-          'patient.deleted_at IS NULL',
-        )
-        .addSelect(COLUNAS_PACIENTE_NO_CARD)
-        .leftJoin('appointment.clinic', 'clinic')
-        .addSelect(COLUNAS_CLINICA_NO_CARD)
-        .leftJoin('appointment.room', 'room')
-        .leftJoin('appointment.healthPlan', 'healthPlan')
-        .leftJoin('appointment.createdBy', 'createdBy')
-        .addSelect(COLUNAS_EXTRAS_NO_CARD)
-        .where('appointment.id = :id', { id })
-        .andWhere('appointment.deletedAt IS NULL')
-        .getOne()
-    );
+    return this.repository
+      .createQueryBuilder('appointment')
+      .withDeleted()
+      .leftJoin('appointment.patient', 'patient', 'patient.deleted_at IS NULL')
+      .addSelect(COLUNAS_PACIENTE_NO_CARD)
+      .leftJoin('appointment.clinic', 'clinic')
+      .addSelect(COLUNAS_CLINICA_NO_CARD)
+      .leftJoin('appointment.room', 'room')
+      .leftJoin('appointment.healthPlan', 'healthPlan')
+      .leftJoin('appointment.createdBy', 'createdBy')
+      .addSelect(COLUNAS_EXTRAS_NO_CARD)
+      .where('appointment.id = :id', { id })
+      .andWhere('appointment.deletedAt IS NULL')
+      .getOne();
   }
 
-  /**
-   * Consulta ativa de um paciente localizada **pelo telefone**, dentro de uma
-   * janela de datas — é o que a resposta ao lembrete de WhatsApp tem em mãos:
-   * o webhook do Twilio entrega o número, não o id da consulta.
-   *
-   * Devolve aquela cujo lembrete saiu por último. A janela olha para trás, e
-   * uma consulta já ocorrida que ninguém marcou como realizada continua ativa
-   * dentro dela — ordenar por horário fazia essa consulta velha roubar a
-   * resposta do lembrete da seguinte, cancelando a consulta errada em silêncio.
-   * `reminderSentAt` é o desempate certo: o lembrete respondido é o último
-   * enviado. O horário só desempata quando nenhuma das duas foi lembrada.
-   *
-   * `phoneDigits` já vem normalizado em variantes (com/sem DDI, com/sem o 9) —
-   * o lado do banco só tira a máscara do que está cadastrado. Traz a unidade
-   * junto porque a resposta ao paciente informa o local do atendimento.
-   */
   findAtivaPorTelefone(
     phoneDigits: string[],
     janela: { from: Date; to: Date },
@@ -303,22 +183,6 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
       .getOne();
   }
 
-  /**
-   * Detecta conflito de horário para um médico: uma consulta que ainda ocupa
-   * o horário cujo intervalo [scheduled_at, scheduled_at + duração) sobrepõe
-   * [start, end). `excludeId` ignora a própria consulta ao reagendar.
-   *
-   * O que ocupa é `OCCUPYING_APPOINTMENT_STATUSES` (em aberto + realizada) —
-   * não `isActiveAppointmentStatus`, que deixa a realizada de fora.
-   *
-   * Por padrão um encaixe (`is_walk_in`) conta como ocupando o horário: é o
-   * que impede marcar uma consulta normal **nova** em cima de um encaixe. A
-   * exclusion constraint `EX_appointments_doctor_no_overlap`, porém, ignora
-   * encaixes dos dois lados — então, para uma consulta que **já existe**
-   * (editar, reativar), `ignorarEncaixes` aplica o mesmo critério do banco:
-   * um encaixe posto sobre ela não pode travar a própria consulta que ele
-   * encaixou.
-   */
   async hasOverlap(
     doctorId: string,
     start: Date,
@@ -349,11 +213,6 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
     return count > 0;
   }
 
-  /**
-   * Consultas que ocupam a agenda do profissional em `[from, to)` — mesmo
-   * critério de `hasOverlap` (cancelada e falta liberam o horário). Só os
-   * campos que a disponibilidade usa.
-   */
   findOcupando(doctorId: string, from: Date, to: Date): Promise<Appointment[]> {
     return this.repository
       .createQueryBuilder('appointment')
@@ -375,10 +234,6 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
       .getMany();
   }
 
-  /**
-   * Consultas ativas (agendada/confirmada) que começam na janela [now, until]
-   * e ainda não tiveram lembrete enviado. Base do lembrete automático de 24h.
-   */
   findDueForReminder(now: Date, until: Date): Promise<Appointment[]> {
     return this.repository
       .createQueryBuilder('appointment')

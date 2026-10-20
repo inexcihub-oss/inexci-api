@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
@@ -20,7 +19,7 @@ export function buildMarkPerformedDraftCheckDocsTool(
           'Verifica quais documentos pós-cirúrgicos já estão anexados à SC e quais ainda faltam (todos opcionais).',
         parameters: { type: 'object', properties: {} },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(_args, context) {
       const blocked = await guardDraft(draftService, context, 'mark_performed');
       if (blocked) return blocked;

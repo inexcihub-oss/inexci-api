@@ -35,7 +35,6 @@ describe('Procedures (e2e)', () => {
         .expect(200);
 
       expect(response.body).toBeDefined();
-      // A resposta tem formato { total, records }
       const procedures =
         response.body.records || response.body.procedures || response.body;
       expect(Array.isArray(procedures)).toBe(true);
@@ -52,7 +51,6 @@ describe('Procedures (e2e)', () => {
     });
 
     it('should fail without authentication', async () => {
-      // Procedures requer autenticação
       await request(app.getHttpServer()).get('/procedures').expect(401);
     });
   });

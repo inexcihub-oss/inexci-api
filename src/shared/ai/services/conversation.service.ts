@@ -43,6 +43,10 @@ export class ConversationService {
     });
   }
 
+  findById(conversationId: string): Promise<WhatsappConversation | null> {
+    return this.conversationRepo.findOne({ id: conversationId });
+  }
+
   async appendMessage(
     conversationId: string,
     role: ConversationMessage['role'],
@@ -71,8 +75,6 @@ export class ConversationService {
     if (!conv) return;
 
     const now = new Date();
-    // Histórico bruto vive em `whatsapp_conversation_messages`. Apagamos as
-    // mensagens da conversa para "zerar" o contexto do LLM no próximo turno.
     await this.messageRepo.deleteByConversation(conversationId);
     await this.conversationRepo.update(conversationId, {
       startedAt: now,
@@ -83,11 +85,6 @@ export class ConversationService {
     });
   }
 
-  /**
-   * Carrega janela curta de mensagens recentes para envio ao LLM, aplicando
-   * `AI_MAX_RECENT_MESSAGES` (default 10). Histórico completo permanece na
-   * tabela filha (`whatsapp_conversation_message`) para auditoria.
-   */
   async loadRecentForLlm(
     conversationId: string,
     max?: number,

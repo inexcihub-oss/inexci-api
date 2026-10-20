@@ -1,17 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Vincula a consulta ao local de atendimento. Coluna **nullable**: consultas
- * já marcadas continuam válidas sem clínica e nenhuma linha precisa ser
- * migrada.
- *
- * A FK é declarada em nível de coluna, no próprio `ADD COLUMN`, porque a
- * coluna nasce nesta mesma migration — não há linha existente que a FK possa
- * rejeitar.
- *
- * `ON DELETE SET NULL` é rede de segurança: a exclusão de clínica é soft, então
- * na prática a linha nunca some e o vínculo histórico é preservado.
- */
 export class AddClinicIdToAppointments1755600100000 implements MigrationInterface {
   name = 'AddClinicIdToAppointments1755600100000';
 

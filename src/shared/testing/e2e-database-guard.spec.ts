@@ -50,10 +50,6 @@ describe('proteção do banco nos testes e2e', () => {
   });
 
   describe('assertBancoDeTeste', () => {
-    /**
-     * O motivo desta proteção existir: rodar a suíte e2e apontada para o banco
-     * de desenvolvimento truncou todas as tabelas e apagou o trabalho local.
-     */
     it('recusa quando o banco conectado não é o de teste', async () => {
       const query = jest
         .fn()
@@ -91,10 +87,6 @@ describe('proteção do banco nos testes e2e', () => {
     });
   });
   describe('tabelas preservadas no TRUNCATE', () => {
-    // `subscription_plans` é catálogo semeado pela migration CreateBilling, não
-    // dado de tenant. Truncá-la deixa o trial do register sem plano e faz todo
-    // `POST /surgery-requests/:id/send` responder 404 "Assinatura não
-    // encontrada" — sintoma longe demais da causa para ser diagnosticado rápido.
     it('preserva migrations e subscription_plans', () => {
       expect(TABELAS_PRESERVADAS_NO_TRUNCATE).toEqual(
         expect.arrayContaining(['migrations', 'subscription_plans']),

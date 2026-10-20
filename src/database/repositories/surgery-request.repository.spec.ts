@@ -8,13 +8,6 @@ import { SurgeryRequestTussItem } from '../entities/surgery-request-tuss-item.en
 import { Document } from '../entities/document.entity';
 import { Contestation } from '../entities/contestation.entity';
 
-/**
- * Cobertura da Fase 2 do plano de otimização (§4): `findOne` (detalhe da SC)
- * passa a carregar as 4 coleções to-many (`opmeItems`, `tussItems`,
- * `documents`, `contestations`) em paralelo via `Promise.all`, filtradas pelo
- * `id` já resolvido no bloco base — em vez de `relationLoadStrategy: 'query'`
- * encadeando round-trips sequenciais.
- */
 describe('SurgeryRequestRepository.findOne', () => {
   const baseEntity = {
     id: 'sr-1',
@@ -157,13 +150,6 @@ describe('SurgeryRequestRepository.findOne', () => {
   });
 });
 
-/**
- * `statusChangedAt` permite backdatar a transição (ex.: "Confirmar com
- * documento de origem" perguntando a data real de envio). O valor precisa
- * chegar tanto em `lastStatusChangedAt` (kanban/estagnação/resumo semanal)
- * quanto no `createdAt` da atividade — senão a timeline de Atividades mostra
- * "agora" enquanto o kanban já mostra dias parado.
- */
 describe('SurgeryRequestRepository.recordStatusChange', () => {
   function buildFakeManager() {
     const surgeryRequestRepo = { update: jest.fn().mockResolvedValue({}) };
@@ -216,6 +202,70 @@ describe('SurgeryRequestRepository.recordStatusChange', () => {
     const [activitySavePayload] = activityRepo.save.mock.calls[0];
     expect(activitySavePayload.createdAt).toEqual(
       updatePayload.lastStatusChangedAt,
+    );
+  });
+});
+
+describe('SurgeryRequestRepository.applyStatusTransition (UPDATE condicional)', () => {
+  function buildManager(affected: number) {
+    const surgeryRequestRepo = {
+      update: jest.fn().mockResolvedValue({ affected }),
+    };
+    const activityRepo = { save: jest.fn().mockResolvedValue({}) };
+    const manager = {
+      getRepository: jest.fn((entity: { name: string }) =>
+        entity.name === 'SurgeryRequest' ? surgeryRequestRepo : activityRepo,
+      ),
+    };
+    return { manager, surgeryRequestRepo, activityRepo };
+  }
+
+  it('só atualiza a linha que ainda está no status de origem e registra a atividade', async () => {
+    const repository = new SurgeryRequestRepository({} as any, {} as any);
+    const { manager, surgeryRequestRepo, activityRepo } = buildManager(1);
+
+    const applied = await repository.applyStatusTransition(manager as any, {
+      id: 'sr-1',
+      from: SurgeryRequestStatus.PENDING,
+      to: SurgeryRequestStatus.SENT,
+      data: { sendMethod: 'email' },
+      userId: 'u-1',
+    });
+
+    expect(applied).toBe(true);
+    expect(surgeryRequestRepo.update).toHaveBeenCalledWith(
+      { id: 'sr-1', status: SurgeryRequestStatus.PENDING },
+      { sendMethod: 'email', status: SurgeryRequestStatus.SENT },
+    );
+    expect(activityRepo.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('devolve false e não grava atividade quando outra requisição já moveu a SC', async () => {
+    const repository = new SurgeryRequestRepository({} as any, {} as any);
+    const { manager, activityRepo } = buildManager(0);
+
+    const applied = await repository.applyStatusTransition(manager as any, {
+      id: 'sr-1',
+      from: SurgeryRequestStatus.PENDING,
+      to: SurgeryRequestStatus.SENT,
+    });
+
+    expect(applied).toBe(false);
+    expect(activityRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('updateIfStatus sem manager usa o repositório próprio', async () => {
+    const own = { update: jest.fn().mockResolvedValue({ affected: 1 }) };
+    const repository = new SurgeryRequestRepository(own as any, {} as any);
+
+    await expect(
+      repository.updateIfStatus('sr-1', SurgeryRequestStatus.SCHEDULED, {
+        surgeryDate: new Date('2026-05-01'),
+      }),
+    ).resolves.toBe(true);
+    expect(own.update).toHaveBeenCalledWith(
+      { id: 'sr-1', status: SurgeryRequestStatus.SCHEDULED },
+      { surgeryDate: new Date('2026-05-01') },
     );
   });
 });

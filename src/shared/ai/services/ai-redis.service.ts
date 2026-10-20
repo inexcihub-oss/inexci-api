@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import IORedis from 'ioredis';
+import { errorMessage } from '../../utils/error-message.util';
 
 const KEY_PREFIX = 'ai:';
 
@@ -8,6 +9,7 @@ const KEY_PREFIX = 'ai:';
 export class AiRedisService implements OnModuleDestroy {
   private readonly logger = new Logger(AiRedisService.name);
   private redis: IORedis | null = null;
+  private readonly localClaims = new Map<string, number>();
 
   constructor(private readonly configService: ConfigService) {
     try {
@@ -34,8 +36,8 @@ export class AiRedisService implements OnModuleDestroy {
         );
         this.redis = null;
       });
-    } catch (err: any) {
-      this.logger.warn(`Redis não configurado: ${err.message}`);
+    } catch (err) {
+      this.logger.warn(`Redis não configurado: ${errorMessage(err)}`);
     }
   }
 
@@ -47,30 +49,23 @@ export class AiRedisService implements OnModuleDestroy {
     return this.redis?.status === 'ready';
   }
 
-  /**
-   * Retorna o client Redis se estiver pronto, ou `null` caso contrário.
-   * Concentra o narrowing em um único ponto para que callers fiquem
-   * compatíveis com `strictNullChecks`.
-   */
   private getClient(): IORedis | null {
     return this.redis?.status === 'ready' ? this.redis : null;
   }
 
-  // T32: Rate limit via INCR + EXPIRE
   async checkRateLimit(
     phone: string,
     max: number,
     windowSec: number,
   ): Promise<boolean> {
     const client = this.getClient();
-    if (!client) return true; // fallback: sem limite
+    if (!client) return true;
     const key = `${KEY_PREFIX}rl:${phone}`;
     const count = await client.incr(key);
     if (count === 1) await client.expire(key, windowSec);
     return count <= max;
   }
 
-  // T33: Cache genérico com TTL
   async cacheGet<T>(key: string): Promise<T | null> {
     const client = this.getClient();
     if (!client) return null;
@@ -83,7 +78,11 @@ export class AiRedisService implements OnModuleDestroy {
     }
   }
 
-  async cacheSet(key: string, value: any, ttlSeconds: number): Promise<void> {
+  async cacheSet(
+    key: string,
+    value: unknown,
+    ttlSeconds: number,
+  ): Promise<void> {
     const client = this.getClient();
     if (!client) return;
     await client.set(
@@ -100,17 +99,19 @@ export class AiRedisService implements OnModuleDestroy {
     await client.del(`${KEY_PREFIX}${key}`);
   }
 
-  // T34: Flags com TTL nativo
-  async setFlag(key: string, ttlSeconds: number): Promise<void> {
+  async claimOnce(key: string, ttlSeconds: number): Promise<boolean> {
+    const fullKey = `${KEY_PREFIX}${key}`;
     const client = this.getClient();
-    if (!client) return;
-    await client.set(`${KEY_PREFIX}${key}`, '1', 'EX', ttlSeconds);
-  }
-
-  async hasFlag(key: string): Promise<boolean> {
-    const client = this.getClient();
-    if (!client) return false;
-    const val = await client.get(`${KEY_PREFIX}${key}`);
-    return val !== null;
+    if (client) {
+      const result = await client.set(fullKey, '1', 'EX', ttlSeconds, 'NX');
+      return result === 'OK';
+    }
+    const now = Date.now();
+    for (const [k, expiresAt] of this.localClaims) {
+      if (expiresAt <= now) this.localClaims.delete(k);
+    }
+    if (this.localClaims.has(fullKey)) return false;
+    this.localClaims.set(fullKey, now + ttlSeconds * 1000);
+    return true;
   }
 }

@@ -10,7 +10,7 @@ import {
   AppointmentType,
 } from 'src/database/entities/appointment.entity';
 import { formatAppointmentWhen, formatDoctorName } from 'src/shared/utils';
-import { PatientNotificationSettingsService } from '../notifications/patient-settings/patient-notification-settings.service';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 const REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -20,19 +20,11 @@ const TYPE_LABELS: Record<AppointmentType, string> = {
   [AppointmentType.FOLLOW_UP]: 'Acompanhamento',
 };
 
-/** Resultado do envio de um lembrete, por consulta. */
 interface ReminderOutcome {
-  /** O paciente tinha ao menos um canal de contato. */
   attempted: boolean;
-  /** Ao menos um canal foi enfileirado com sucesso. */
   delivered: boolean;
 }
 
-/**
- * Dispara lembretes de consulta 24h antes (e-mail + WhatsApp), de forma
- * idempotente via `reminderSentAt`. Roda de hora em hora — uma consulta entra
- * na janela [agora, agora+24h] e é lembrada uma única vez.
- */
 @Injectable()
 export class AppointmentReminderService {
   private readonly logger = new Logger(AppointmentReminderService.name);
@@ -43,7 +35,6 @@ export class AppointmentReminderService {
     private readonly userRepository: UserRepository,
     private readonly mailService: MailService,
     private readonly whatsappService: WhatsappService,
-    private readonly patientNotificationSettings: PatientNotificationSettingsService,
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -53,17 +44,15 @@ export class AppointmentReminderService {
       if (sent > 0) {
         this.logger.log(`Lembretes de consulta enviados: ${sent}`);
       }
-    } catch (err: any) {
-      this.logger.error(`Erro no cron de lembretes: ${err?.message}`);
+    } catch (err) {
+      this.logger.error(`Erro no cron de lembretes: ${errorMessage(err)}`);
     }
   }
 
-  /** Envia lembretes das consultas devidas e marca `reminderSentAt`. */
   async sendDueReminders(now: Date = new Date()): Promise<number> {
     const until = new Date(now.getTime() + REMINDER_WINDOW_MS);
     const due = await this.appointmentRepository.findDueForReminder(now, until);
 
-    // Uma leitura da configuração por conta nesta rodada, não uma por consulta.
     const lembreteLigado = new Map<string, Promise<boolean>>();
 
     let sent = 0;
@@ -72,23 +61,16 @@ export class AppointmentReminderService {
         if (!lembreteLigado.has(appt.ownerId)) {
           lembreteLigado.set(
             appt.ownerId,
-            this.patientNotificationSettings.isEnabled(
+            this.userRepository.isPatientNotificationEnabled(
               appt.ownerId,
               'appointmentReminder',
             ),
           );
         }
-        // Conta com o lembrete desligado: não envia e NÃO marca
-        // `reminderSentAt` — o webhook usa esse campo para saber a qual
-        // consulta o paciente respondeu, e marcar sem enviar o enganaria. Se a
-        // conta religar, a consulta ainda na janela é lembrada na hora seguinte.
         if (!(await lembreteLigado.get(appt.ownerId))) continue;
 
         const outcome = await this.notify(appt);
 
-        // Havia canal e nenhum entregou (Redis fora, SMTP recusando): não
-        // marca, para a execução seguinte tentar de novo. Marcar aqui perdia o
-        // lembrete em silêncio — o registro dizia "enviado" e ninguém foi avisado.
         if (outcome.attempted && !outcome.delivered) {
           this.logger.warn(
             `Lembrete da consulta ${appt.id} não foi enfileirado em nenhum canal; será retentado.`,
@@ -96,28 +78,19 @@ export class AppointmentReminderService {
           continue;
         }
 
-        // Sem canal (paciente sem e-mail e sem telefone) marca do mesmo jeito:
-        // não há o que retentar, e reprocessar a cada hora seria desperdício.
         await this.appointmentRepository.update(appt.id, {
           reminderSentAt: new Date(),
         });
         if (outcome.delivered) sent++;
-      } catch (err: any) {
+      } catch (err) {
         this.logger.warn(
-          `Falha ao enviar lembrete da consulta ${appt.id}: ${err?.message}`,
+          `Falha ao enviar lembrete da consulta ${appt.id}: ${errorMessage(err)}`,
         );
       }
     }
     return sent;
   }
 
-  /**
-   * Enfileira o lembrete nos canais disponíveis do paciente.
-   *
-   * `attempted` = o paciente tinha ao menos um canal; `delivered` = ao menos um
-   * enfileiramento deu certo. A falha de um canal é isolada (logada) para não
-   * cancelar o outro nem derrubar o lote.
-   */
   private async notify(appt: Appointment): Promise<ReminderOutcome> {
     const patient = await this.patientRepository.findOne({
       id: appt.patientId,
@@ -142,9 +115,9 @@ export class AppointmentReminderService {
           durationLabel: `${appt.durationMinutes} min`,
         });
         delivered = true;
-      } catch (err: any) {
+      } catch (err) {
         this.logger.warn(
-          `Falha ao enfileirar e-mail do lembrete da consulta ${appt.id}: ${err?.message}`,
+          `Falha ao enfileirar e-mail do lembrete da consulta ${appt.id}: ${errorMessage(err)}`,
         );
       }
     }
@@ -158,9 +131,9 @@ export class AppointmentReminderService {
           when,
         });
         delivered = true;
-      } catch (err: any) {
+      } catch (err) {
         this.logger.warn(
-          `Falha ao enfileirar WhatsApp do lembrete da consulta ${appt.id}: ${err?.message}`,
+          `Falha ao enfileirar WhatsApp do lembrete da consulta ${appt.id}: ${errorMessage(err)}`,
         );
       }
     }

@@ -19,13 +19,12 @@ import { Appointment } from 'src/database/entities/appointment.entity';
 import { ClinicRoom } from 'src/database/entities/clinic-room.entity';
 import { EntityManager } from 'typeorm';
 
-/** Roda o cadastro e depois a agenda no mesmo ledger, como o runner faz. */
 function planejar(
   agendamentos: ReturnType<typeof ag>[],
   extras: Record<string, unknown[]> = {},
   ctxParcial: Partial<ContextoImportacao> = {},
 ) {
-  const exp = exportSintetico({ agendamentos, ...extras } as never);
+  const exp = exportSintetico({ agendamentos, ...extras });
   const donoExistente = new Map([
     [
       'dono@exemplo.com',
@@ -327,7 +326,7 @@ describe('planejarAgenda (export sintético)', () => {
     const { ctx } = planejar([ag('10', '1', '2025-01-10', '0')]);
     const exp = exportSintetico({
       agendamentos: [ag('10', '1', '2025-01-10', '0')],
-    } as never);
+    });
     const segunda = contextoDeTeste({ ledger: ctx.ledger });
     const plano = planejarAgenda(exp, segunda);
 
@@ -339,7 +338,7 @@ describe('planejarAgenda (export sintético)', () => {
   it('sem a clínica no ledger: consulta sem clínica nem sala, com aviso', () => {
     const exp = exportSintetico({
       agendamentos: [ag('10', '1', '2025-01-10', '0')],
-    } as never);
+    });
     const ctxCadastro = contextoDeTeste();
     planejarCadastro(exp, ctxCadastro);
     const dados = ctxCadastro.ledger.paraObjeto();
@@ -476,7 +475,6 @@ describe('gravarAgenda', () => {
           consultaQb([
             {
               doctorId: importada.doctorId,
-              // A existente começa DEPOIS da importada, mas dentro dela.
               scheduledAt: new Date(
                 importada.scheduledAt.getTime() +
                   (importada.durationMinutes - 5) * 60_000,

@@ -1,21 +1,25 @@
-import OpenAI from 'openai';
 import { AiTool } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { buildToolResult } from '../tool-result';
 import { WhatsappFlowToolDeps } from './_types';
 import {
   asNonNegativeNumber,
   asValidDateString,
   formatDatePtBr,
+} from '../helpers/arg-parsers';
+import {
   getAuthorizedRequest,
-} from './_helpers';
+  recordAiActivity,
+} from '../helpers/surgery-request-access';
+import { errorMessage } from '../../../utils/error-message.util';
 
 export function buildConfirmReceiptTool(deps: WhatsappFlowToolDeps): AiTool {
   const { surgeryRequestRepo, workflowService, activityRepo } = deps;
   return {
     name: 'confirm_receipt',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {
@@ -47,7 +51,7 @@ export function buildConfirmReceiptTool(deps: WhatsappFlowToolDeps): AiTool {
           required: ['surgeryRequestId', 'receivedValue', 'receivedAt'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
@@ -104,27 +108,27 @@ export function buildConfirmReceiptTool(deps: WhatsappFlowToolDeps): AiTool {
           {
             receivedValue: value,
             receivedAt: receivedAt,
-            receiptNotes: args.receiptNotes,
+            receiptNotes: args.receiptNotes as string | undefined,
           },
           context.userId as string,
         );
 
-        await activityRepo.create({
-          surgeryRequestId: auth.request.id,
-          userId: context.userId as string,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Recebimento confirmado. Valor: ${value.toFixed(2)}, data: ${receivedAt}.`,
-        });
+        await recordAiActivity(
+          activityRepo,
+          context,
+          auth.request.id,
+          `Recebimento confirmado. Valor: ${value.toFixed(2)}, data: ${receivedAt}.`,
+        );
 
         return buildToolResult({
           status: 'ok',
           message: `✅ Recebimento confirmado com sucesso para a solicitação ${auth.request.protocol}.`,
           affected: [{ kind: 'surgery_request', id: auth.request.id }],
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
-          message: `Erro ao confirmar recebimento: ${err?.message || 'erro desconhecido'}`,
+          message: `Erro ao confirmar recebimento: ${errorMessage(err) || 'erro desconhecido'}`,
         });
       }
     },

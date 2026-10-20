@@ -8,7 +8,6 @@ import { UpdateDoctorScheduleDto } from './dto/doctor-schedule.dto';
 import { UpdateHolidayDto } from './dto/holiday.dto';
 import { UpdateScheduleBlockDto } from './dto/schedule-block.dto';
 
-/** Propriedades com erro de validação para o corpo `body`. */
 async function invalidos(
   cls: new () => object,
   body: object,
@@ -68,7 +67,7 @@ describe('AvailabilityController (MIG-05)', () => {
       userId: 'u',
       permissions: [Permission.ADMINISTRACAO],
     } as never;
-    controller.createSchedule(
+    void controller.createSchedule(
       { weekday: 1, startTime: '08:00', endTime: '12:00' },
       user,
     );
@@ -93,9 +92,9 @@ describe('AvailabilityController (MIG-05)', () => {
       startsAt: '2026-10-05T17:00:00Z',
       endsAt: '2026-10-05T18:00:00Z',
     };
-    controller.createBlock(dto, user);
-    controller.updateBlock('b1', { reason: 'x' }, user);
-    controller.deleteBlock('b1', user);
+    void controller.createBlock(dto, user);
+    void controller.updateBlock('b1', { reason: 'x' }, user);
+    void controller.deleteBlock('b1', user);
     expect(blocks.create).toHaveBeenCalledWith(dto, 'u', [Permission.AGENDA]);
     expect(blocks.update).toHaveBeenCalledWith('b1', { reason: 'x' }, 'u', [
       Permission.AGENDA,
@@ -111,7 +110,7 @@ describe('AvailabilityController (MIG-05)', () => {
       {} as never,
       {} as never,
     );
-    controller.schedules('doc-1', {
+    void controller.schedules('doc-1', {
       userId: 'u',
       permissions: [Permission.ADMINISTRACAO],
     } as never);

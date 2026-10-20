@@ -3,11 +3,6 @@ import { ALL_PERMISSIONS, Permission } from 'src/shared/permissions';
 import { PERMISSIONS_KEY } from 'src/shared/decorators/require-permission.decorator';
 import { ClinicsController } from './clinics.controller';
 
-/**
- * A exigência é lida como o `PermissionsGuard` lê:
- * `getAllAndOverride([método, classe])`. Olhar só o método esconderia o
- * decorator de classe e faria a rota parecer aberta.
- */
 describe('ClinicsController — permissões declaradas', () => {
   const reflector = new Reflector();
 
@@ -20,8 +15,6 @@ describe('ClinicsController — permissões declaradas', () => {
   it.each(['findAll', 'findOne', 'listRooms'] as const)(
     'libera a leitura em %s para qualquer área',
     (metodo) => {
-      // Quem só tem Agenda precisa ler a lista para preencher o seletor do
-      // modal de consulta e calcular o aviso de horário — mas não cadastra.
       expect(exigidoEm(metodo)).toEqual(ALL_PERMISSIONS);
     },
   );

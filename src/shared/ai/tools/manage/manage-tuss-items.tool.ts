@@ -1,18 +1,17 @@
-import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { tokenizePii } from '../../pii/tool-pii-helpers';
 import { translateServiceError } from '../helpers/service-error-translator';
 import { buildToolResult } from '../tool-result';
 import { ManageToolDeps } from './_types';
+import { asNonEmptyString, asPositiveInt } from '../helpers/arg-parsers';
 import {
-  asNonEmptyString,
-  asPositiveInt,
   ensurePendingForMutation,
   getAuthorizedRequest,
-  resolveTussFromCatalog,
-} from './_helpers';
+  recordAiActivity,
+} from '../helpers/surgery-request-access';
+import { resolveTussFromCatalog } from '../helpers/tuss-catalog';
+import { SurgeryRequestTussItem } from '../../../../database/entities/surgery-request-tuss-item.entity';
 
 export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
   const {
@@ -25,6 +24,8 @@ export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
   return {
     name: 'manage_tuss_items',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {
@@ -70,7 +71,7 @@ export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
           required: ['surgeryRequestId', 'operation'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
@@ -104,7 +105,7 @@ export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
       if (operation === 'list') {
         const items = await tussItemRepo.findMany({
           surgeryRequestId: auth.request.id,
-        } as any);
+        });
         if (!items.length) {
           return buildToolResult({
             status: 'ok',
@@ -113,7 +114,7 @@ export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
           });
         }
         const lines = items.map(
-          (item: any, index: number) =>
+          (item, index: number) =>
             `${index + 1}. ${item.tussCode} — ${item.name} (qtd: ${item.quantity})\n   id: ${item.id}`,
         );
         return buildToolResult({
@@ -161,7 +162,7 @@ export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
           });
         }
 
-        let created: any;
+        let created: SurgeryRequestTussItem;
         try {
           created = await surgeryRequestsService.addTussItem(
             auth.request.id,
@@ -175,12 +176,12 @@ export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
           });
         }
 
-        await activityRepo.create({
-          surgeryRequestId: auth.request.id,
-          userId: context.userId as string,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Item TUSS adicionado: ${tussCode} - ${name} (qtd: ${quantity}).`,
-        });
+        await recordAiActivity(
+          activityRepo,
+          context,
+          auth.request.id,
+          `Item TUSS adicionado: ${tussCode} - ${name} (qtd: ${quantity}).`,
+        );
 
         return buildToolResult({
           status: 'ok',
@@ -201,7 +202,7 @@ export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
       const item = await tussItemRepo.findOne({
         id: tussItemId,
         surgeryRequestId: auth.request.id,
-      } as any);
+      });
       if (!item) {
         return buildToolResult({
           status: 'blocked',
@@ -218,7 +219,8 @@ export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
           });
         }
 
-        const updates: Record<string, any> = {};
+        const updates: { tussCode?: string; name?: string; quantity?: number } =
+          {};
         const changes: string[] = [];
 
         const newCode = asNonEmptyString(args.tussCode);
@@ -274,12 +276,12 @@ export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
           });
         }
 
-        await activityRepo.create({
-          surgeryRequestId: auth.request.id,
-          userId: context.userId as string,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Item TUSS ${item.tussCode} atualizado (${changes.join(', ')}).`,
-        });
+        await recordAiActivity(
+          activityRepo,
+          context,
+          auth.request.id,
+          `Item TUSS ${item.tussCode} atualizado (${changes.join(', ')}).`,
+        );
 
         return buildToolResult({
           status: 'ok',
@@ -288,7 +290,6 @@ export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
         });
       }
 
-      // operation === 'remove'
       const blocked = ensurePendingForMutation(auth.request);
       if (blocked) {
         return buildToolResult({ status: 'blocked', message: blocked });
@@ -319,12 +320,12 @@ export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
         });
       }
 
-      await activityRepo.create({
-        surgeryRequestId: auth.request.id,
-        userId: context.userId as string,
-        type: ActivityType.SYSTEM,
-        content: `[WhatsApp IA] Item TUSS removido: ${item.tussCode} (${item.name}).`,
-      });
+      await recordAiActivity(
+        activityRepo,
+        context,
+        auth.request.id,
+        `Item TUSS removido: ${item.tussCode} (${item.name}).`,
+      );
 
       return buildToolResult({
         status: 'ok',

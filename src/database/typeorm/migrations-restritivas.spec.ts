@@ -1,21 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-/**
- * Guarda contra o que derrubou o deploy de 05/08/2026: uma migration que
- * adiciona restrição (`CREATE UNIQUE INDEX`) contra dado legado que a viola.
- * O erro do Postgres não diz quais linhas colidem, o container reinicia em
- * loop e a API fica fora do ar até o `deploy.sh` desistir.
- *
- * Regra: migration nova que aperta o schema precisa verificar o dado antes,
- * usando o registro em `preflight/data-checks.ts` — o mesmo que o
- * `yarn migration:preflight` roda read-only contra produção. Assim o conflito
- * aparece como diagnóstico acionável, e antes do deploy, não durante.
- *
- * Se a restrição for sobre coluna/tabela recém-criada na própria migration,
- * não há dado legado possível: some com a criação e a regra deixa de valer,
- * ou registre o arquivo em ANTERIORES_A_REGRA com o motivo.
- */
 const DIR_MIGRATIONS = path.join(__dirname, 'migrations');
 const MODULO_DE_VERIFICACAO = 'preflight/data-checks';
 
@@ -25,10 +10,6 @@ const DDL_RESTRITIVO = [
   { rotulo: 'SET NOT NULL', regex: /SET\s+NOT\s+NULL/i },
 ];
 
-/**
- * Migrations anteriores à regra: já rodaram em produção, então re-escrevê-las
- * não protege nada. Esta lista não deve crescer.
- */
 const ANTERIORES_A_REGRA = [
   '1746144100000-CreateUsersAndAuth.ts',
   '1746144200000-CreateBilling.ts',

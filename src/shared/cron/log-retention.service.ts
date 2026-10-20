@@ -2,23 +2,17 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
+import { FindOptionsWhere, LessThan, Repository } from 'typeorm';
 import { NotificationSendLog } from 'src/database/entities/notification-send-log.entity';
 import { AiTokenUsageLog } from 'src/database/entities/ai-token-usage-log.entity';
 import { AiPiiRedactionLog } from 'src/database/entities/ai-pii-redaction-log.entity';
 import { StaleNotificationLog } from 'src/database/entities/stale-notification-log.entity';
+import { NotificationRepository } from 'src/database/repositories/notification.repository';
+import { ClinicalAccessAuditRepository } from 'src/database/repositories/clinical-access-audit.repository';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
-/**
- * Cron diário (04:00 America/Sao_Paulo) que aplica retenção configurável
- * para tabelas de log persistido. Mantém o banco enxuto e atende às
- * janelas LGPD declaradas na política de privacidade.
- *
- * Janelas (defaults; override via env):
- *   - notification_send_logs:   90 dias  (LOG_RETENTION_NOTIFICATION_DAYS)
- *   - ai_token_usage_logs:     365 dias  (LOG_RETENTION_AI_USAGE_DAYS)
- *   - ai_pii_redaction_logs:   180 dias  (LOG_RETENTION_PII_DAYS)
- *   - stale_notification_logs:  60 dias  (LOG_RETENTION_STALE_DAYS)
- */
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
 @Injectable()
 export class LogRetentionService {
   private readonly logger = new Logger(LogRetentionService.name);
@@ -32,7 +26,9 @@ export class LogRetentionService {
     private readonly aiPiiRedactionLogRepo: Repository<AiPiiRedactionLog>,
     @InjectRepository(StaleNotificationLog)
     private readonly staleNotificationLogRepo: Repository<StaleNotificationLog>,
+    private readonly notificationRepository: NotificationRepository,
     private readonly config: ConfigService,
+    private readonly clinicalAccessAuditRepository: ClinicalAccessAuditRepository,
   ) {}
 
   @Cron('0 4 * * *', { timeZone: 'America/Sao_Paulo' })
@@ -44,6 +40,8 @@ export class LogRetentionService {
       aiTokenUsageLogs: 0,
       aiPiiRedactionLogs: 0,
       staleNotificationLogs: 0,
+      readNotifications: 0,
+      clinicalAccessAudit: 0,
     };
 
     summary.notificationSendLogs = await this.purge(
@@ -74,7 +72,60 @@ export class LogRetentionService {
       this.config.get<number>('LOG_RETENTION_STALE_DAYS', 60),
     );
 
+    summary.readNotifications = await this.purgeReadNotifications(
+      this.config.get<number>('LOG_RETENTION_READ_NOTIFICATION_DAYS', 90),
+    );
+
+    summary.clinicalAccessAudit = await this.purgeClinicalAccessAudit(
+      this.config.get<number>('LOG_RETENTION_CLINICAL_AUDIT_DAYS', 1825),
+    );
+
     this.logger.log(`[LogRetention] concluído ${JSON.stringify(summary)}`);
+  }
+
+  private async purgeReadNotifications(days: number): Promise<number> {
+    const cutoff = this.cutoffFor(days);
+    if (!cutoff) return 0;
+    try {
+      const affected =
+        await this.notificationRepository.deleteReadOlderThan(cutoff);
+      if (affected > 0) {
+        this.logger.log(
+          `[LogRetention] notifications (lidas): removidas ${affected} linhas (cutoff=${cutoff.toISOString()})`,
+        );
+      }
+      return affected;
+    } catch (err: unknown) {
+      this.logger.warn(
+        `[LogRetention] falha ao limpar notifications lidas: ${errorMessage(err)}`,
+      );
+      return 0;
+    }
+  }
+
+  private async purgeClinicalAccessAudit(days: number): Promise<number> {
+    const cutoff = this.cutoffFor(days);
+    if (!cutoff) return 0;
+    try {
+      const affected =
+        await this.clinicalAccessAuditRepository.deleteOlderThan(cutoff);
+      if (affected > 0) {
+        this.logger.log(
+          `[LogRetention] clinical_access_audit: removidas ${affected} linhas (cutoff=${cutoff.toISOString()})`,
+        );
+      }
+      return affected;
+    } catch (err: unknown) {
+      this.logger.warn(
+        `[LogRetention] falha ao limpar clinical_access_audit: ${errorMessage(err)}`,
+      );
+      return 0;
+    }
+  }
+
+  private cutoffFor(days: number): Date | null {
+    if (!Number.isFinite(days) || days <= 0) return null;
+    return new Date(Date.now() - Number(days) * MS_PER_DAY);
   }
 
   private async purge<T extends object>(
@@ -83,14 +134,13 @@ export class LogRetentionService {
     timestampColumn: string,
     days: number,
   ): Promise<number> {
-    if (!Number.isFinite(days) || days <= 0) return 0;
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - Number(days));
+    const cutoff = this.cutoffFor(days);
+    if (!cutoff) return 0;
 
     try {
       const result = await repo.delete({
         [timestampColumn]: LessThan(cutoff),
-      } as any);
+      } as FindOptionsWhere<T>);
       const affected = result.affected ?? 0;
       if (affected > 0) {
         this.logger.log(
@@ -98,9 +148,9 @@ export class LogRetentionService {
         );
       }
       return affected;
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.logger.warn(
-        `[LogRetention] falha ao limpar ${label}: ${err?.message ?? err}`,
+        `[LogRetention] falha ao limpar ${label}: ${errorMessage(err)}`,
       );
       return 0;
     }

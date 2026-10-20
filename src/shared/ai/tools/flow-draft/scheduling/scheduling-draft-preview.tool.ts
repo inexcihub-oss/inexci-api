@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
@@ -16,7 +15,7 @@ export function buildSchedulingDraftPreviewTool(deps: FlowDraftDeps): AiTool {
         description: 'Gera o preview do rascunho de agendamento.',
         parameters: { type: 'object', properties: {} },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(_args, context) {
       const v = await draftService.validate(
         context.conversationId,
@@ -29,8 +28,6 @@ export function buildSchedulingDraftPreviewTool(deps: FlowDraftDeps): AiTool {
         });
       }
       const f = v.draft.fields;
-      // Agendamento exige: ou `dateOptions` (para enviar opções) ou
-      // `confirmedDateIndex`/`confirmedDate` (para confirmar uma data).
       const hasDateOptions =
         Array.isArray(f.dateOptions) && f.dateOptions.length > 0;
       const hasConfirmation =

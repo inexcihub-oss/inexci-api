@@ -11,10 +11,6 @@ import {
 import { SurgeryRequest } from './surgery-request.entity';
 import { User } from './user.entity';
 
-/**
- * Dados de faturamento e recebimento (relação 1:1 com SurgeryRequest).
- * Armazena fatura enviada, recebimento e contestação de pagamento.
- */
 @Entity('surgery_request_billings')
 export class SurgeryRequestBilling {
   @PrimaryGeneratedColumn('uuid')
@@ -26,7 +22,6 @@ export class SurgeryRequestBilling {
   @Column({ name: 'created_by_id', type: 'uuid' })
   createdById: string;
 
-  // ── Fatura ──────────────────────────────────────
   @Column({ name: 'invoice_protocol', type: 'varchar', length: 100 })
   invoiceProtocol: string;
 
@@ -44,11 +39,9 @@ export class SurgeryRequestBilling {
   @Column({ name: 'invoice_notes', type: 'text', nullable: true })
   invoiceNotes: string | null;
 
-  /** Prazo de pagamento (data) — derivado de healthPlan.defaultPaymentDays quando não fornecido */
   @Column({ name: 'payment_deadline', type: 'date', nullable: true })
   paymentDeadline: Date | null;
 
-  // ── Recebimento ─────────────────────────────────
   @Column({
     name: 'received_value',
     type: 'decimal',
@@ -64,8 +57,6 @@ export class SurgeryRequestBilling {
   @Column({ name: 'receipt_notes', type: 'text', nullable: true })
   receiptNotes: string | null;
 
-  // ── Contestação de pagamento ─────────────────────
-  /** Preenchido quando receivedValue ≠ invoiceValue */
   @Column({
     name: 'contested_received_value',
     type: 'decimal',
@@ -90,8 +81,6 @@ export class SurgeryRequestBilling {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
-
-  // ============ RELAÇÕES ============
 
   @OneToOne(() => SurgeryRequest, (request) => request.billing)
   @JoinColumn({ name: 'surgery_request_id' })

@@ -64,11 +64,6 @@ export class UpdateSurgeryRequestDto {
   @IsNumber()
   priority?: number;
 
-  /**
-   * Permite escolher/trocar o procedimento direto na SC já criada — a mesma
-   * escolha que hoje só existe no primeiro passo do wizard de criação.
-   * `null` limpa o vínculo.
-   */
   @IsOptional()
   @IsUUID()
   procedureId?: string | null;

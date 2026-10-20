@@ -19,9 +19,11 @@ import {
   SurgeryRequestOwnerGuard,
   SkipSurgeryOwner,
 } from 'src/shared/guards/surgery-request-owner.guard';
+import { AiConsentGuard } from 'src/shared/guards/ai-consent.guard';
 import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
 import { Permission } from 'src/shared/permissions';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { limitesDeUpload } from 'src/shared/storage/limites-upload';
 import {
   ApiTags,
   ApiOperation,
@@ -31,6 +33,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { SurgeryRequestsService } from './surgery-requests.service';
+import { SurgeryRequestWorkflowService } from './services/surgery-request-workflow.service';
 import { SurgeryRequestFromDocumentService } from './services/surgery-request-from-document.service';
 import { CreateFromDocumentDto } from './dto/create-from-document.dto';
 import { ApplyDocumentExtractionDto } from './dto/apply-document-extraction.dto';
@@ -44,7 +47,6 @@ import {
 } from 'src/shared/decorators/current-user.decorator';
 import { SurgeryRequestDocumentExtractionJobsService } from './services/surgery-request-document-extraction-jobs.service';
 
-// DTOs gerais
 import { CreateSurgeryRequestSimpleDto } from './dto/create-surgery-request-simple.dto';
 import { FindManySurgeryRequestDto } from './dto/find-many.dto';
 import { FindManyKanbanDto } from './dto/find-many-kanban.dto';
@@ -53,7 +55,6 @@ import { FindOneSurgeryRequestDto } from './dto/find-one.dto';
 import { UpdateSurgeryRequestDto } from './dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from './dto/update-surgery-request-basic.dto';
 
-// DTOs de transição
 import { SendRequestDto } from './dto/send-request.dto';
 import { StartAnalysisDto } from './dto/start-analysis.dto';
 import { AcceptAuthorizationDto } from './dto/accept-authorization.dto';
@@ -72,6 +73,11 @@ import { CreateReportSectionDto } from './dto/create-report-section.dto';
 import { UpdateReportSectionDto } from './dto/update-report-section.dto';
 import { ReorderReportSectionsDto } from './dto/reorder-report-sections.dto';
 import { BulkDeleteTemplatesDto } from './dto/bulk-delete-templates.dto';
+import { SetHasOpmeDto } from './dto/set-has-opme.dto';
+import {
+  CreateSurgeryRequestTemplateDto,
+  UpdateSurgeryRequestTemplateDto,
+} from './dto/surgery-request-template.dto';
 
 @ApiTags('Solicitações Cirúrgicas')
 @ApiBearerAuth()
@@ -81,15 +87,13 @@ import { BulkDeleteTemplatesDto } from './dto/bulk-delete-templates.dto';
 export class SurgeryRequestsController {
   constructor(
     private readonly surgeryRequestsService: SurgeryRequestsService,
+    private readonly workflowService: SurgeryRequestWorkflowService,
     private readonly fromDocumentService: SurgeryRequestFromDocumentService,
     private readonly documentExtractionJobsService: SurgeryRequestDocumentExtractionJobsService,
   ) {}
 
-  // ============================================================
-  // CRIAÇÃO
-  // ============================================================
-
   @Post()
+  @SkipSurgeryOwner()
   @Throttle({ short: { ttl: 60000, limit: 10 } })
   @ApiOperation({ summary: 'Criar solicitação cirúrgica' })
   createSurgeryRequest(
@@ -100,6 +104,7 @@ export class SurgeryRequestsController {
   }
 
   @Post('extract-from-document')
+  @UseGuards(AiConsentGuard)
   @Throttle({ short: { ttl: 60000, limit: 5 } })
   @ApiOperation({
     summary:
@@ -107,7 +112,7 @@ export class SurgeryRequestsController {
   })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    FileInterceptor('document', { limits: { fileSize: 10 * 1024 * 1024 } }),
+    FileInterceptor('document', limitesDeUpload(10 * 1024 * 1024)),
   )
   @HttpCode(HttpStatus.ACCEPTED)
   extractFromDocument(
@@ -132,6 +137,7 @@ export class SurgeryRequestsController {
   }
 
   @Get('extract-from-document/:jobId')
+  @SkipSurgeryOwner()
   @Throttle({ short: { ttl: 60000, limit: 120 } })
   @ApiOperation({
     summary: 'Consultar status da extração assíncrona de documento.',
@@ -144,6 +150,7 @@ export class SurgeryRequestsController {
   }
 
   @Post('from-document')
+  @SkipSurgeryOwner()
   @Throttle({ short: { ttl: 60000, limit: 5 } })
   @ApiOperation({
     summary: 'Cria uma SC PENDENTE a partir dos dados revisados do documento.',
@@ -171,14 +178,8 @@ export class SurgeryRequestsController {
     );
   }
 
-  // ============================================================
-  // LEITURA
-  // ============================================================
-
   @Get()
-  // Ponte deliberada: quem atende vê as cirurgias do paciente que está
-  // atendendo, mas não navega a carteira cirúrgica da clínica. Sem
-  // `patientId`, só quem tem SOLICITACOES lista (regra aplicada no service).
+  @SkipSurgeryOwner()
   @RequirePermission(Permission.SOLICITACOES, Permission.ATENDIMENTO)
   @ApiOperation({ summary: 'Listar solicitações cirúrgicas' })
   findAll(
@@ -193,6 +194,7 @@ export class SurgeryRequestsController {
   }
 
   @Get('kanban')
+  @SkipSurgeryOwner()
   @ApiOperation({
     summary:
       'Listar cards do kanban (payload enxuto + contadores de pendência já embutidos)',
@@ -205,6 +207,7 @@ export class SurgeryRequestsController {
   }
 
   @Get('agenda')
+  @SkipSurgeryOwner()
   @ApiOperation({
     summary: 'Listar cirurgias da agenda por intervalo de data (surgeryDate)',
   })
@@ -223,10 +226,6 @@ export class SurgeryRequestsController {
   ) {
     return this.surgeryRequestsService.findOne(query.id, user.userId);
   }
-
-  // ============================================================
-  // ATUALIZAÇÃO GERAL
-  // ============================================================
 
   @Put()
   @ApiOperation({ summary: 'Atualizar solicitação cirúrgica' })
@@ -250,7 +249,7 @@ export class SurgeryRequestsController {
   @ApiOperation({ summary: 'Definir se possui OPME' })
   setHasOpme(
     @Param('id') id: string,
-    @Body() body: { hasOpme: boolean },
+    @Body() body: SetHasOpmeDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.setHasOpme(
@@ -273,14 +272,6 @@ export class SurgeryRequestsController {
     );
   }
 
-  // ============================================================
-  // TRANSIÇÕES DE STATUS
-  // ============================================================
-
-  /**
-   * PENDING → SENT
-   * Envia a solicitação ao convênio
-   */
   @Post(':id/send')
   @ApiOperation({ summary: 'Enviar solicitação ao convênio' })
   sendRequest(
@@ -288,13 +279,9 @@ export class SurgeryRequestsController {
     @Body() dto: SendRequestDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.sendRequest(id, dto, user.userId);
+    return this.workflowService.sendRequest(id, dto, user.userId);
   }
 
-  /**
-   * SENT → IN_ANALYSIS
-   * Registra início da análise com dados do convênio
-   */
   @Post(':id/start-analysis')
   @ApiOperation({ summary: 'Iniciar análise' })
   startAnalysis(
@@ -302,13 +289,9 @@ export class SurgeryRequestsController {
     @Body() dto: StartAnalysisDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.startAnalysis(id, dto, user.userId);
+    return this.workflowService.startAnalysis(id, dto, user.userId);
   }
 
-  /**
-   * IN_ANALYSIS → IN_SCHEDULING
-   * Aceita a autorização do convênio e fornece opções de data
-   */
   @Post(':id/accept-authorization')
   @ApiOperation({ summary: 'Aceitar autorização' })
   acceptAuthorization(
@@ -316,17 +299,9 @@ export class SurgeryRequestsController {
     @Body() dto: AcceptAuthorizationDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.acceptAuthorization(
-      id,
-      dto,
-      user.userId,
-    );
+    return this.workflowService.acceptAuthorization(id, dto, user.userId);
   }
 
-  /**
-   * IN_ANALYSIS → IN_ANALYSIS (não muda status)
-   * Contesta a negativa de autorização
-   */
   @Post(':id/contest-authorization')
   @ApiOperation({ summary: 'Contestar autorização' })
   contestAuthorization(
@@ -334,17 +309,9 @@ export class SurgeryRequestsController {
     @Body() dto: ContestAuthorizationDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.contestAuthorization(
-      id,
-      dto,
-      user.userId,
-    );
+    return this.workflowService.contestAuthorization(id, dto, user.userId);
   }
 
-  /**
-   * Gera o PDF da contestação à negativa de autorização e retorna como download
-   * GET /surgery-requests/:id/contest-authorization-pdf
-   */
   @Get(':id/contest-authorization-pdf')
   @ApiOperation({ summary: 'Gerar PDF de contestação' })
   async getContestAuthorizationPdf(
@@ -352,11 +319,10 @@ export class SurgeryRequestsController {
     @CurrentUser() user: AuthenticatedUser,
     @Res() res: Response,
   ) {
-    const buffer =
-      await this.surgeryRequestsService.generateContestAuthorizationPdf(
-        id,
-        user.userId,
-      );
+    const buffer = await this.workflowService.generateContestAuthorizationPdf(
+      id,
+      user.userId,
+    );
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="contestacao-${id}.pdf"`,
@@ -365,10 +331,6 @@ export class SurgeryRequestsController {
     res.status(HttpStatus.OK).end(buffer);
   }
 
-  /**
-   * IN_SCHEDULING → SCHEDULED
-   * Confirma a data escolhida pelo paciente
-   */
   @Post(':id/confirm-date')
   @ApiOperation({ summary: 'Confirmar data da cirurgia' })
   confirmDate(
@@ -376,12 +338,9 @@ export class SurgeryRequestsController {
     @Body() dto: ConfirmDateDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.confirmDate(id, dto, user.userId);
+    return this.workflowService.confirmDate(id, dto, user.userId);
   }
 
-  /**
-   * IN_SCHEDULING → IN_SCHEDULING (atualiza opções de data sem mudar status)
-   */
   @Patch(':id/date-options')
   @ApiOperation({ summary: 'Atualizar opções de data' })
   updateDateOptions(
@@ -389,12 +348,9 @@ export class SurgeryRequestsController {
     @Body() dto: UpdateDateOptionsDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.updateDateOptions(id, dto, user.userId);
+    return this.workflowService.updateDateOptions(id, dto, user.userId);
   }
 
-  /**
-   * SCHEDULED → SCHEDULED (reagenda sem mudar status)
-   */
   @Patch(':id/reschedule')
   @ApiOperation({ summary: 'Reagendar cirurgia' })
   reschedule(
@@ -402,13 +358,9 @@ export class SurgeryRequestsController {
     @Body() dto: RescheduleDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.reschedule(id, dto, user.userId);
+    return this.workflowService.reschedule(id, dto, user.userId);
   }
 
-  /**
-   * SCHEDULED → PERFORMED
-   * Marca como realizada após a cirurgia
-   */
   @Post(':id/mark-performed')
   @ApiOperation({ summary: 'Marcar como realizada' })
   markPerformed(
@@ -416,13 +368,9 @@ export class SurgeryRequestsController {
     @Body() dto: MarkPerformedDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.markPerformed(id, dto, user.userId);
+    return this.workflowService.markPerformed(id, dto, user.userId);
   }
 
-  /**
-   * PERFORMED → INVOICED
-   * Registra o faturamento enviado ao convênio
-   */
   @Post(':id/invoice')
   @ApiOperation({ summary: 'Faturar solicitação' })
   invoiceRequest(
@@ -430,13 +378,9 @@ export class SurgeryRequestsController {
     @Body() dto: InvoiceRequestDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.invoiceRequest(id, dto, user.userId);
+    return this.workflowService.invoiceRequest(id, dto, user.userId);
   }
 
-  /**
-   * INVOICED → FINALIZED
-   * Confirma o recebimento do pagamento
-   */
   @Post(':id/confirm-receipt')
   @ApiOperation({ summary: 'Confirmar recebimento' })
   confirmReceipt(
@@ -444,13 +388,9 @@ export class SurgeryRequestsController {
     @Body() dto: ConfirmReceiptDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.confirmReceipt(id, dto, user.userId);
+    return this.workflowService.confirmReceipt(id, dto, user.userId);
   }
 
-  /**
-   * FINALIZED → FINALIZED (não muda status)
-   * Contesta divergência de pagamento
-   */
   @Post(':id/contest-payment')
   @ApiOperation({ summary: 'Contestar pagamento' })
   contestPayment(
@@ -458,12 +398,9 @@ export class SurgeryRequestsController {
     @Body() dto: ContestPaymentDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.contestPayment(id, dto, user.userId);
+    return this.workflowService.contestPayment(id, dto, user.userId);
   }
 
-  /**
-   * FINALIZED → FINALIZED (edita recebimento após contestação)
-   */
   @Patch(':id/billing/receipt')
   @ApiOperation({ summary: 'Atualizar recebimento' })
   updateReceipt(
@@ -471,13 +408,9 @@ export class SurgeryRequestsController {
     @Body() dto: UpdateReceiptDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.updateReceipt(id, dto, user.userId);
+    return this.workflowService.updateReceipt(id, dto, user.userId);
   }
 
-  /**
-   * ANY → CLOSED (exceto FINALIZED e CLOSED)
-   * Fecha/arquiva a solicitação
-   */
   @Post(':id/close')
   @ApiOperation({ summary: 'Encerrar solicitação' })
   closeSurgeryRequest(
@@ -485,16 +418,9 @@ export class SurgeryRequestsController {
     @Body() dto: CloseSurgeryRequestDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.closeSurgeryRequest(
-      id,
-      dto,
-      user.userId,
-    );
+    return this.workflowService.closeSurgeryRequest(id, dto, user.userId);
   }
 
-  /**
-   * ANY — Envia manualmente um e-mail de notificação
-   */
   @Post(':id/notify')
   @ApiOperation({ summary: 'Enviar notificação manual' })
   notify(
@@ -502,21 +428,15 @@ export class SurgeryRequestsController {
     @Body() dto: NotifySurgeryRequestDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.notify(id, dto, user.userId);
+    return this.workflowService.notify(id, dto, user.userId);
   }
 
-  // ============================================================
-  // SEÇÕES DO LAUDO MÉDICO (CRUD)
-  // ============================================================
-
-  /** GET /surgery-requests/:id/sections — listar sections ordenadas */
   @Get(':id/sections')
   @ApiOperation({ summary: 'Listar seções do laudo' })
   getSections(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.surgeryRequestsService.getReportSections(id, user.userId);
   }
 
-  /** POST /surgery-requests/:id/sections — criar section */
   @Post(':id/sections')
   @ApiOperation({ summary: 'Criar seção do laudo' })
   createSection(
@@ -531,7 +451,6 @@ export class SurgeryRequestsController {
     );
   }
 
-  /** PATCH /surgery-requests/:id/sections/reorder — reordenar sections */
   @Patch(':id/sections/reorder')
   @ApiOperation({ summary: 'Reordenar seções do laudo' })
   reorderSections(
@@ -546,7 +465,6 @@ export class SurgeryRequestsController {
     );
   }
 
-  /** PATCH /surgery-requests/:id/sections/:sectionId — editar section */
   @Patch(':id/sections/:sectionId')
   @ApiOperation({ summary: 'Atualizar seção do laudo' })
   updateSection(
@@ -563,7 +481,6 @@ export class SurgeryRequestsController {
     );
   }
 
-  /** DELETE /surgery-requests/:id/sections/:sectionId — remover section */
   @Delete(':id/sections/:sectionId')
   @ApiOperation({ summary: 'Excluir seção do laudo' })
   deleteSection(
@@ -578,15 +495,6 @@ export class SurgeryRequestsController {
     );
   }
 
-  // ============================================================
-  // PDF DO LAUDO MÉDICO
-  // ============================================================
-
-  /**
-   * Exporta o PDF da solicitação cirúrgica sem alterar o status.
-   * Disponível para solicitações já enviadas (status ≥ 2).
-   * GET /surgery-requests/:id/export-pdf
-   */
   @Get(':id/export-pdf')
   @ApiOperation({ summary: 'Exportar PDF da solicitação cirúrgica' })
   async exportSurgeryRequestPdf(
@@ -594,7 +502,7 @@ export class SurgeryRequestsController {
     @CurrentUser() user: AuthenticatedUser,
     @Res() res: Response,
   ) {
-    const buffer = await this.surgeryRequestsService.exportSurgeryRequestPdf(
+    const buffer = await this.workflowService.exportSurgeryRequestPdf(
       id,
       user.userId,
     );
@@ -606,10 +514,6 @@ export class SurgeryRequestsController {
     res.status(HttpStatus.OK).end(buffer);
   }
 
-  /**
-   * Gera o PDF do Laudo Médico usando o mesmo template da pré-visualização
-   * GET /surgery-requests/:id/medical-report-pdf
-   */
   @Get(':id/medical-report-pdf')
   @ApiOperation({ summary: 'Gerar PDF do laudo médico (template de laudo)' })
   async getMedicalReportPdf(
@@ -629,44 +533,26 @@ export class SurgeryRequestsController {
     res.status(HttpStatus.OK).end(buffer);
   }
 
-  // ============================================================
-  // TEMPLATES DE SOLICITAÇÃO
-  // ============================================================
-
-  /**
-   * GET /surgery-requests/available-doctors
-   * Lista os médicos disponíveis para o usuário logado criar solicitações.
-   * IMPORTANTE: rota registrada ANTES de ':id/...' para não conflitar.
-   */
   @Get('available-doctors')
-  // Lista de médicos acessíveis, não dado cirúrgico: alimenta o filtro da
-  // agenda e o hub de atendimento. Já vem recortada pelo AccessControlService.
+  @SkipSurgeryOwner()
   @RequirePermission()
   @ApiOperation({ summary: 'Listar médicos disponíveis' })
   getAvailableDoctors(@CurrentUser() user: AuthenticatedUser) {
     return this.surgeryRequestsService.getAvailableDoctors(user.userId);
   }
 
-  /**
-   * GET /surgery-requests/templates
-   * Lista os templates salvos do médico logado.
-   * IMPORTANTE: Esta rota deve ser registrada ANTES de ':id/...' para não ser
-   * capturada pelo guard de parâmetro dinâmico.
-   */
   @Get('templates')
+  @SkipSurgeryOwner()
   @ApiOperation({ summary: 'Listar templates' })
   getTemplates(@CurrentUser() user: AuthenticatedUser) {
     return this.surgeryRequestsService.getTemplates(user.userId, user.ownerId);
   }
 
-  /**
-   * POST /surgery-requests/templates
-   * Cria um novo template de solicitação.
-   */
   @Post('templates')
+  @SkipSurgeryOwner()
   @ApiOperation({ summary: 'Criar template' })
   createTemplate(
-    @Body() dto: { name: string; templateData: object },
+    @Body() dto: CreateSurgeryRequestTemplateDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.createTemplate(
@@ -676,11 +562,8 @@ export class SurgeryRequestsController {
     );
   }
 
-  /**
-   * POST /surgery-requests/templates/bulk-delete
-   * Exclui templates em lote do médico logado.
-   */
   @Post('templates/bulk-delete')
+  @SkipSurgeryOwner()
   @ApiOperation({ summary: 'Excluir templates em lote' })
   bulkDeleteTemplates(
     @Body() dto: BulkDeleteTemplatesDto,
@@ -693,12 +576,8 @@ export class SurgeryRequestsController {
     );
   }
 
-  /**
-   * DELETE /surgery-requests/templates/:id
-   * Exclui um template do médico logado.
-   */
   @Delete('templates/:id')
-  @SkipSurgeryOwner() // `:id` aqui é o id do template, não da SC (posse via ownerId no service).
+  @SkipSurgeryOwner()
   @ApiOperation({ summary: 'Excluir template' })
   deleteTemplate(
     @Param('id') id: string,
@@ -711,16 +590,12 @@ export class SurgeryRequestsController {
     );
   }
 
-  /**
-   * PATCH /surgery-requests/templates/:id
-   * Atualiza um template do médico logado.
-   */
   @Patch('templates/:id')
-  @SkipSurgeryOwner() // `:id` aqui é o id do template, não da SC (posse via ownerId no service).
+  @SkipSurgeryOwner()
   @ApiOperation({ summary: 'Atualizar template' })
   updateTemplate(
     @Param('id') id: string,
-    @Body() dto: { name?: string; templateData?: object },
+    @Body() dto: UpdateSurgeryRequestTemplateDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.updateTemplate(
@@ -731,14 +606,8 @@ export class SurgeryRequestsController {
     );
   }
 
-  /**
-   * GET /surgery-requests/templates/:id
-   * Modelo completo, com o `templateData`. A listagem devolve só o resumo — o
-   * conteúdo pesado é buscado aqui, quando o modelo é aberto para edição ou
-   * usado para criar uma solicitação.
-   */
   @Get('templates/:id')
-  @SkipSurgeryOwner() // `:id` aqui é o id do template, não da SC (posse via ownerId no service).
+  @SkipSurgeryOwner()
   @ApiOperation({ summary: 'Detalhar template' })
   getTemplate(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.surgeryRequestsService.getTemplate(
@@ -749,7 +618,7 @@ export class SurgeryRequestsController {
   }
 
   @Post('templates/:id/increment-usage')
-  @SkipSurgeryOwner() // `:id` aqui é o id do template, não da SC (posse via ownerId no service).
+  @SkipSurgeryOwner()
   @ApiOperation({ summary: 'Incrementar uso do template' })
   incrementTemplateUsage(
     @Param('id') id: string,

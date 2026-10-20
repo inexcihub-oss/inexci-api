@@ -31,7 +31,7 @@ function planejar(tabelas: Record<string, unknown[]>) {
   const exp = exportSintetico({
     usuarios: [{ id: '173', tipo_usuario: 'Profissionais', id_relativo: '1' }],
     ...tabelas,
-  } as never);
+  });
   return { ctx, plano: planejarModelos(exp, ctx) };
 }
 

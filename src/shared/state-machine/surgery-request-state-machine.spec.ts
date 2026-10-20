@@ -1,5 +1,8 @@
-import { BadRequestException } from '@nestjs/common';
-import { SurgeryRequestStateMachine } from './surgery-request-state-machine';
+import { BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  SurgeryRequestStateMachine,
+  assertTransitionApplied,
+} from './surgery-request-state-machine';
 import {
   SurgeryRequest,
   SurgeryRequestStatus,
@@ -26,8 +29,6 @@ describe('SurgeryRequestStateMachine', () => {
     sm = new SurgeryRequestStateMachine();
   });
 
-  // ── PENDING → SENT ─────────────────────────────────────────────────────
-
   describe('PENDING → SENT', () => {
     it('deve permitir transição quando status é PENDING', () => {
       const req = makeRequest();
@@ -46,8 +47,6 @@ describe('SurgeryRequestStateMachine', () => {
     });
   });
 
-  // ── SENT → IN_ANALYSIS ─────────────────────────────────────────────────
-
   describe('SENT → IN_ANALYSIS', () => {
     it('deve permitir transição de SENT', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.SENT });
@@ -63,8 +62,6 @@ describe('SurgeryRequestStateMachine', () => {
       );
     });
   });
-
-  // ── IN_ANALYSIS → IN_SCHEDULING ────────────────────────────────────────
 
   describe('IN_ANALYSIS → IN_SCHEDULING', () => {
     it('deve permitir transição de IN_ANALYSIS', () => {
@@ -82,8 +79,6 @@ describe('SurgeryRequestStateMachine', () => {
     });
   });
 
-  // ── IN_SCHEDULING → SCHEDULED ──────────────────────────────────────────
-
   describe('IN_SCHEDULING → SCHEDULED', () => {
     it('deve permitir transição de IN_SCHEDULING', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.IN_SCHEDULING });
@@ -99,8 +94,6 @@ describe('SurgeryRequestStateMachine', () => {
       );
     });
   });
-
-  // ── SCHEDULED → PERFORMED ──────────────────────────────────────────────
 
   describe('SCHEDULED → PERFORMED', () => {
     it('deve permitir transição de SCHEDULED', () => {
@@ -118,8 +111,6 @@ describe('SurgeryRequestStateMachine', () => {
     });
   });
 
-  // ── PERFORMED → INVOICED ───────────────────────────────────────────────
-
   describe('PERFORMED → INVOICED', () => {
     it('deve permitir transição de PERFORMED (dados do DTO, não pré-checados)', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.PERFORMED });
@@ -133,8 +124,6 @@ describe('SurgeryRequestStateMachine', () => {
       );
     });
   });
-
-  // ── INVOICED → FINALIZED ───────────────────────────────────────────────
 
   describe('INVOICED → FINALIZED', () => {
     it('deve permitir transição de INVOICED (dados do DTO, não pré-checados)', () => {
@@ -151,8 +140,6 @@ describe('SurgeryRequestStateMachine', () => {
       );
     });
   });
-
-  // ── QUALQUER → CLOSED ─────────────────────────────────────────────────
 
   describe('→ CLOSED', () => {
     it('deve permitir encerrar de PENDING', () => {
@@ -198,8 +185,6 @@ describe('SurgeryRequestStateMachine', () => {
       expect(pendencies[0]).toContain('Encerrada');
     });
   });
-
-  // ── assertCanTransition ────────────────────────────────────────────────
 
   describe('assertCanTransition', () => {
     beforeEach(() => {
@@ -250,13 +235,49 @@ describe('SurgeryRequestStateMachine', () => {
     });
   });
 
-  // ── Status desconhecido ────────────────────────────────────────────────
-
   describe('status desconhecido', () => {
     it('deve retornar pendência para status não reconhecido', () => {
       const req = makeRequest();
       const pendencies = sm.getBlockingPendencies(req, 999 as any);
       expect(pendencies[0]).toContain('não reconhecida');
     });
+  });
+});
+
+describe('SurgeryRequestStateMachine.assertStatus', () => {
+  const sm = new SurgeryRequestStateMachine();
+
+  it('passa quando o status é o esperado', () => {
+    expect(() =>
+      sm.assertStatus(
+        makeRequest({ status: SurgeryRequestStatus.SCHEDULED }),
+        SurgeryRequestStatus.SCHEDULED,
+        'precisa estar Agendada',
+      ),
+    ).not.toThrow();
+  });
+
+  it('recusa com a mensagem específica e pendencies[] (mesmo formato da transição)', () => {
+    try {
+      sm.assertStatus(
+        makeRequest({ status: SurgeryRequestStatus.PENDING }),
+        SurgeryRequestStatus.SCHEDULED,
+        'precisa estar Agendada',
+      );
+      fail('deveria lançar');
+    } catch (err) {
+      expect(err).toBeInstanceOf(BadRequestException);
+      expect((err as BadRequestException).getResponse()).toEqual({
+        message: 'precisa estar Agendada',
+        pendencies: ['precisa estar Agendada'],
+      });
+    }
+  });
+});
+
+describe('assertTransitionApplied', () => {
+  it('UPDATE condicional sem linha afetada vira 409', () => {
+    expect(() => assertTransitionApplied(false)).toThrow(ConflictException);
+    expect(() => assertTransitionApplied(true)).not.toThrow();
   });
 });

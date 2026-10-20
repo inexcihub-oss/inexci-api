@@ -15,6 +15,7 @@ describe('DoctorPdfContextService', () => {
 
   const doctorWithProfile = {
     id: 'doctor-1',
+    ownerId: 'owner-1',
     name: 'Dra. Ana Souza',
     email: 'ana@clinica.com',
     phone: '21999998888',
@@ -140,7 +141,7 @@ describe('DoctorPdfContextService', () => {
   it('resolve o cabeçalho customizado do médico com o logo assinado', async () => {
     userRepository.findOneWithProfile.mockResolvedValue(doctorWithProfile);
     doctorHeaderRepository.findByDoctorProfileId.mockResolvedValue({
-      logoUrl: 'headers/logo.png',
+      logoUrl: 'headers/owner-1/logo.png',
       logoPosition: 'center',
       contentHtml: '<p>Clínica Souza</p>',
     });
@@ -151,10 +152,52 @@ describe('DoctorPdfContextService', () => {
     const context = await service.buildForDoctorId('doctor-1');
 
     expect(context.customHeader).toEqual({
-      logoUrl: 'https://r2/headers/logo.png',
+      logoUrl: 'https://r2/headers/owner-1/logo.png',
       logoPosition: 'center',
       contentHtml: '<p>Clínica Souza</p>',
     });
+  });
+
+  it.each([
+    ['de outra conta', 'headers/owner-2/logo.png'],
+    ['externo', 'https://169.254.169.254/latest/meta-data'],
+    [
+      'de outro bucket',
+      'https://conta.r2.cloudflarestorage.com/outro/headers/owner-1/a.png',
+    ],
+  ])('não usa logo %s no PDF', async (_, logoUrl) => {
+    userRepository.findOneWithProfile.mockResolvedValue(doctorWithProfile);
+    doctorHeaderRepository.findByDoctorProfileId.mockResolvedValue({
+      logoUrl,
+      logoPosition: 'left',
+      contentHtml: null,
+    });
+    storageService.getSignedUrl.mockResolvedValue('https://assinada');
+
+    const context = await service.buildForDoctorId('doctor-1');
+
+    expect(context.customHeader?.logoUrl).toBeNull();
+    expect(storageService.getSignedUrl).not.toHaveBeenCalledWith(logoUrl);
+  });
+
+  it('reassina logo legado salvo como URL do nosso bucket', async () => {
+    (storageService as Record<string, unknown>).nomeDoBucket = 'inexci';
+    userRepository.findOneWithProfile.mockResolvedValue(doctorWithProfile);
+    doctorHeaderRepository.findByDoctorProfileId.mockResolvedValue({
+      logoUrl:
+        'https://conta.r2.cloudflarestorage.com/inexci/headers/owner-1/a.png?X-Amz-Expires=1',
+      logoPosition: 'left',
+      contentHtml: null,
+    });
+    storageService.getSignedUrl.mockImplementation((path: string) =>
+      Promise.resolve(`https://r2/${path}`),
+    );
+
+    const context = await service.buildForDoctorId('doctor-1');
+
+    expect(context.customHeader?.logoUrl).toBe(
+      'https://r2/headers/owner-1/a.png',
+    );
   });
 
   it('devolve customHeader nulo quando o médico não configurou cabeçalho', async () => {

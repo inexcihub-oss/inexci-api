@@ -5,7 +5,6 @@
     "test",
     "dist",
     "scripts",
-    "test-validation.ts",
     "**/*spec.ts"
   ]
 }

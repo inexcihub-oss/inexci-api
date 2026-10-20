@@ -6,7 +6,6 @@ import {
   ValidateIf,
 } from 'class-validator';
 
-/** Opcional, mas sem aceitar `null` (ausente passa; `null` é recusado). */
 const SeInformado = () => ValidateIf((_, v: unknown) => v !== undefined);
 
 export class CreateClinicRoomDto {
@@ -23,7 +22,6 @@ export class UpdateClinicRoomDto {
   @MaxLength(80)
   name?: string;
 
-  /** Sala desativada some do agendamento, mas continua nas consultas antigas. */
   @SeInformado()
   @IsBoolean()
   active?: boolean;

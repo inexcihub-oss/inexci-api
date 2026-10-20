@@ -22,6 +22,10 @@ describe('DocumentClassifierService', () => {
     service = new DocumentClassifierService(openai, configService);
   });
 
+  const classify = async (
+    opts: Parameters<DocumentClassifierService['classifyWithUsage']>[0],
+  ) => (await service.classifyWithUsage(opts)).classification;
+
   function buildLlmResponse(payload: object) {
     return {
       choices: [
@@ -33,7 +37,7 @@ describe('DocumentClassifierService', () => {
   }
 
   it('devolve classificação vazia quando texto está em branco', async () => {
-    const result = await service.classify({ text: '   ' });
+    const result = await classify({ text: '   ' });
 
     expect(openai.chatCompletion).not.toHaveBeenCalled();
     expect(result.kind).toBe('unknown');
@@ -71,7 +75,7 @@ describe('DocumentClassifierService', () => {
       }),
     );
 
-    const result = await service.classify({
+    const result = await classify({
       text: 'Laudo médico completo com {{cpf_1}}.',
       intent: 'attach',
       messageSid: 'SM-test',
@@ -140,7 +144,7 @@ describe('DocumentClassifierService', () => {
       }),
     );
 
-    const result = await service.classify({ text: 'guia com códigos TUSS' });
+    const result = await classify({ text: 'guia com códigos TUSS' });
 
     expect(result.extracted.tuss).toEqual([
       {
@@ -191,7 +195,7 @@ describe('DocumentClassifierService', () => {
       }),
     );
 
-    const result = await service.classify({ text: 'laudo com endereço' });
+    const result = await classify({ text: 'laudo com endereço' });
 
     expect(result.extracted.patient).toEqual({
       name: 'Lucas Bruno Borges de Medeiros',
@@ -223,7 +227,7 @@ describe('DocumentClassifierService', () => {
       }),
     );
 
-    const result = await service.classify({
+    const result = await classify({
       text: 'documento confuso',
     });
 
@@ -274,7 +278,7 @@ describe('DocumentClassifierService', () => {
       }),
     );
 
-    const result = await service.classify({ text: 'guia válida' });
+    const result = await classify({ text: 'guia válida' });
 
     expect(result.extracted.tuss).toEqual([
       { code: '30602122', description: 'Artroscopia de joelho' },
@@ -288,8 +292,6 @@ describe('DocumentClassifierService', () => {
   });
 
   it('extrai diagnóstico, procedimento sugerido, OPME com supplier/manufacturer e fornecedores', async () => {
-    // Caso real do laudo do Jean Pierre — o classifier deve devolver TUDO
-    // que aparece estruturado no documento.
     openai.chatCompletion.mockResolvedValueOnce(
       buildLlmResponse({
         kind: 'surgery_request',
@@ -348,7 +350,7 @@ describe('DocumentClassifierService', () => {
       }),
     );
 
-    const result = await service.classify({
+    const result = await classify({
       text: 'laudo do jean pierre — texto completo com mais de 60 chars',
       intent: 'create_sc',
     });
@@ -424,7 +426,7 @@ describe('DocumentClassifierService', () => {
       }),
     );
 
-    const result = await service.classify({
+    const result = await classify({
       text: 'laudo com múltiplas seções',
     });
 
@@ -447,17 +449,16 @@ describe('DocumentClassifierService', () => {
       choices: [{ message: { content: 'isto não é json' } }],
     } as any);
 
-    await expect(service.classify({ text: 'algum texto' })).rejects.toThrow(
+    await expect(classify({ text: 'algum texto' })).rejects.toThrow(
       /Resposta do classificador não é JSON válido/,
     );
   });
 
   it('curto-circuita quando o input degenerou em payload_blob (proteção contra regressão do PII Vault)', async () => {
-    const result = await service.classify({
+    const result = await classify({
       text: '   {{payload_blob_3}}   ',
     });
 
-    // Não chegou a chamar a OpenAI — economiza tokens.
     expect(openai.chatCompletion).not.toHaveBeenCalled();
     expect(result.kind).toBe('unknown');
     expect(result.confidence).toBe(0);
@@ -492,7 +493,7 @@ describe('DocumentClassifierService', () => {
       }),
     );
 
-    await service.classify({
+    await classify({
       text: 'Texto qualquer com mais de 60 chars para evitar curto-circuito de blob.',
     });
     const callArgs = openai.chatCompletion.mock.calls[0][0];
@@ -527,7 +528,7 @@ describe('DocumentClassifierService', () => {
       }),
     );
 
-    await service.classify({
+    await classify({
       text: 'Texto qualquer com mais de 60 chars para evitar curto-circuito de blob.',
     });
     const callArgs = openai.chatCompletion.mock.calls[0][0];

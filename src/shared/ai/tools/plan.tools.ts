@@ -1,5 +1,4 @@
-import OpenAI from 'openai';
-import { AiTool, ToolContext } from './tool.interface';
+import { AiTool, ANY_AUTHENTICATED, ToolContext } from './tool.interface';
 import { OperationDraftService } from '../services/operation-draft.service';
 import {
   COMPLEX_INTENTS,
@@ -7,11 +6,8 @@ import {
   OperationDraftType,
 } from '../drafts/operation-draft.types';
 import { buildToolResult } from './tool-result';
+import { argToString } from './helpers/arg-parsers';
 
-/**
- * Resultado retornado pela tool `plan_actions` ao LLM. Carrega o draft
- * aberto/atualizado e a lista de campos que ainda faltam.
- */
 export interface PlanActionsData {
   intent: string;
   draft_type: OperationDraftType | null;
@@ -20,12 +16,9 @@ export interface PlanActionsData {
   next_required_fields: string[];
   plan_steps: string[];
   mentioned_entities: Record<string, unknown>;
+  protected_create_sc_active?: boolean;
 }
 
-/**
- * Mapeia intents de cadastro → campo do draft pai (`create_sc`) que
- * será preenchido automaticamente após o commit do sub-draft.
- */
 const SUBDRAFT_RETURN_FIELD: Record<string, string> = {
   create_patient: 'patientId',
   create_hospital: 'hospitalId',
@@ -52,9 +45,14 @@ const PLAN_INTENTS = [
   'unknown',
 ] as const;
 
-export function buildPlanTools(draftService: OperationDraftService): AiTool[] {
+export interface PlanToolDeps {
+  draftService: OperationDraftService;
+}
+
+export function buildPlanTools({ draftService }: PlanToolDeps): AiTool[] {
   const planActions: AiTool = {
     name: 'plan_actions',
+    requiredPermission: ANY_AUTHENTICATED,
     definition: {
       type: 'function',
       function: {
@@ -110,19 +108,18 @@ export function buildPlanTools(draftService: OperationDraftService): AiTool[] {
           required: ['intent', 'plan_steps'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
-      const intentRaw = String((args as any).intent ?? '').trim();
+      const intentRaw = argToString(args.intent ?? '').trim();
       const intent = (PLAN_INTENTS as readonly string[]).includes(intentRaw)
         ? intentRaw
         : 'unknown';
-      const plan_steps: string[] = Array.isArray((args as any).plan_steps)
-        ? (args as any).plan_steps.map((s: unknown) => String(s ?? ''))
+      const plan_steps: string[] = Array.isArray(args.plan_steps)
+        ? args.plan_steps.map((s: unknown) => argToString(s ?? ''))
         : [];
       const mentioned_entities: Record<string, unknown> =
-        (args as any).mentioned_entities &&
-        typeof (args as any).mentioned_entities === 'object'
-          ? ((args as any).mentioned_entities as Record<string, unknown>)
+        args.mentioned_entities && typeof args.mentioned_entities === 'object'
+          ? (args.mentioned_entities as Record<string, unknown>)
           : {};
 
       const draftType = intentToDraftType(intent);
@@ -135,17 +132,6 @@ export function buildPlanTools(draftService: OperationDraftService): AiTool[] {
         const current = await draftService.getCurrent(context.conversationId);
         const subdraftReturnField = SUBDRAFT_RETURN_FIELD[intent];
 
-        // GUARD: enquanto houver `create_sc` ativo, NÃO derrubamos o draft
-        // pai para abrir drafts não-relacionados (update_sc, send_sc,
-        // invoice, etc.). Esses intents foram historicamente disparados
-        // quando o usuário disse coisas como "quero adicionar hospital e
-        // convênio" — o LLM rotulava como `update_sc` e o código apagava
-        // o `create_sc` em curso. A nova regra:
-        //   - Se o intent é um cadastro (paciente/hospital/convênio/
-        //     procedimento) → abre como sub-draft (comportamento clássico).
-        //   - Se o intent é `create_sc` → retoma o existente (não recria).
-        //   - Caso contrário → mantém o `create_sc` e devolve um sinal
-        //     `protected_create_sc_active` para o LLM se reorientar.
         if (current && current.type === 'create_sc') {
           if (draftType !== 'create_sc' && subdraftReturnField) {
             await draftService.start({
@@ -188,7 +174,7 @@ export function buildPlanTools(draftService: OperationDraftService): AiTool[] {
         mentioned_entities,
       };
       if (protectedCreateScActive) {
-        (data as any).protected_create_sc_active = true;
+        data.protected_create_sc_active = true;
       }
 
       const message = protectedCreateScActive

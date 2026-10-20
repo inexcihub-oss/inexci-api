@@ -1,16 +1,14 @@
 import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
 import { IsStrongPassword } from 'src/shared/validators/strong-password.decorator';
+import { NormalizeEmail } from 'src/shared/validators/normalize-email.decorator';
 
 export class changePasswordDto {
   @IsString()
   @IsNotEmpty()
   @IsEmail()
+  @NormalizeEmail()
   email: string;
 
-  /**
-   * Reset token de uso único devolvido por `validateRecoveryPasswordCode`.
-   * Amarra a troca de senha à validação prévia do código.
-   */
   @IsString()
   @IsNotEmpty()
   resetToken: string;

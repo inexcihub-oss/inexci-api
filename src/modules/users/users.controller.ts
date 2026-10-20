@@ -31,12 +31,6 @@ import {
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  // `GET /users` (diretório do staff) e `GET /users/one` foram removidos: não
-  // tinham consumidor e o primeiro devolvia nome, e-mail, telefone e CPF de
-  // todo colega do tenant a qualquer autenticado com uma área. A gestão de
-  // equipe usa as rotas `collaborators`/`doctors`, gated por `ADMINISTRACAO`;
-  // o autoatendimento usa `profile`.
-
   @Get('profile')
   @ApiOperation({ summary: 'Obter perfil do usuário autenticado' })
   async getProfile(@CurrentUser() user: AuthenticatedUser) {
@@ -72,19 +66,6 @@ export class UsersController {
     return await this.usersService.updateProfileById(id, data, user.userId);
   }
 
-  // ============ PERFIL MÉDICO ============
-
-  // Administração, Solicitações OU Atendimento: além do admin da conta, o
-  // editor de laudo (MedicalReportEditor) usa esta rota para o colaborador
-  // vinculado ao médico da solicitação subir/remover SOMENTE a assinatura —
-  // esse colaborador tem Solicitações, não Administração. E o próprio
-  // profissional salva os dados dele em Configurações por aqui: quem não é
-  // CRM (nutricionista, psicóloga, dentista...) não tem Solicitações, mas
-  // todo perfil profissional recebe Atendimento. A barreira grossa aqui é só
-  // "está numa dessas áreas". Quem de fato restringe (o próprio, a
-  // administração do mesmo tenant, o vínculo colaborador↔médico e o campo
-  // permitido) é a checagem fina em UsersService.updateDoctorProfileById
-  // (`isSelf` / `isAdmin` / `isLinkedCollaborator` / `onlySignature`).
   @Patch('doctor-profile/:id')
   @RequirePermission(
     Permission.ADMINISTRACAO,
@@ -103,8 +84,6 @@ export class UsersController {
       user.userId,
     );
   }
-
-  // ============ CABEÇALHO DE DOCUMENTOS ============
 
   @Get('me/header')
   @ApiOperation({
@@ -129,10 +108,6 @@ export class UsersController {
     return this.usersService.deleteMyHeader(user.userId);
   }
 
-  // Diferente do PATCH de perfil médico acima: o editor de laudo
-  // (MedicalReportEditor) usa o cabeçalho do PRÓPRIO usuário (`/users/me/header`,
-  // via `isOwnRequest`), nunca esta rota "por id". Só o admin da conta
-  // configura o cabeçalho de outro médico (ex.: `colaboradores/assistente/[id]`).
   @Get('doctor-profile/:id/header')
   @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Obter cabeçalho personalizado de um médico' })
@@ -143,7 +118,6 @@ export class UsersController {
     return this.usersService.getDoctorHeaderByUserId(id, user.userId);
   }
 
-  // Mesmo motivo do GET acima: só admin configura cabeçalho de terceiro.
   @Put('doctor-profile/:id/header')
   @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Criar/atualizar cabeçalho de um médico' })
@@ -155,7 +129,6 @@ export class UsersController {
     return this.usersService.upsertDoctorHeaderByUserId(id, dto, user.userId);
   }
 
-  // Mesmo motivo do GET acima: só admin configura cabeçalho de terceiro.
   @Delete('doctor-profile/:id/header')
   @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Remover cabeçalho de um médico' })
@@ -165,8 +138,6 @@ export class UsersController {
   ) {
     return this.usersService.deleteDoctorHeaderByUserId(id, user.userId);
   }
-
-  // ============ COLABORADORES ============
 
   @Get('doctors')
   @RequirePermission(Permission.ADMINISTRACAO)

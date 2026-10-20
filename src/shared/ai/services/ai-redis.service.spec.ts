@@ -125,17 +125,6 @@ describe('AiRedisService', () => {
     });
   });
 
-  describe('setFlag / hasFlag', () => {
-    it('deve retornar false quando flag não existe', async () => {
-      expect(await service.hasFlag('clear:phone')).toBe(false);
-    });
-
-    it('deve setar e verificar flag', async () => {
-      await service.setFlag('clear:phone', 300);
-      expect(await service.hasFlag('clear:phone')).toBe(true);
-    });
-  });
-
   describe('fallback quando Redis indisponível', () => {
     beforeEach(() => {
       (service as any).redis = null;
@@ -156,13 +145,32 @@ describe('AiRedisService', () => {
     it('cacheDelete não deve lançar erro', async () => {
       await expect(service.cacheDelete('k')).resolves.toBeUndefined();
     });
+  });
 
-    it('hasFlag deve retornar false', async () => {
-      expect(await service.hasFlag('any')).toBe(false);
+  describe('claimOnce', () => {
+    it('usa SET NX com TTL quando o Redis está pronto', async () => {
+      mockRedisInstance.set = jest
+        .fn()
+        .mockResolvedValueOnce('OK')
+        .mockResolvedValueOnce(null);
+
+      expect(await service.claimOnce('inbound:sid:SM-1', 60)).toBe(true);
+      expect(await service.claimOnce('inbound:sid:SM-1', 60)).toBe(false);
+      expect(mockRedisInstance.set).toHaveBeenCalledWith(
+        'ai:inbound:sid:SM-1',
+        '1',
+        'EX',
+        60,
+        'NX',
+      );
     });
 
-    it('setFlag não deve lançar erro', async () => {
-      await expect(service.setFlag('k', 60)).resolves.toBeUndefined();
+    it('cai para memória local quando o Redis está indisponível', async () => {
+      (service as any).redis = null;
+
+      expect(await service.claimOnce('k', 60)).toBe(true);
+      expect(await service.claimOnce('k', 60)).toBe(false);
+      expect(await service.claimOnce('outra', 60)).toBe(true);
     });
   });
 });

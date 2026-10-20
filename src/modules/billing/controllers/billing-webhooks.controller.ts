@@ -10,7 +10,7 @@ import { ApiExcludeController } from '@nestjs/swagger';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 
-import { Public } from 'src/shared/decorator/is-public.decorator';
+import { Public } from 'src/shared/decorators/is-public.decorator';
 import { SkipConsentCheck } from 'src/shared/decorators/skip-consent-check.decorator';
 import { BillingWebhookService } from '../services/billing-webhook.service';
 

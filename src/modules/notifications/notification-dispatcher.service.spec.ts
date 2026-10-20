@@ -117,7 +117,6 @@ describe('NotificationDispatcherService', () => {
     });
 
     expect(mockNotificationRepository.create).not.toHaveBeenCalled();
-    // WhatsApp continua independente do push
     expect(mockWhatsappService.sendTemplate).toHaveBeenCalled();
   });
 
@@ -149,15 +148,6 @@ describe('NotificationDispatcherService', () => {
     expect(mockWhatsappService.sendTemplate).not.toHaveBeenCalled();
   });
 
-  it('dispatchToMany envia para todos os usuários', async () => {
-    await service.dispatchToMany(['user-1', 'user-2', 'user-3'], {
-      type: NotificationType.INFO,
-      title: 'Aviso',
-      message: 'Mensagem',
-    });
-
-    expect(mockNotificationRepository.create).toHaveBeenCalledTimes(3);
-  });
   describe('menções', () => {
     it('devolve a notificação criada para quem chamou', async () => {
       mockNotificationRepository.create.mockResolvedValue({

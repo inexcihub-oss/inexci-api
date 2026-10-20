@@ -140,7 +140,6 @@ describe('DocumentVisionFallbackService', () => {
     expect(result.classification.confidence).toBeCloseTo(0.95, 2);
     expect(result.classification.model).toBe('gpt-4o');
 
-    // CPF do retorno foi tokenizado pelo PII Vault.
     expect(result.classification.extracted.patient?.cpf).toMatch(
       /^\{\{cpf_\d+\}\}$/,
     );

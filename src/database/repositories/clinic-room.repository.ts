@@ -9,7 +9,6 @@ export class ClinicRoomRepository extends BaseRepository<ClinicRoom> {
     super(dataSource.getRepository(ClinicRoom));
   }
 
-  /** Salas de uma clínica da conta, por nome. Inclui as inativas. */
   findByClinic(ownerId: string, clinicId: string): Promise<ClinicRoom[]> {
     return this.repository.find({
       where: { ownerId, clinicId },

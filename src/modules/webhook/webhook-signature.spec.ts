@@ -6,7 +6,7 @@ function criarService(env: Record<string, string>) {
     get: jest.fn((chave: string, padrao = '') => env[chave] ?? padrao),
   };
   const service = Object.create(WebhookService.prototype);
-  (service as any).configService = configService;
+  service.configService = configService;
   return service as WebhookService;
 }
 
@@ -34,9 +34,6 @@ describe('WebhookService.validateTwilioSignature', () => {
   });
 
   it('valida assinatura FORA de producao quando ha token (ex.: staging)', () => {
-    // Regressão: antes a validação só ligava em production, então um deploy em
-    // staging com token aceitava webhooks forjados. Agora, token presente ⇒
-    // valida em qualquer ambiente. Assinatura inválida deve ser recusada.
     const service = criarService({
       NODE_ENV: 'staging',
       TWILIO_AUTH_TOKEN: 'token-secreto',
@@ -59,7 +56,6 @@ describe('WebhookService.validateTwilioSignature', () => {
       dev.validateTwilioSignature('qualquer', ['https://api/x'], {}),
     ).not.toThrow();
 
-    // Em produção o opt-out é ignorado: sem assinatura válida, recusa.
     const prod = criarService({
       NODE_ENV: 'production',
       TWILIO_VALIDATE_SIGNATURE: 'false',
@@ -68,5 +64,59 @@ describe('WebhookService.validateTwilioSignature', () => {
     expect(() =>
       prod.validateTwilioSignature('assinatura-forjada', ['https://api/x'], {}),
     ).toThrow(UnauthorizedException);
+  });
+
+  it('ignora o opt-out em staging (NODE_ENV fora de development/test/local)', () => {
+    const service = criarService({
+      NODE_ENV: 'staging',
+      TWILIO_VALIDATE_SIGNATURE: 'false',
+      TWILIO_AUTH_TOKEN: 'token-secreto',
+    });
+
+    expect(() =>
+      service.validateTwilioSignature(
+        'assinatura-forjada',
+        ['https://api/x'],
+        {},
+      ),
+    ).toThrow(UnauthorizedException);
+  });
+
+  it('recusa sem TWILIO_AUTH_TOKEN fora dos ambientes locais', () => {
+    const service = criarService({
+      NODE_ENV: 'staging',
+      TWILIO_AUTH_TOKEN: '',
+    });
+
+    expect(() =>
+      service.validateTwilioSignature('assinatura', ['https://api/x'], {}),
+    ).toThrow(UnauthorizedException);
+  });
+
+  it('valida por padrão em desenvolvimento quando a env não desliga explicitamente', () => {
+    const service = criarService({
+      NODE_ENV: 'development',
+      TWILIO_AUTH_TOKEN: 'token-secreto',
+    });
+
+    expect(() =>
+      service.validateTwilioSignature(
+        'assinatura-forjada',
+        ['https://api/x'],
+        {},
+      ),
+    ).toThrow(UnauthorizedException);
+  });
+
+  it('honra o opt-out em test', () => {
+    const service = criarService({
+      NODE_ENV: 'test',
+      TWILIO_VALIDATE_SIGNATURE: 'false',
+      TWILIO_AUTH_TOKEN: 'token-secreto',
+    });
+
+    expect(() =>
+      service.validateTwilioSignature('qualquer', ['https://api/x'], {}),
+    ).not.toThrow();
   });
 });

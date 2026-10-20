@@ -14,6 +14,7 @@ import { PdfGenerationJobData } from './pdf-generation.service';
 import { SurgeryRequestPdfAssemblyService } from 'src/modules/surgery-requests/services/surgery-request-pdf-assembly.service';
 import { requestContextStorage } from 'src/shared/logging/request-context';
 import { randomUUID } from 'crypto';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 @Injectable()
 @Processor('pdf-generation')
@@ -46,7 +47,6 @@ export class PdfGenerationProcessor {
     );
 
     try {
-      // ── Carregar solicitação com todas as relações necessárias ─────────────
       const request =
         await this.surgeryRequestRepository.findOneWithAllRelations({
           id: surgeryRequestId,
@@ -59,7 +59,6 @@ export class PdfGenerationProcessor {
         return;
       }
 
-      // ── Gerar PDF (mesclado com documentos anexos) via serviço compartilhado
       const { pdf } = await this.pdfAssemblyService.generateLaudoPdf(
         request,
         userId,
@@ -79,7 +78,6 @@ export class PdfGenerationProcessor {
         request.ownerId,
       );
 
-      // ── Registrar atividade PDF_GENERATED ─────────────────────────────────
       await this.activityRepo.save({
         surgeryRequestId: surgeryRequestId,
         userId: null,
@@ -93,10 +91,10 @@ export class PdfGenerationProcessor {
       this.logger.log(
         `[PDF] PDF gerado e registrado com sucesso para solicitação: ${surgeryRequestId} → ${storagePath}`,
       );
-    } catch (err: any) {
+    } catch (err) {
       this.logger.error(
-        `[PDF] Falha ao gerar PDF para solicitação ${surgeryRequestId}: ${err?.message}`,
-        err?.stack,
+        `[PDF] Falha ao gerar PDF para solicitação ${surgeryRequestId}: ${errorMessage(err)}`,
+        err instanceof Error ? err.stack : undefined,
       );
       throw err;
     }

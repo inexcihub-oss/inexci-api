@@ -1,12 +1,3 @@
-/**
- * Fase 4 do `PLANO-OBSERVABILIDADE-GRAFANA.md` (Dashboard 5 — Filas Bull).
- *
- * As filas Bull não emitem eventos via `@nestjs/event-emitter` — cada fila tem
- * seu próprio EventEmitter (`queue.on('completed'|'failed', ...)`). Este
- * listener assina as filas registradas em `QueuesModule` e converte
- * `job.finishedOn - job.processedOn` em `inexci.queue.job.duration`, sem
- * tocar nos processors de negócio.
- */
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
 import { Job, Queue } from 'bull';

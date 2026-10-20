@@ -9,11 +9,6 @@ import {
 } from 'typeorm';
 import { SurgeryRequest } from './surgery-request.entity';
 
-/**
- * Itens TUSS vinculados a uma solicitação cirúrgica.
- * Uma solicitação pode ter múltiplos itens TUSS.
- * Esta entidade é separada de `Procedure`, que representa o tipo de procedimento cirúrgico.
- */
 @Entity('surgery_request_tuss_items')
 export class SurgeryRequestTussItem {
   @PrimaryGeneratedColumn('uuid')
@@ -40,7 +35,6 @@ export class SurgeryRequestTussItem {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  // Relations
   @ManyToOne(() => SurgeryRequest, (sr) => sr.tussItems)
   @JoinColumn({ name: 'surgery_request_id' })
   surgeryRequest: SurgeryRequest;

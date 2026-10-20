@@ -5,10 +5,12 @@ import {
   MinLength,
   IsBoolean,
   IsOptional,
-  Matches,
+  MaxLength,
   ValidateIf,
 } from 'class-validator';
+import { UserPhone } from 'src/shared/pipes/phone-mask.pipe';
 import { IsStrongPassword } from 'src/shared/validators/strong-password.decorator';
+import { NormalizeEmail } from 'src/shared/validators/normalize-email.decorator';
 
 export class RegisterDto {
   @IsString()
@@ -19,6 +21,7 @@ export class RegisterDto {
   @IsString()
   @IsNotEmpty()
   @IsEmail()
+  @NormalizeEmail()
   email: string;
 
   @IsString()
@@ -46,12 +49,15 @@ export class RegisterDto {
 
   @IsString()
   @IsNotEmpty({ message: 'O telefone é obrigatório' })
-  @Matches(/^\D*(?:\d\D*){10,11}$/, {
-    message: 'Informe um telefone válido com DDD (10 ou 11 dígitos)',
-  })
+  @UserPhone()
   phone: string;
 
   @IsString()
   @IsOptional()
   planSlug?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(2048)
+  captchaToken?: string;
 }

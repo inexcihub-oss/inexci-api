@@ -39,18 +39,12 @@ describe('ManufacturersService', () => {
     );
   });
 
-  /**
-   * "Outro" é o fabricante genérico da conta — a resposta para "nenhum dos
-   * cadastrados", não um cadastro. Ele aparece nos itens OPME, mas não é do
-   * usuário: deixá-lo no catálogo o convida a editar ou excluir uma linha que
-   * a plataforma usa como conceito.
-   */
   describe('opção genérica "Outro"', () => {
     it('fica fora da listagem do catálogo', async () => {
       mockManufacturerRepository.total.mockResolvedValue(0);
       mockManufacturerRepository.findMany.mockResolvedValue([]);
 
-      await service.findAll({} as never, userId);
+      await service.findAll({}, userId);
 
       expect(
         mockManufacturerRepository.findMany.mock.calls[0][0],
@@ -71,7 +65,7 @@ describe('ManufacturersService', () => {
       });
 
       await expect(
-        service.update('gen-1', { name: 'Meu Fabricante' } as never, userId),
+        service.update('gen-1', { name: 'Meu Fabricante' }, userId),
       ).rejects.toThrow(ForbiddenException);
       expect(mockManufacturerRepository.update).not.toHaveBeenCalled();
     });

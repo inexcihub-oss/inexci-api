@@ -1,13 +1,9 @@
 import { AuthController } from './auth.controller';
 
-/**
- * Os throttlers nomeados registrados em app.module.ts. Um @Throttle com chave
- * fora desta lista é silenciosamente ignorado pelo ThrottlerGuard.
- */
 const THROTTLERS_CONFIGURADOS = ['short', 'medium', 'long'];
 
-/** Rotas que precisam de limite próprio, mais estrito que o global. */
 const ROTAS_COM_LIMITE = [
+  'register',
   'checkEmail',
   'checkPhone',
   'login',
@@ -17,6 +13,11 @@ const ROTAS_COM_LIMITE = [
   'refresh',
   'verifyEmail',
   'resendEmailVerification',
+  'loginMfa',
+  'mfaSetup',
+  'mfaEnable',
+  'mfaDisable',
+  'mfaRecoveryCodes',
 ];
 
 describe('AuthController — rate limiting', () => {
@@ -26,7 +27,6 @@ describe('AuthController — rate limiting', () => {
       const handler = (AuthController.prototype as any)[metodo];
       expect(handler).toBeDefined();
 
-      // O decorator @Throttle grava metadata em THROTTLER_LIMIT + <nome>.
       const chaves: string[] = Reflect.getMetadataKeys(handler) ?? [];
       const chavesDeLimite = chaves.filter((k) =>
         String(k).startsWith('THROTTLER:LIMIT'),
@@ -41,13 +41,25 @@ describe('AuthController — rate limiting', () => {
     },
   );
 
-  /**
-   * `refresh` não é rota de credencial digitada: a aplicação o chama sozinha,
-   * uma vez por carregamento de página e por aba (o access token só existe em
-   * memória). Com o teto de 10/min que ele tinha, quem navegava rápido ou
-   * mantinha algumas abas abertas recebia 429 — e o front tratava isso como
-   * sessão encerrada, mandando para o login com o cookie ainda válido.
-   */
+  const limiteNomeado = (metodo: string, nome: string) => {
+    const handler = (AuthController.prototype as any)[metodo];
+    return Reflect.getMetadata(`THROTTLER:LIMIT${nome}`, handler) as
+      | number
+      | undefined;
+  };
+
+  it('cadastro tem limite por hora mais restrito que as checagens do wizard', () => {
+    expect(limiteNomeado('register', 'long')).toBeLessThanOrEqual(5);
+    expect(limiteNomeado('register', 'long')).toBeLessThan(
+      limiteNomeado('checkEmail', 'long') as number,
+    );
+  });
+
+  it('check-email e check-phone ficam em no máximo 10 por hora', () => {
+    expect(limiteNomeado('checkEmail', 'long')).toBeLessThanOrEqual(10);
+    expect(limiteNomeado('checkPhone', 'long')).toBeLessThanOrEqual(10);
+  });
+
   it('refresh tolera uso normal de várias abas (limite bem acima do de login)', () => {
     const limite = (metodo: string) => {
       const handler = (AuthController.prototype as any)[metodo];
@@ -59,5 +71,18 @@ describe('AuthController — rate limiting', () => {
 
     expect(limite('refresh')).toBeGreaterThanOrEqual(30);
     expect(limite('refresh')).toBeGreaterThan(limite('login'));
+  });
+
+  it('rotas de MFA ficam no mesmo patamar curto do login', () => {
+    for (const metodo of [
+      'loginMfa',
+      'mfaSetup',
+      'mfaEnable',
+      'mfaDisable',
+      'mfaRecoveryCodes',
+    ]) {
+      expect(limiteNomeado(metodo, 'short')).toBeLessThanOrEqual(5);
+      expect(limiteNomeado(metodo, 'long')).toBeLessThanOrEqual(20);
+    }
   });
 });

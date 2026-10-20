@@ -10,26 +10,6 @@ import {
 } from '../helpers/test-setup';
 import { getAuthenticatedRequest, getAuthHeader } from '../helpers/auth-helper';
 
-/**
- * Rotas realmente expostas por `src/modules/notifications`:
- *   GET    /notifications
- *   GET    /notifications/settings
- *   PUT    /notifications/settings
- *   PUT    /notifications/:id/read
- *   PUT    /notifications/read-all
- *   DELETE /notifications/:id
- *
- * O submódulo `health/` registra `GET /health/notifications` (`@Public`), fora
- * do prefixo `/notifications` — ele não é coberto aqui porque abre socket TCP
- * real para Redis e SMTP (`NotificationsHealthService.checkTcpConnection`) e o
- * resultado depende do ambiente, não do código.
- *
- * `NotificationsController` não tem `@RequirePermission`, então basta estar
- * autenticado: os status são determinísticos e os testes abaixo afirmam o
- * status exato, nunca um conjunto tolerante.
- */
-
-/** Insere uma notificação direto no banco — não há rota de criação. */
 async function criarNotificacao(
   app: INestApplication,
   params: {
@@ -81,9 +61,6 @@ describe('Notifications (e2e)', () => {
   let authToken: string;
   let currentUser: { id: string };
 
-  // UUID válido que nunca é gerado pelo banco — usado para o caso "não existe".
-  // Precisa ser UUID: a coluna `notifications.id` é UUID e um id não-UUID
-  // estoura no Postgres (22P02) e vira 500, não 404.
   const UUID_INEXISTENTE = '00000000-0000-0000-0000-000000000000';
 
   beforeAll(async () => {
@@ -122,7 +99,6 @@ describe('Notifications (e2e)', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.notifications).toHaveLength(2);
-      // `findByUserId` ordena por created_at DESC.
       expect(response.body.notifications[0].title).toBe('Recente');
       expect(response.body.notifications[1].title).toBe('Antiga');
       expect(response.body.unreadCount).toBe(1);
@@ -161,9 +137,7 @@ describe('Notifications (e2e)', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.notifications).toHaveLength(1);
-      // skip=1 sobre a ordem DESC (N0, N1, N2) cai na segunda mais recente.
       expect(response.body.notifications[0].title).toBe('N1');
-      // `total` é o total do filtro (3), não o tamanho da página (1).
       expect(response.body.total).toBe(3);
       expect(response.body.unreadCount).toBe(3);
     });
@@ -188,9 +162,7 @@ describe('Notifications (e2e)', () => {
       expect(response.status).toBe(200);
       expect(response.body.notifications).toHaveLength(1);
       expect(response.body.notifications[0].title).toBe('Não lida');
-      // `total` respeita o filtro da listagem: só a não lida entra.
       expect(response.body.total).toBe(1);
-      // unreadCount vem de `countUnread`, que ignora o filtro da listagem.
       expect(response.body.unreadCount).toBe(1);
     });
 
@@ -212,8 +184,6 @@ describe('Notifications (e2e)', () => {
         .get('/notifications/settings')
         .set(getAuthHeader(authToken));
 
-      // `getSettings` faz lazy-create quando não há registro — os defaults
-      // abaixo são os passados explicitamente pelo service.
       expect(response.status).toBe(200);
       expect(response.body).toMatchObject({
         userId: currentUser.id,
@@ -319,8 +289,6 @@ describe('Notifications (e2e)', () => {
     });
 
     it('devolve 404 quando a notificação não existe', async () => {
-      // `UPDATE ... WHERE id = ? AND user_id = ?` com 0 linhas alteradas não
-      // pode responder "marcada como lida".
       await request(app.getHttpServer())
         .put(`/notifications/${UUID_INEXISTENTE}/read`)
         .set(getAuthHeader(authToken))
@@ -342,8 +310,6 @@ describe('Notifications (e2e)', () => {
       });
       const id = await criarNotificacao(app, { userId: outro.id });
 
-      // O `user_id` faz parte do WHERE: nada é alterado, e a resposta é a
-      // mesma de um id inexistente (não revela que a notificação existe).
       await request(app.getHttpServer())
         .put(`/notifications/${id}/read`)
         .set(getAuthHeader(authToken))

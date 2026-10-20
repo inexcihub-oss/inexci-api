@@ -1,8 +1,7 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
+import { draftConfirmationFingerprint } from '../../helpers/draft-fingerprint';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
-import { ActivityType } from '../../../../../database/entities/surgery-request-activity.entity';
 import { SurgeryRequestStatus } from '../../../../../database/entities/surgery-request.entity';
 import { SendMethod } from '../../../../constants/send-method';
 import { FlowDraftTransitionDeps } from '../_types';
@@ -11,6 +10,8 @@ import {
   extractTransitionErrorMessage,
 } from '../_helpers';
 import { STORAGE_FOLDERS } from '../../../../../config/storage.config';
+import { recordAiActivity } from '../../helpers/surgery-request-access';
+import { errorMessage } from '../../../../utils/error-message.util';
 
 export function buildSendScDraftCommitTool(
   deps: FlowDraftTransitionDeps,
@@ -25,6 +26,9 @@ export function buildSendScDraftCommitTool(
   return {
     name: 'send_sc_draft_commit',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
+    requiresConfirmation: true,
+    confirmationFingerprint: draftConfirmationFingerprint(deps.draftService),
     definition: {
       type: 'function',
       function: {
@@ -37,12 +41,12 @@ export function buildSendScDraftCommitTool(
           required: ['confirm'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context) {
       if (!context.userId) {
         return buildToolResult({ status: 'error', message: 'Acesso negado.' });
       }
-      if (!(args as any).confirm) {
+      if (!args.confirm) {
         return buildToolResult({
           status: 'pending_confirmation',
           message:
@@ -79,15 +83,15 @@ export function buildSendScDraftCommitTool(
             subject: f.subject,
             message: f.message,
             notifyPatient: f.notifyPatient,
-          } as any,
+          },
           context.userId,
         );
-        await activityRepo.create({
+        await recordAiActivity(
+          activityRepo,
+          context,
           surgeryRequestId,
-          userId: context.userId,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Solicitação enviada para análise (${f.method}).`,
-        });
+          `Solicitação enviada para análise (${f.method}).`,
+        );
         await draftService.finalizeCommit(context.conversationId, {
           id: surgeryRequestId,
           label: f.surgeryRequestLabel,
@@ -98,19 +102,16 @@ export function buildSendScDraftCommitTool(
         if (f.method === 'email') {
           return buildToolResult({
             status: 'ok',
+            affected: [{ kind: 'surgery_request', id: surgeryRequestId }],
             message: `Solicitação ${label} enviada por e-mail para ${f.to} com sucesso.`,
             displayText: `Solicitação ${label} enviada por e-mail para ${f.to}. O PDF do laudo foi anexado ao envio.`,
           });
         }
 
-        // DOWNLOAD: tenta subir o PDF retornado pelo handler para o
-        // R2 e devolver uma signed URL ao usuário. Quando o upload
-        // falha, ainda confirmamos a transição (ela já aconteceu) e
-        // pedimos ao usuário para baixar pela plataforma.
         const pdfPayload = sendResult as
           | { pdf?: string; protocol?: string }
           | undefined;
-        if (pdfPayload?.pdf && storageService) {
+        if (pdfPayload?.pdf) {
           try {
             const pdfBuffer = Buffer.from(pdfPayload.pdf, 'base64');
             const fileName = `solicitacao-${pdfPayload.protocol ?? label ?? surgeryRequestId}.pdf`;
@@ -124,14 +125,15 @@ export function buildSendScDraftCommitTool(
             const url = await storageService.getSignedUrl(path);
             return buildToolResult({
               status: 'ok',
+              affected: [{ kind: 'surgery_request', id: surgeryRequestId }],
               message: `Solicitação ${label} marcada como enviada. Link de download gerado.`,
               displayText: `Solicitação ${label} pronta para download. Link válido por 1 hora: ${url}`,
             });
-          } catch (uploadErr: any) {
-            // Não-crítico: a transição já aconteceu. Apenas avisamos.
+          } catch (uploadErr) {
             return buildToolResult({
               status: 'ok',
-              message: `Solicitação ${label} enviada. Falha ao subir o PDF para link temporário: ${uploadErr?.message || 'erro desconhecido'}.`,
+              affected: [{ kind: 'surgery_request', id: surgeryRequestId }],
+              message: `Solicitação ${label} enviada. Falha ao subir o PDF para link temporário: ${errorMessage(uploadErr) || 'erro desconhecido'}.`,
               displayText: `Solicitação ${label} foi enviada para análise, mas não consegui gerar o link de download agora. Você pode baixar o PDF direto pela plataforma na página da solicitação.`,
             });
           }
@@ -139,9 +141,10 @@ export function buildSendScDraftCommitTool(
 
         return buildToolResult({
           status: 'ok',
+          affected: [{ kind: 'surgery_request', id: surgeryRequestId }],
           message: `Solicitação ${label} enviada para análise com sucesso.`,
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
           message: extractTransitionErrorMessage(err, 'Erro ao enviar'),

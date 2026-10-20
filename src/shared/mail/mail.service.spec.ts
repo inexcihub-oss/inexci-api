@@ -29,7 +29,6 @@ describe('MailService', () => {
     expect(service).toBeDefined();
   });
 
-  // ─── sendEmailVerification ───────────────────────────────────────────────
   describe('sendEmailVerification', () => {
     const verificationContext = {
       userName: 'Dr. Ana Lima',
@@ -76,7 +75,6 @@ describe('MailService', () => {
     });
   });
 
-  // ─── Testes gerais do send ───────────────────────────────────────────────
   describe('send', () => {
     it('deve enfileirar email com configuração de retry', async () => {
       await service.send('surgery-request-sent', 'test@email.com', 'Assunto', {

@@ -15,9 +15,6 @@ export class NotificationsHealthService extends HealthIndicator {
     super();
   }
 
-  /**
-   * Verifica conexão Redis (filas Bull)
-   */
   async checkRedis(): Promise<HealthIndicatorResult> {
     const host = this.config.get<string>('REDIS_HOST', 'localhost');
     const port = this.config.get<number>('REDIS_PORT', 6379);
@@ -33,9 +30,7 @@ export class NotificationsHealthService extends HealthIndicator {
         username: username ?? undefined,
       });
     } catch (error) {
-      // Redis fora do ar derruba as 5 filas Bull (mail, whatsapp, pdf,
-      // ai-messages, document-extraction) — falha crítica, não trivial.
-      this.logger.error(`Redis health check failed: ${error}`);
+      this.logger.error(`Redis health check failed: ${String(error)}`);
       throw new HealthCheckError(
         'Redis check failed',
         this.getStatus('redis', false, { host, port, error: String(error) }),
@@ -43,9 +38,6 @@ export class NotificationsHealthService extends HealthIndicator {
     }
   }
 
-  /**
-   * Verifica conexão SMTP (handshake)
-   */
   async checkSmtp(): Promise<HealthIndicatorResult> {
     const host = this.config.get<string>('MAIL_HOST', 'smtp.example.com');
     const port = this.config.get<number>('MAIL_PORT', 587);
@@ -54,8 +46,7 @@ export class NotificationsHealthService extends HealthIndicator {
       await this.checkTcpConnection(host, port, 5000);
       return this.getStatus('smtp', true, { host, port });
     } catch (error) {
-      // Canal de e-mail totalmente indisponível — falha crítica.
-      this.logger.error(`SMTP health check failed: ${error}`);
+      this.logger.error(`SMTP health check failed: ${String(error)}`);
       throw new HealthCheckError(
         'SMTP check failed',
         this.getStatus('smtp', false, { host, port, error: String(error) }),
@@ -63,10 +54,7 @@ export class NotificationsHealthService extends HealthIndicator {
     }
   }
 
-  /**
-   * Verifica credenciais Twilio (presença das variáveis)
-   */
-  async checkTwilio(): Promise<HealthIndicatorResult> {
+  checkTwilio(): Promise<HealthIndicatorResult> {
     const accountSid = this.config.get<string>('TWILIO_ACCOUNT_SID');
     const authToken = this.config.get<string>('TWILIO_AUTH_TOKEN');
     const fromNumber = this.config.get<string>('TWILIO_WHATSAPP_FROM');
@@ -74,19 +62,23 @@ export class NotificationsHealthService extends HealthIndicator {
     const configured = !!accountSid && !!authToken && !!fromNumber;
 
     if (configured) {
-      return this.getStatus('twilio', true, { configured: true });
+      return Promise.resolve(
+        this.getStatus('twilio', true, { configured: true }),
+      );
     }
 
-    throw new HealthCheckError(
-      'Twilio credentials missing',
-      this.getStatus('twilio', false, {
-        configured: false,
-        missing: [
-          !accountSid && 'TWILIO_ACCOUNT_SID',
-          !authToken && 'TWILIO_AUTH_TOKEN',
-          !fromNumber && 'TWILIO_WHATSAPP_FROM',
-        ].filter(Boolean),
-      }),
+    return Promise.reject(
+      new HealthCheckError(
+        'Twilio credentials missing',
+        this.getStatus('twilio', false, {
+          configured: false,
+          missing: [
+            !accountSid && 'TWILIO_ACCOUNT_SID',
+            !authToken && 'TWILIO_AUTH_TOKEN',
+            !fromNumber && 'TWILIO_WHATSAPP_FROM',
+          ].filter(Boolean),
+        }),
+      ),
     );
   }
 

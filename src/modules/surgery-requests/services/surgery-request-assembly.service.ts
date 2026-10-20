@@ -1,7 +1,9 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
-import { SurgeryRequestsService } from '../surgery-requests.service';
+import { Injectable, Logger } from '@nestjs/common';
+import { SurgeryRequestReportService } from './surgery-request-report.service';
+import { SurgeryRequestMutationService } from './surgery-request-mutation.service';
 import { OpmeService } from '../opme/opme.service';
 import { TussService } from '../../tuss/tuss.service';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 export interface AssemblyTussItem {
   code: string;
@@ -19,27 +21,14 @@ export interface AssemblyOpmeItem {
   qty?: number;
   supplier?: string;
   manufacturer?: string;
-  /** Lista de fornecedores candidatos (além de `supplier`, se ambos vierem). */
   suppliers?: string[];
-  /** Lista de fabricantes candidatos (além de `manufacturer`, se ambos vierem). */
   manufacturers?: string[];
 }
 
 export interface AssembleFromExtractedInput {
   scId: string;
   notes?: string;
-  /**
-   * Seções estruturadas do laudo (título + descrição). Quando fornecido,
-   * tem prioridade sobre `notes` — cria uma `ReportSection` por item, na
-   * ordem da lista. `notes` permanece como fallback de compatibilidade
-   * (cria uma única seção "Laudo") para chamadores que ainda não migraram.
-   */
   sections?: AssemblyReportSection[];
-  /**
-   * Fornecedores sugeridos no nível do documento (ex.: empresa que fornece
-   * + empresas alternativas para cotação) — aplicados a TODOS os itens OPME
-   * que não tiverem fornecedor próprio suficiente.
-   */
   suggestedSuppliers?: string[];
   tussItems?: AssemblyTussItem[];
   opmeItems?: AssemblyOpmeItem[];
@@ -93,20 +82,15 @@ function shouldPersistReportSection(title: string): boolean {
   );
 }
 
-/**
- * Popula laudo, TUSS e OPME numa SC já criada a partir dos dados extraídos
- * de um documento (seja via WhatsApp ou via upload web). Toda falha é
- * best-effort: warnings são acumulados e retornados ao chamador, nunca
- * derrubam a operação principal.
- */
 @Injectable()
 export class SurgeryRequestAssemblyService {
   private readonly logger = new Logger(SurgeryRequestAssemblyService.name);
 
   constructor(
-    private readonly surgeryRequestsService: SurgeryRequestsService,
-    @Optional() private readonly opmeService?: OpmeService,
-    @Optional() private readonly tussService?: TussService,
+    private readonly reportService: SurgeryRequestReportService,
+    private readonly mutationService: SurgeryRequestMutationService,
+    private readonly opmeService: OpmeService,
+    private readonly tussService: TussService,
   ) {}
 
   async assembleFromExtracted(
@@ -129,29 +113,31 @@ export class SurgeryRequestAssemblyService {
           continue;
         }
         try {
-          await this.surgeryRequestsService.createReportSection(
+          await this.reportService.createReportSection(
             scId,
             { title: section.title, description: section.description ?? '' },
             userId,
           );
-        } catch (err: any) {
-          warnings.push(`seção "${section.title}" (${err?.message || 'erro'})`);
+        } catch (err) {
+          warnings.push(
+            `seção "${section.title}" (${errorMessage(err) || 'erro'})`,
+          );
           this.logger.warn(
-            `[SC_ASSEMBLY] scId=${scId} section "${section.title}" failed: ${err?.message}`,
+            `[SC_ASSEMBLY] scId=${scId} section "${section.title}" failed: ${errorMessage(err)}`,
           );
         }
       }
     } else if (notes && typeof notes === 'string') {
       try {
-        await this.surgeryRequestsService.createReportSection(
+        await this.reportService.createReportSection(
           scId,
           { title: 'Laudo', description: notes },
           userId,
         );
-      } catch (err: any) {
-        warnings.push(`laudo (${err?.message || 'erro'})`);
+      } catch (err) {
+        warnings.push(`laudo (${errorMessage(err) || 'erro'})`);
         this.logger.warn(
-          `[SC_ASSEMBLY] scId=${scId} laudo failed: ${err?.message}`,
+          `[SC_ASSEMBLY] scId=${scId} laudo failed: ${errorMessage(err)}`,
         );
       }
     }
@@ -160,12 +146,14 @@ export class SurgeryRequestAssemblyService {
       const code = item?.code;
       if (!code) continue;
       let name = item.description;
-      if (!name && this.tussService) {
+      if (!name) {
         try {
           const matches = this.tussService.lookup(code, 1);
           if (matches?.[0]?.name) name = matches[0].name;
-        } catch {
-          // catálogo indisponível — segue sem descrição
+        } catch (err) {
+          this.logger.warn(
+            `[SC_ASSEMBLY] scId=${scId} lookup TUSS ${code} falhou: ${(err as Error)?.message}`,
+          );
         }
       }
       if (!name) {
@@ -173,7 +161,7 @@ export class SurgeryRequestAssemblyService {
         continue;
       }
       try {
-        await this.surgeryRequestsService.addTussItem(
+        await this.mutationService.addTussItem(
           scId,
           {
             tussCode: code,
@@ -182,8 +170,8 @@ export class SurgeryRequestAssemblyService {
           },
           userId,
         );
-      } catch (err: any) {
-        warnings.push(`TUSS ${code} (${err?.message || 'erro'})`);
+      } catch (err) {
+        warnings.push(`TUSS ${code} (${errorMessage(err) || 'erro'})`);
       }
     }
 
@@ -191,9 +179,6 @@ export class SurgeryRequestAssemblyService {
     for (const item of opmeItems ?? []) {
       const name = item?.description;
       if (!name) continue;
-      // Plataforma exige >=3 fornecedores e >=3 fabricantes; mesclamos o
-      // que o documento trouxe (item + sugestões gerais) e preenchemos o
-      // restante com "Outros" (fornecedor/fabricante fallback reaproveitável).
       const supplierNames = padNames(
         dedupeNames([
           item.supplier,
@@ -209,10 +194,6 @@ export class SurgeryRequestAssemblyService {
         FALLBACK_OPME_NAME,
       );
 
-      if (!this.opmeService) {
-        warnings.push(`OPME ${name} (serviço indisponível)`);
-        continue;
-      }
       try {
         await this.opmeService.create(
           {
@@ -225,16 +206,18 @@ export class SurgeryRequestAssemblyService {
           userId,
         );
         opmeAdded += 1;
-      } catch (err: any) {
-        warnings.push(`OPME ${name} (${err?.message || 'erro'})`);
+      } catch (err) {
+        warnings.push(`OPME ${name} (${errorMessage(err) || 'erro'})`);
       }
     }
 
     if (opmeAdded > 0) {
       try {
-        await this.surgeryRequestsService.setHasOpme(scId, true, userId);
-      } catch {
-        // não-crítico
+        await this.mutationService.setHasOpme(scId, true, userId);
+      } catch (err) {
+        this.logger.warn(
+          `[SC_ASSEMBLY] scId=${scId} setHasOpme falhou: ${(err as Error)?.message}`,
+        );
       }
     }
 

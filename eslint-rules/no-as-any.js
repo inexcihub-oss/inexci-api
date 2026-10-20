@@ -1,14 +1,3 @@
-/**
- * Regra ESLint local: `inexci/no-as-any`
- * Fase 9 do `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`.
- *
- * Proíbe `as any` na produção de `/shared/ai/`. Permite apenas com
- * comentário de justificativa:
- *   // eslint-disable-next-line local-rules/no-as-any -- <motivo>
- *
- * Aplicada com `error` em `src/shared/ai/**` (excluindo specs) e
- * `warn` no restante da base (via overrides em `.eslintrc.js`).
- */
 'use strict';
 
 module.exports = {

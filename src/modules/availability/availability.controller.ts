@@ -36,11 +36,6 @@ import {
 } from './dto/holiday.dto';
 import { FindSlotsDto } from './dto/find-slots.dto';
 
-/**
- * Disponibilidade da agenda (MIG-05). Ler: quem trabalha com a agenda ou com
- * o atendimento. Escrever: grade = o próprio profissional ou Administração
- * (checado no service); bloqueio = Agenda; feriado = Administração.
- */
 @ApiTags('Disponibilidade da agenda')
 @ApiBearerAuth()
 @Controller('availability')
@@ -57,16 +52,12 @@ export class AvailabilityController {
     private readonly holidaysService: HolidaysService,
   ) {}
 
-  // ── Horários livres ─────────────────────────────────────────────────────
-
   @Get('slots')
   @RequirePermission(Permission.AGENDA, Permission.ATENDIMENTO)
   @ApiOperation({ summary: 'Horários da grade do profissional, com ocupação' })
   slots(@Query() query: FindSlotsDto, @CurrentUser() user: AuthenticatedUser) {
     return this.availabilityService.getSlots(query, user.userId);
   }
-
-  // ── Grade ───────────────────────────────────────────────────────────────
 
   @Get('schedules')
   @ApiOperation({ summary: 'Grade de atendimento do profissional' })
@@ -114,8 +105,6 @@ export class AvailabilityController {
     return this.schedulesService.delete(id, user.userId, user.permissions);
   }
 
-  // ── Bloqueios ───────────────────────────────────────────────────────────
-
   @Get('blocks')
   @ApiOperation({ summary: 'Bloqueios de agenda no intervalo' })
   blocks(
@@ -155,8 +144,6 @@ export class AvailabilityController {
   ) {
     return this.blocksService.delete(id, user.userId, user.permissions);
   }
-
-  // ── Feriados ────────────────────────────────────────────────────────────
 
   @Get('holidays')
   @ApiOperation({ summary: 'Feriados da conta (do ano, com os recorrentes)' })

@@ -25,5 +25,5 @@ export class CreateNotificationDto {
 
   @IsOptional()
   @Type(() => Object)
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }

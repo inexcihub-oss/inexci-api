@@ -8,13 +8,6 @@ import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY } from '../decorators/require-permission.decorator';
 import { Permission } from 'src/shared/permissions';
 
-/**
- * Guard global das áreas da plataforma. Lê `@RequirePermission` e compara com
- * a permissão efetiva já resolvida pela `JwtStrategy` — sem consulta ao banco.
- *
- * Rota sem decorator é liberada para qualquer autenticado; as rotas `@Public()`
- * nem chegam aqui com usuário, e por isso a checagem é fail-closed.
- */
 @Injectable()
 export class PermissionsGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}

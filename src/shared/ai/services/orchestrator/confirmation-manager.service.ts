@@ -1,9 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { WhatsappConversationRepository } from '../../../../database/repositories/whatsapp-conversation.repository';
 import { ConversationService } from '../conversation.service';
 import { parseToolResult } from '../../tools/tool-result';
+import { ToolRegistryService } from '../tool-registry.service';
+import {
+  isAffirmativeConfirmation,
+  isNegativeConfirmation,
+} from './confirmation-phrases';
+import { ToolConfirmationGateService } from '../tool-confirmation-gate.service';
 
-/** Rótulo amigável de cada tool, usado nas mensagens determinísticas. */
 export const TOOL_DISPLAY_LABELS: Record<string, string> = {
   upload_doctor_signature: 'atualizar sua assinatura digital',
   sc_draft_preview: 'criar a solicitação cirúrgica',
@@ -32,8 +37,6 @@ export const TOOL_DISPLAY_LABELS: Record<string, string> = {
   accept_authorization_draft_commit: 'aceitar a autorização',
   mark_performed_draft_preview: 'marcar a cirurgia como realizada',
   mark_performed_draft_commit: 'marcar a cirurgia como realizada',
-  // Tools de mutação direta (não seguem o padrão *_draft_*) — Fase 2 do
-  // PLANO-CORRECOES-CODE-REVIEW-2026-05-13: agora retornam buildToolResult.
   set_hospital: 'atualizar o hospital da solicitação',
   set_health_plan: 'atualizar o convênio da solicitação',
   close_surgery_request: 'encerrar a solicitação cirúrgica',
@@ -46,21 +49,12 @@ export const TOOL_DISPLAY_LABELS: Record<string, string> = {
   manage_documents: 'gerenciar documentos',
   manage_report_images: 'gerenciar imagens do laudo',
   manage_report_sections: 'gerenciar seções do laudo',
+  manage_opme_items: 'gerenciar itens OPME',
+  advance_surgery_request: 'avançar a solicitação',
+  set_has_opme: 'definir se a solicitação possui OPME',
+  send_notification: 'enviar a notificação da solicitação',
 };
 
-/**
- * Dado o nome de uma tool de draft (`*_draft_preview` ou `*_draft_commit`),
- * deduz qual tool deve ser re-executada com `confirm: true` quando o usuário
- * confirmar.
- *
- * Convenção:
- *  - `<base>_draft_preview` → re-chamar `<base>_draft_commit` com
- *    `{ confirm: true }`.
- *  - `<base>_draft_commit` retornando preview (sem confirm) → re-chamar a
- *    própria tool com `{ ...args, confirm: true }`.
- *
- * Retorna `null` para qualquer outro nome.
- */
 export function inferDraftPendingTarget(
   toolName: string,
   toolArgs: Record<string, unknown>,
@@ -82,118 +76,12 @@ export function inferDraftPendingTarget(
 
 const PENDING_CONFIRMATION_MAX_AGE_MS = 15 * 60 * 1000;
 
-const AFFIRMATIVE_PHRASES = new Set<string>([
-  'sim',
-  's',
-  'sim!',
-  'sim por favor',
-  'sim, por favor',
-  'sim por favor.',
-  'sim claro',
-  'sim, claro',
-  'claro',
-  'claro!',
-  'pode',
-  'pode sim',
-  'pode mandar',
-  'pode mandar ver',
-  'manda',
-  'manda ver',
-  'manda bala',
-  'mandar',
-  'segue',
-  'segue ai',
-  'segue aí',
-  'vai',
-  'vai la',
-  'vai lá',
-  'vamos',
-  'vamos la',
-  'vamos lá',
-  'confirmo',
-  'confirmado',
-  'confirma',
-  'confirmar',
-  'ok',
-  'okay',
-  'beleza',
-  'blz',
-  'show',
-  'isso',
-  'isso mesmo',
-  'isso ai',
-  'isso aí',
-  'positivo',
-  'afirmativo',
-  'quero',
-  'quero sim',
-  'quero sim por favor',
-  'aceito',
-  'aceitar',
-  'fechado',
-  'feito',
-  'bora',
-  'bora la',
-  'bora lá',
-  'pode prosseguir',
-  'prosseguir',
-  'prossiga',
-  'prossiga por favor',
-]);
-
-const NEGATIVE_PHRASES = new Set<string>([
-  'nao',
-  'n',
-  'nao, obrigado',
-  'nao obrigado',
-  'nao quero',
-  'cancela',
-  'cancelar',
-  'cancele',
-  'pare',
-  'para',
-  'desiste',
-  'desistir',
-  'esquece',
-  'esquecer',
-  'deixa',
-  'deixa pra la',
-  'deixa pra lá',
-  'nada',
-  'nada nao',
-]);
-
 interface PendingConfirmationPayload {
   tool: string;
   args: Record<string, unknown>;
   description: string;
 }
 
-/**
- * Centraliza o "ciclo de confirmação" das tools de mutação:
- *
- *  - **`pending_confirmation`** persistido em `conversationMemory` por
- *    conversation. Lifecycle (set/clear/freshness check) e injeção do
- *    hint determinístico (`buildPendingConfirmationHint`).
- *  - **Reconhecimento de respostas** do usuário —
- *    `parseAffirmativeConfirmation`, `parseNegativeConfirmation`,
- *    `parseNumericChoice`.
- *  - **Hint para escolha numérica** quando o usuário responde "1", "opção
- *    2", etc. (`buildNumericChoiceHint`).
- *  - **Tracking pós-tool**: `trackPendingConfirmation` decide se grava ou
- *    limpa o `pending_confirmation` lendo o envelope canônico
- *    (`parseToolResult`). Sem fallback heurístico — Fase 4 do
- *    `PLANO-SANITIZACAO-CLEAN-CODE-IA.md` removeu as detecções por string
- *    (`looksLikeConfirmationPreview` / `looksLikeExecutedMutation`) junto
- *    com o set `PREVIEWABLE_MUTATION_TOOLS`. Toda tool de mutação que
- *    queira participar do ciclo deve devolver `ToolResult` válido.
- *
- * Extraído do `AiOrchestratorService` na Fase 1 do
- * `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`. Possui sua própria cópia de
- * `readConversationMemory`/`writeConversationMemoryPatch` para evitar
- * acoplamento bidirecional com o orchestrator (a deduplicação será feita
- * na Fase 2 quando MessageProcessor migrar a memória dele também).
- */
 @Injectable()
 export class ConfirmationManagerService {
   private readonly logger = new Logger(ConfirmationManagerService.name);
@@ -201,11 +89,29 @@ export class ConfirmationManagerService {
   constructor(
     private readonly whatsappConversationRepo: WhatsappConversationRepository,
     private readonly conversationService: ConversationService,
+    private readonly toolRegistry: ToolRegistryService,
+    @Optional()
+    private readonly confirmationGate?: ToolConfirmationGateService,
   ) {}
 
-  // ============================================================
-  // pending_confirmation lifecycle
-  // ============================================================
+  async beginTurn(
+    conversationId: string,
+    turnId: string | null | undefined,
+    userMessage: string | null | undefined,
+  ): Promise<void> {
+    if (!this.confirmationGate) return;
+    try {
+      await this.confirmationGate.beginTurn(
+        conversationId,
+        turnId,
+        userMessage,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `[CONFIRM_TOKEN] begin_turn_failed conv=${conversationId} err=${(err as Error)?.message}`,
+      );
+    }
+  }
 
   async setPendingConfirmation(
     conversationId: string,
@@ -225,11 +131,6 @@ export class ConfirmationManagerService {
     });
   }
 
-  /**
-   * Considera o pending_confirmation expirado se mais de 15 minutos
-   * passaram. Evita "fantasmas" de confirmações antigas reagirem a um
-   * "sim" inocente em uma nova conversa.
-   */
   isPendingConfirmationFresh(createdAt: unknown): boolean {
     if (typeof createdAt !== 'string') return false;
     const ts = Date.parse(createdAt);
@@ -237,19 +138,6 @@ export class ConfirmationManagerService {
     return Date.now() - ts <= PENDING_CONFIRMATION_MAX_AGE_MS;
   }
 
-  /**
-   * Considera "mutação confirmável" qualquer tool que segue o padrão
-   * preview/commit (todas as `*_draft_preview` e `*_draft_commit`). Usado
-   * para decidir se um resultado `status: 'ok'` deve limpar o
-   * `pending_confirmation` da conversa — leituras (ex.: `query_patients`)
-   * não devem limpá-lo.
-   *
-   * Tools fora desse padrão (ex.: `upload_doctor_signature`) também limpam
-   * o pending implicitamente quando devolvem `ToolResult` com
-   * `status: 'ok'` — porque a re-execução determinística é feita por nome
-   * armazenado em `pending.tool`. Para essas, usamos o nome em
-   * `TOOL_DISPLAY_LABELS` como sinal de confirmabilidade.
-   */
   isMutationConfirmableTool(toolName: string): boolean {
     if (
       toolName.endsWith('_draft_commit') ||
@@ -257,22 +145,9 @@ export class ConfirmationManagerService {
     ) {
       return true;
     }
-    return Object.prototype.hasOwnProperty.call(TOOL_DISPLAY_LABELS, toolName);
+    return this.toolRegistry.getTool(toolName)?.mutates === true;
   }
 
-  /**
-   * Após a execução de cada tool, decide se grava/limpa o
-   * `pending_confirmation` no `conversation_memory`. Chamado dentro do
-   * loop de toolResults.
-   *
-   * **Único caminho** desde a Fase 4 do `PLANO-SANITIZACAO-CLEAN-CODE-IA`:
-   * o envelope canônico `ToolResult`. Toda tool que queira participar
-   * do ciclo de confirmação devolve `status: 'pending_confirmation'`
-   * (com o `pending_confirmation` apontando qual tool re-executar) e
-   * `status: 'ok'` quando a mutação for executada. Quando o output não
-   * casa com o envelope, logamos um warning e seguimos sem mexer no
-   * estado — o pending de outra mutação fica preservado.
-   */
   async trackPendingConfirmation(opts: {
     conversationId: string;
     toolName: string;
@@ -281,10 +156,6 @@ export class ConfirmationManagerService {
   }): Promise<void> {
     const { conversationId, toolName, args, output } = opts;
 
-    // Tools de leitura (ex.: `query_surgery_requests`, `query_patients`,
-    // `get_pendencies`, `search_*`) não participam do ciclo de confirmação
-    // e devolvem string crua de propósito. Pular cedo evita o warn
-    // `envelope_missing` poluir o log a cada consulta.
     if (!this.isMutationConfirmableTool(toolName)) {
       return;
     }
@@ -298,9 +169,7 @@ export class ConfirmationManagerService {
     }
 
     if (parsed.status === 'ok') {
-      if (this.isMutationConfirmableTool(toolName)) {
-        await this.clearPendingConfirmation(conversationId);
-      }
+      await this.clearPendingConfirmation(conversationId);
       return;
     }
 
@@ -343,25 +212,8 @@ export class ConfirmationManagerService {
       );
       return;
     }
-
-    // Para outros status (`needs_input`, `blocked`, `error`) não mexemos
-    // no pending — o usuário ainda pode estar respondendo a um preview
-    // anterior.
   }
 
-  // ============================================================
-  // Hints determinísticos para o LLM
-  // ============================================================
-
-  /**
-   * Constrói um hint imperativo quando há pending_confirmation fresco e o
-   * usuário respondeu com confirmação ("sim", "ok", etc.). O hint força o
-   * LLM a chamar a tool indicada exatamente com os args salvos +
-   * `confirm: true`, evitando o velho "não ficou claro o que confirmou".
-   *
-   * Se o usuário negou explicitamente (não/cancela/esquece), retorna hint
-   * de cancelamento e limpa o estado.
-   */
   async buildPendingConfirmationHint(
     conversationId: string,
     rawInput: string,
@@ -390,6 +242,7 @@ export class ConfirmationManagerService {
 
     if (isNegative) {
       await this.clearPendingConfirmation(conversationId);
+      await this.confirmationGate?.clear(conversationId).catch(() => undefined);
       const description = pending.description || `executar ${pending.tool}`;
       return [
         'CANCELAMENTO DETERMINÍSTICO:',
@@ -405,7 +258,7 @@ export class ConfirmationManagerService {
         try {
           safeArgs[k] = JSON.parse(JSON.stringify(v));
         } catch {
-          safeArgs[k] = String(v);
+          safeArgs[k] = Object.prototype.toString.call(v);
         }
         continue;
       }
@@ -426,12 +279,6 @@ export class ConfirmationManagerService {
     ].join('\n');
   }
 
-  /**
-   * Quando o usuário responde apenas com um dígito (ou variação curta) e a
-   * última mensagem do assistente terminou com uma lista numerada, monta um
-   * bloco system determinístico instruindo o LLM a executar a opção
-   * escolhida (sem voltar a perguntar "qual ação você quer?").
-   */
   async buildNumericChoiceHint(
     conversationId: string,
     rawInput: string,
@@ -484,42 +331,14 @@ export class ConfirmationManagerService {
     }
   }
 
-  // ============================================================
-  // Parsers de input (também reaproveitados pelo orchestrator)
-  // ============================================================
-
-  /**
-   * Detecta entradas de confirmação afirmativa ("sim", "confirmo", "ok",
-   * "pode mandar", etc.). Usado em conjunto com
-   * `conversationMemory.pending_confirmation` para re-executar uma tool de
-   * mutação determinada sem depender do LLM lembrar do contexto.
-   */
   parseAffirmativeConfirmation(rawInput: string): boolean {
-    if (!rawInput) return false;
-    const normalized = this.normalize(rawInput);
-    if (!normalized || normalized.length > 60) return false;
-    return AFFIRMATIVE_PHRASES.has(normalized);
+    return isAffirmativeConfirmation(rawInput);
   }
 
-  /** Detecta cancelamento / negativa explícita ("não", "cancela", "pare"). */
   parseNegativeConfirmation(rawInput: string): boolean {
-    if (!rawInput) return false;
-    const normalized = this.normalize(rawInput);
-    if (!normalized || normalized.length > 60) return false;
-    return NEGATIVE_PHRASES.has(normalized);
+    return isNegativeConfirmation(rawInput);
   }
 
-  /**
-   * Detecta se a mensagem do usuário é uma escolha numérica curta e direta
-   * referente à lista de "Próximos passos" enviada no turno anterior.
-   *
-   * Aceita:
-   *   - "1", "2", ..., "9" (apenas o dígito)
-   *   - "opção 2", "opcao 2", "a 3", "na 2", "quero a 1", "vai na 2"…
-   *   - Variantes por extenso curtas: "um", "dois", "três"
-   *
-   * Retorna o dígito (1-9) ou `null`.
-   */
   parseNumericChoice(rawInput: string): number | null {
     if (!rawInput) return null;
     const normalized = this.normalize(rawInput);
@@ -552,11 +371,6 @@ export class ConfirmationManagerService {
     return null;
   }
 
-  /**
-   * Extrai um mapa `{digito -> texto da opção}` a partir de um texto livre
-   * (geralmente a última mensagem do assistente). Olha linhas no formato
-   * "1 - texto", "1) texto", "1. texto", "1 — texto", etc.
-   */
   extractNumberedOptionsFromText(text: string): Record<number, string> {
     const out: Record<number, string> = {};
     if (!text) return out;
@@ -570,10 +384,6 @@ export class ConfirmationManagerService {
     }
     return out;
   }
-
-  // ============================================================
-  // Helpers privados
-  // ============================================================
 
   private normalize(value: string): string {
     return value
@@ -589,7 +399,7 @@ export class ConfirmationManagerService {
     try {
       const conv = await this.whatsappConversationRepo.findOne({
         id: conversationId,
-      } as never);
+      });
       return (conv?.conversationMemory as Record<string, unknown>) || null;
     } catch (err) {
       this.logger.debug(
@@ -606,7 +416,7 @@ export class ConfirmationManagerService {
     try {
       const conv = await this.whatsappConversationRepo.findOne({
         id: conversationId,
-      } as never);
+      });
       if (!conv) return;
       const memory = (conv.conversationMemory as Record<string, unknown>) || {};
       await this.whatsappConversationRepo.update(conversationId, {

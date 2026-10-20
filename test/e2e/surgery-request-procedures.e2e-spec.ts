@@ -8,18 +8,6 @@ import {
 } from '../helpers/test-setup';
 import { getAuthHeader } from '../helpers/auth-helper';
 
-/**
- * Rotas reais de `ProceduresController` (`surgery-requests/procedures`):
- * `POST /`, `POST /authorize`, `PATCH /:id` e `DELETE /:id`. Só as duas
- * primeiras são exercitadas aqui — `PATCH`/`DELETE` seguem sem cobertura e2e.
- *
- * Os asserts abaixo são fechados de propósito: a versão anterior deste spec
- * aceitava faixas de status (`[201, 500]`, `[200, 201, 404]`) e criava a SC por
- * `POST /surgery-requests/simple`, rota que não existe. O 404 do setup deixava
- * `testSurgeryRequestId` indefinido e cada teste retornava cedo com um
- * `console.warn` — a suíte passava sem chamar o controller uma única vez.
- */
-
 const MEDICO = {
   name: 'Dra. Teste Procedimentos E2E',
   email: 'dra.procedimentos.e2e@inexci.test',
@@ -31,10 +19,6 @@ const MEDICO = {
   specialty: 'Ortopedia',
 };
 
-/** UUID bem formado e sem linha correspondente — o id precisa ser UUID porque
- *  as colunas `surgery_requests.id` e `surgery_request_tuss_items.id` são
- *  `uuid`; um id fora do formato faria o Postgres estourar (500) em vez de
- *  exercitar o 404 de negócio. */
 const ID_INEXISTENTE = '00000000-0000-4000-8000-000000000000';
 
 describe('Surgery Request Procedures (e2e)', () => {
@@ -49,9 +33,6 @@ describe('Surgery Request Procedures (e2e)', () => {
   beforeEach(async () => {
     await cleanDatabase(app);
 
-    // `isDoctor: true` cria o `doctor_profile`. Sem ele,
-    // `DoctorResolutionService.resolveDoctorId` não acha médico acessível e
-    // `POST /surgery-requests` responde 403 antes de criar qualquer coisa.
     await request(app.getHttpServer())
       .post('/auth/register')
       .send(MEDICO)
@@ -71,8 +52,6 @@ describe('Surgery Request Procedures (e2e)', () => {
       .send({ name: 'Paciente Procedimentos E2E', cpf: '12345678900' })
       .expect(201);
 
-    // Rota real de criação: `POST /surgery-requests` (o "simple" do caminho
-    // antigo sobrevive apenas no nome do DTO, `CreateSurgeryRequestSimpleDto`).
     const surgeryRequest = await request(app.getHttpServer())
       .post('/surgery-requests')
       .set(getAuthHeader(authToken))
@@ -86,7 +65,6 @@ describe('Surgery Request Procedures (e2e)', () => {
     await closeTestApp(app);
   });
 
-  /** Item TUSS válido para a SC do teste — devolve o id gerado. */
   async function criarItemTuss(tussCode = '30101012'): Promise<string> {
     const response = await request(app.getHttpServer())
       .post('/surgery-requests/procedures')
@@ -122,8 +100,6 @@ describe('Surgery Request Procedures (e2e)', () => {
         })
         .expect(201);
 
-      // `ProceduresService.create` devolve um item por procedimento enviado,
-      // sempre com `authorizedQuantity: null` (autorização é passo posterior).
       expect(response.body).toHaveLength(1);
       expect(response.body[0]).toEqual({
         id: expect.any(String),
@@ -137,7 +113,6 @@ describe('Surgery Request Procedures (e2e)', () => {
     it('recusa o mesmo código TUSS duas vezes na mesma solicitação', async () => {
       await criarItemTuss('30101012');
 
-      // Duplicata é regra de negócio explícita do service (BadRequestException).
       await request(app.getHttpServer())
         .post('/surgery-requests/procedures')
         .set(getAuthHeader(authToken))
@@ -151,8 +126,6 @@ describe('Surgery Request Procedures (e2e)', () => {
     it('não grava nenhum item quando um deles é duplicata (sem escrita parcial)', async () => {
       await criarItemTuss('30101012');
 
-      // O segundo item duplica o já existente: a requisição inteira falha, e o
-      // primeiro (novo e válido) não pode sobrar gravado.
       await request(app.getHttpServer())
         .post('/surgery-requests/procedures')
         .set(getAuthHeader(authToken))
@@ -188,8 +161,6 @@ describe('Surgery Request Procedures (e2e)', () => {
     });
 
     it('recusa payload sem surgeryRequestId', async () => {
-      // `surgeryRequestId` é `@IsString @IsNotEmpty` no DTO — barra na
-      // ValidationPipe global antes de chegar ao service.
       await request(app.getHttpServer())
         .post('/surgery-requests/procedures')
         .set(getAuthHeader(authToken))
@@ -198,9 +169,6 @@ describe('Surgery Request Procedures (e2e)', () => {
     });
 
     it('responde 404 para solicitação inexistente', async () => {
-      // `SurgeryRequestAccessValidator.validateAndFetch` roda antes de qualquer
-      // escrita e lança NotFoundException quando a SC não existe (ou é de outro
-      // tenant) — 404 é o único status possível aqui.
       await request(app.getHttpServer())
         .post('/surgery-requests/procedures')
         .set(getAuthHeader(authToken))
@@ -218,8 +186,6 @@ describe('Surgery Request Procedures (e2e)', () => {
     it('grava a quantidade autorizada do item TUSS', async () => {
       const tussItemId = await criarItemTuss();
 
-      // Sem `@HttpCode`, o `@Post('authorize')` responde 201 e o service
-      // devolve um objeto vazio — o efeito é observável só na SC.
       const response = await request(app.getHttpServer())
         .post('/surgery-requests/procedures/authorize')
         .set(getAuthHeader(authToken))
@@ -244,8 +210,6 @@ describe('Surgery Request Procedures (e2e)', () => {
     it('não autoriza nenhum item quando um deles não pertence à SC (sem escrita parcial)', async () => {
       const tussItemId = await criarItemTuss();
 
-      // O segundo id não pertence à SC: nada pode ter sido autorizado, nem o
-      // primeiro item, que é válido e vem antes na lista.
       await request(app.getHttpServer())
         .post('/surgery-requests/procedures/authorize')
         .set(getAuthHeader(authToken))
@@ -281,8 +245,6 @@ describe('Surgery Request Procedures (e2e)', () => {
     });
 
     it('recusa payload sem surgeryRequestId e sem opmeItems', async () => {
-      // `surgeryRequestId` e `opmeItems` são obrigatórios no
-      // `AuthorizeProceduresDto` (nenhum é `@IsOptional`).
       await request(app.getHttpServer())
         .post('/surgery-requests/procedures/authorize')
         .set(getAuthHeader(authToken))
@@ -293,9 +255,6 @@ describe('Surgery Request Procedures (e2e)', () => {
     it('responde 404 quando o item não pertence à solicitação', async () => {
       await criarItemTuss();
 
-      // Proteção de tenant: o service confere item por item o vínculo com a SC
-      // já validada e lança NotFoundException no primeiro id estranho — é o que
-      // impede zerar quantidades de uma cirurgia de outra clínica.
       await request(app.getHttpServer())
         .post('/surgery-requests/procedures/authorize')
         .set(getAuthHeader(authToken))

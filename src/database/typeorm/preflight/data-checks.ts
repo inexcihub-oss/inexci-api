@@ -1,47 +1,30 @@
-import { maskPhone } from '../../../shared/utils/mask.util';
+import { maskEmail, maskPhone } from '../../../shared/utils/mask.util';
+import { telefoneCanonicoSql } from '../../../shared/utils/phone.util';
 
-/**
- * Verificações de dado que precisam passar ANTES de uma migration restritiva
- * rodar. Existem porque `CREATE UNIQUE INDEX`, `ADD CONSTRAINT` e `SET NOT NULL`
- * quebram contra dado legado que já estava lá — e o erro do Postgres não diz
- * quais linhas colidem nem o que fazer. Foi o que derrubou o deploy de
- * 05/08/2026 (telefone repetido em `users`).
- *
- * Dois consumidores compartilham este registro:
- *  - a própria migration, que aborta antes de tentar o DDL;
- *  - `yarn migration:preflight`, que roda read-only contra produção antes de
- *    o deploy encostar na API.
- *
- * O SQL fica aqui, num lugar só: duplicá-lo faria o pré-flight aprovar um
- * deploy que a migration reprova. Entradas são **append-only** — uma migration
- * já aplicada em produção não pode ter sua checagem alterada retroativamente.
- */
+function texto(valor: unknown): string {
+  if (typeof valor === 'string') return valor;
+  if (
+    typeof valor === 'number' ||
+    typeof valor === 'bigint' ||
+    typeof valor === 'boolean'
+  ) {
+    return String(valor);
+  }
+  if (valor instanceof Date) return String(valor);
+  return valor == null ? '' : JSON.stringify(valor);
+}
+
 export interface ConflitoDeDado {
-  /** Identificador do conflito, com PII já mascarada (vai para log de deploy). */
   chave: string;
-  /** Ids crus das linhas envolvidas — é o que o operador usa para agir. */
   ids: string;
 }
 
 export interface VerificacaoPreMigration {
-  /** Nome da classe da migration que não pode rodar com o conflito de pé. */
   migration: string;
   descricao: string;
-  /** SELECT read-only: cada linha devolvida é um conflito. */
   sql: string;
-  /** O que o operador precisa fazer para destravar. */
   comoResolver: string;
-  /**
-   * Consulta para o operador inspecionar o caso. Sem ela, o diagnóstico sugere
-   * a de `users` (a maioria das verificações aponta ids de usuário).
-   */
   inspecionar?: string;
-  /**
-   * Versão da checagem para quando o schema que `sql` lê ainda vai ser criado
-   * por uma migration pendente do mesmo deploy (só o pré-flight usa; a
-   * migration, quando roda, já encontra o schema). Sem ela, o pré-flight adia
-   * a checagem para a própria migration.
-   */
   sqlAntesDoSchema?: string;
   mapear(linhas: Record<string, unknown>[]): ConflitoDeDado[];
 }
@@ -60,21 +43,11 @@ export const TELEFONE_DUPLICADO: VerificacaoPreMigration = {
     'Escolha qual conta mantém o número e troque o telefone da(s) outra(s) — ou desative-a(s) — antes de repetir o deploy.',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: maskPhone(String(linha.phone ?? '')),
-      ids: String(linha.ids ?? ''),
+      chave: maskPhone(texto(linha.phone)),
+      ids: texto(linha.ids),
     })),
 };
 
-/**
- * `FixUserDeletionReferentialActions` derruba e recria cinco chaves
- * estrangeiras. Recriar valida as linhas existentes: qualquer órfã — filho
- * apontando para um pai que não existe mais — aborta o `ADD CONSTRAINT` no
- * meio da migration, com um erro que não diz qual linha é.
- *
- * Órfã não deveria existir com a constraint antiga de pé, mas existe banco em
- * que ela foi derrubada à mão para destravar uma exclusão — que é exatamente a
- * dor que esta migration resolve.
- */
 export const ORFAOS_ANTES_DA_CASCATA: VerificacaoPreMigration = {
   migration: 'FixUserDeletionReferentialActions1755700100000',
   descricao:
@@ -117,31 +90,11 @@ export const ORFAOS_ANTES_DA_CASCATA: VerificacaoPreMigration = {
     'Aponte cada linha para um pai existente ou apague-a. As colunas nulas aceitam NULL, exceto surgery_requests.created_by_id — nesse caso a solicitação precisa de um usuário válido ou de ser removida.',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: String(linha.relacao ?? ''),
-      ids: String(linha.ids ?? ''),
+      chave: texto(linha.relacao),
+      ids: texto(linha.ids),
     })),
 };
 
-/**
- * A unificação das linhas legadas chamadas "Outro"/"Outros" não é feita por
- * migration: ela é história do banco de produção. Essas linhas nasceram do
- * preenchimento automático dos slots de OPME, que mandava a string como se
- * fosse um nome digitado e fazia o backend criar um cadastro de verdade. Banco
- * novo nunca teve esse código escrevendo nele — não há o que fundir.
- *
- * Quem funde é `scripts/sql/outro-generico-aplicar.sql`, rodado uma vez à mão.
- * Esta verificação é o que impede a migration de completar o schema num banco
- * onde a fusão ainda não passou: `ensureGeneric` insere a linha genérica com o
- * nome "Outro", e em `manufacturers` o índice `uq_manufacturers_owner_name_active`
- * já protege `(owner_id, LOWER(name))` — a legada de mesmo nome derrubaria o
- * insert em runtime, num 500 que não diz o que aconteceu.
- *
- * `to_jsonb(...) ->> 'is_generic'` em vez de ler a coluna direto: a verificação
- * roda também ANTES de a coluna existir (banco que nunca recebeu nem o script
- * nem a migration), e ali um `WHERE "is_generic"` seria erro de coluna
- * inexistente. Ausente, o campo vem NULL e a linha conta como não unificada,
- * que é exatamente o que ela é.
- */
 export const OUTRO_NAO_UNIFICADO: VerificacaoPreMigration = {
   migration: 'AddGenericSupplierAndManufacturer1755700200000',
   descricao:
@@ -167,21 +120,11 @@ export const OUTRO_NAO_UNIFICADO: VerificacaoPreMigration = {
     'Rode scripts/sql/outro-generico-aplicar.sql neste banco antes de repetir o deploy — ele funde as linhas numa só e marca a genérica. Confira antes com scripts/sql/outro-generico-conferencia.sql.',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: `${String(linha.tipo ?? '')}: ${String(linha.nome ?? '')}`,
-      ids: String(linha.ids ?? ''),
+      chave: `${texto(linha.tipo)}: ${texto(linha.nome)}`,
+      ids: texto(linha.ids),
     })),
 };
 
-/**
- * `MakePatientCpfNullable` afrouxa o schema no `up` (CPF passa a ser opcional,
- * para receber pacientes migrados de outros sistemas sem CPF). Quem aperta é o
- * `down`: devolver o `NOT NULL` quebra assim que existir um paciente sem CPF.
- *
- * Por isso esta verificação **não** entra em `VERIFICACOES_PRE_MIGRATION`: o
- * pré-flight de deploy olha migrations pendentes indo para cima, e o `up` desta
- * não tem dado legado que o viole. Ela é usada só pelo `down`, para abortar com
- * a lista de pacientes em vez do erro cru do Postgres.
- */
 export const PACIENTE_SEM_CPF: VerificacaoPreMigration = {
   migration: 'MakePatientCpfNullable1755800000000',
   descricao: 'paciente sem CPF em "patients" (impede reverter para NOT NULL)',
@@ -195,17 +138,11 @@ export const PACIENTE_SEM_CPF: VerificacaoPreMigration = {
     'Preencha o CPF desses pacientes (ou exclua-os definitivamente) antes de reverter a migration.',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: `conta ${String(linha.owner_id ?? '')}`,
-      ids: String(linha.ids ?? ''),
+      chave: `conta ${texto(linha.owner_id)}`,
+      ids: texto(linha.ids),
     })),
 };
 
-/**
- * `AddCouncilToDoctorProfiles` afrouxa `crm`/`crm_state` (profissional de
- * outro conselho pode não ter número cadastrado). Como em `PACIENTE_SEM_CPF`,
- * quem aperta é o `down`, então esta verificação fica fora de
- * `VERIFICACOES_PRE_MIGRATION` e só é usada por ele.
- */
 export const PERFIL_SEM_REGISTRO: VerificacaoPreMigration = {
   migration: 'AddCouncilToDoctorProfiles1755800200000',
   descricao:
@@ -220,17 +157,11 @@ export const PERFIL_SEM_REGISTRO: VerificacaoPreMigration = {
     'Preencha número e UF do conselho desses profissionais (ou remova o perfil) antes de reverter a migration.',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: `conselho ${String(linha.council ?? '')}`,
-      ids: String(linha.ids ?? ''),
+      chave: `conselho ${texto(linha.council)}`,
+      ids: texto(linha.ids),
     })),
 };
 
-/**
- * O `down` de `AddCouncilToDoctorProfiles` também derruba `council`. Antes
- * dela, ter `doctor_profiles` era ser médico: um psicólogo (CRP) ou
- * nutricionista (CRN) com número e UF passaria em `PERFIL_SEM_REGISTRO` e,
- * revertido, viraria médico — emitindo receita e atestado. Só o `down` usa.
- */
 export const PERFIL_DE_OUTRO_CONSELHO: VerificacaoPreMigration = {
   migration: 'AddCouncilToDoctorProfiles1755800200000',
   descricao:
@@ -245,32 +176,13 @@ export const PERFIL_DE_OUTRO_CONSELHO: VerificacaoPreMigration = {
     'Remova o perfil profissional desses usuários (ou confirme que são médicos e troque o conselho para CRM) antes de reverter a migration.',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: `conselho ${String(linha.council ?? '')}`,
-      ids: String(linha.ids ?? ''),
+      chave: `conselho ${texto(linha.council)}`,
+      ids: texto(linha.ids),
     })),
 };
 
-/**
- * Status que ocupam a agenda, como literal SQL — congelado para a migration
- * `AddAppointmentsNoOverlapConstraint1755800900000`. Precisa bater com
- * `OCCUPYING_APPOINTMENT_STATUSES` (`appointment.entity.ts`); o spec da
- * migration garante. Mudou a lista? Migration nova recriando a constraint.
- */
 export const STATUS_QUE_OCUPAM_A_AGENDA_SQL = `'scheduled', 'confirmed', 'waiting', 'in_progress', 'completed'`;
 
-/**
- * `AddAppointmentsNoOverlapConstraint` cria uma exclusion constraint que
- * proíbe duas consultas do mesmo médico ocupando horários sobrepostos (fora
- * encaixe e excluídas). Dado legado sobreposto — criado na corrida do
- * check-then-insert ou importado — derrubaria o `ADD CONSTRAINT` sem dizer
- * quais consultas colidem.
- *
- * Mesmo predicado e mesmo `tsrange` da constraint (um `[)` vazio, de duração
- * zero, não sobrepõe nada — comparar início/fim na mão apontaria falso
- * conflito). O `GREATEST` evita que uma duração negativa derrube a própria
- * verificação; ela é listada à parte, porque o `tsrange` da constraint falha
- * com limite superior menor que o inferior.
- */
 export const CONSULTAS_SOBREPOSTAS: VerificacaoPreMigration = {
   migration: 'AddAppointmentsNoOverlapConstraint1755800900000',
   descricao:
@@ -296,9 +208,6 @@ export const CONSULTAS_SOBREPOSTAS: VerificacaoPreMigration = {
            AND n."status" IN (${STATUS_QUE_OCUPAM_A_AGENDA_SQL})
            AND NOT n."is_walk_in" AND n."deleted_at" IS NULL
         HAVING count(*) > 0`,
-  // Antes de `AddRoomWalkInPlanCreatorToAppointments` não existe
-  // `is_walk_in`: a coluna nasce `false` para todas, então a checagem é a
-  // mesma sem o filtro de encaixe.
   sqlAntesDoSchema: `SELECT 'médico ' || a."doctor_id"::text || ' em ' || a."scheduled_at"::text AS chave,
                a."id"::text || ', ' || b."id"::text AS ids
           FROM "appointments" a
@@ -324,36 +233,15 @@ export const CONSULTAS_SOBREPOSTAS: VerificacaoPreMigration = {
     'Para cada par, remarque, cancele ou marque como encaixe uma das consultas (ou corrija a duração negativa) antes de repetir o deploy. Inspecione com: SELECT id, doctor_id, patient_id, status, scheduled_at, duration_minutes FROM appointments WHERE id IN (...);',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: String(linha.chave ?? ''),
-      ids: String(linha.ids ?? ''),
+      chave: texto(linha.chave),
+      ids: texto(linha.ids),
     })),
 };
 
-/**
- * A mesma `AddAppointmentsNoOverlapConstraint` roda `CREATE EXTENSION IF NOT
- * EXISTS btree_gist`. Não é dado, é ambiente — mas o efeito no deploy é o
- * mesmo de um conflito de dado: banco sem o contrib, ou usuário da aplicação
- * sem permissão para criar a extensão, derruba a migration com um erro cru
- * (`could not open extension control file`, `permission denied to create
- * extension`) e a API fica fora do ar. Esta verificação adianta o problema
- * para o pré-flight e para o início da própria migration.
- *
- * Só reclama se a extensão ainda não existe no banco: já instalada, o `IF NOT
- * EXISTS` não faz nada e qualquer usuário passa. Ausente, ela precisa estar
- * disponível no servidor (`pg_available_extensions`) e o usuário precisa poder
- * criá-la: superusuário, ou extensão "trusted" (PG 13+) com privilégio de
- * criação no banco. Read-only — só consulta catálogo.
- */
 export const EXTENSAO_BTREE_GIST: VerificacaoPreMigration = {
   migration: 'AddAppointmentsNoOverlapConstraint1755800900000',
   descricao:
     'extensão btree_gist ausente e impossível de criar com o usuário atual',
-  // Diagnóstico por motivo, do mais básico ao mais fino. `CREATE EXTENSION`
-  // por não-superusuário (PG 13+) exige as DUAS coisas: a extensão marcada
-  // como `trusted` (btree_gist é, no contrib padrão — mas o pacote pode ter
-  // sido alterado) e privilégio CREATE no banco atual (dono do banco tem por
-  // padrão; um usuário de aplicação criado à parte, em geral, não). A versão
-  // conferida é a `default_version`, que é a que o `CREATE EXTENSION` instala.
   sql: `SELECT x.motivo AS chave, 'btree_gist' AS ids
           FROM (
             SELECT CASE
@@ -386,18 +274,11 @@ export const EXTENSAO_BTREE_GIST: VerificacaoPreMigration = {
     "SELECT current_user, current_database(), has_database_privilege(current_user, current_database(), 'CREATE') AS pode_criar, (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS superusuario, (SELECT trusted FROM pg_available_extension_versions v JOIN pg_available_extensions e USING (name) WHERE name = 'btree_gist' AND v.version = e.default_version) AS trusted;",
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: String(linha.chave ?? ''),
-      ids: String(linha.ids ?? ''),
+      chave: texto(linha.chave),
+      ids: texto(linha.ids),
     })),
 };
 
-/**
- * `AddUniqueClinicRoomName` cria o índice único que fecha a corrida do
- * `assertNomeLivre` (`ClinicRoomsService`): mesmo nome, ignorando caixa e
- * espaços nas pontas, entre as salas não excluídas da mesma clínica. Sala
- * repetida gravada antes (corrida ou importação) derrubaria o índice sem dizer
- * qual. Mesmo predicado do índice.
- */
 export const SALAS_COM_NOME_REPETIDO: VerificacaoPreMigration = {
   migration: 'AddUniqueClinicRoomName1755801000000',
   descricao:
@@ -413,19 +294,11 @@ export const SALAS_COM_NOME_REPETIDO: VerificacaoPreMigration = {
     'Renomeie ou exclua as salas repetidas de cada clínica antes de repetir o deploy. Inspecione com: SELECT id, clinic_id, name, active FROM clinic_rooms WHERE id IN (...);',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: String(linha.chave ?? ''),
-      ids: String(linha.ids ?? ''),
+      chave: texto(linha.chave),
+      ids: texto(linha.ids),
     })),
 };
 
-/**
- * `AddUniquePatientPhotoPath` cria um índice único parcial em
- * `patients.photo_path`: um objeto de foto no R2 pertence a um paciente só
- * (trocar a foto de um apaga o objeto, e o outro ficaria sem foto). Dado
- * legado com o mesmo caminho em dois pacientes — gravado na corrida do
- * `fotoEmUso`, que era check-then-write — derrubaria o `CREATE UNIQUE INDEX`.
- * Conta também os excluídos (soft delete), como o índice.
- */
 export const FOTO_DE_PACIENTE_REPETIDA: VerificacaoPreMigration = {
   migration: 'AddUniquePatientPhotoPath1755801100000',
   descricao: 'mesma foto (photo_path) em mais de um paciente em "patients"',
@@ -440,9 +313,88 @@ export const FOTO_DE_PACIENTE_REPETIDA: VerificacaoPreMigration = {
     'Para cada caminho, mantenha a foto em um paciente e limpe o photo_path dos outros (UPDATE patients SET photo_path = NULL WHERE id IN (...)) antes de repetir o deploy. Inspecione com: SELECT id, owner_id, name, deleted_at FROM patients WHERE id IN (...);',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      // O caminho embute só ownerId + uuid + nome do arquivo: sem PII direta.
-      chave: String(linha.photo_path ?? ''),
-      ids: String(linha.ids ?? ''),
+      chave: texto(linha.photo_path),
+      ids: texto(linha.ids),
+    })),
+};
+
+export const HOSPITAL_OU_CONVENIO_COM_NOME_REPETIDO: VerificacaoPreMigration = {
+  migration: 'AddUniqueHospitalAndHealthPlanName1755801700000',
+  descricao:
+    'hospitais ou convênios vivos da mesma conta com o mesmo nome (sem diferenciar maiúsculas) em "hospitals"/"health_plans"',
+  sql: `SELECT 'hospital' AS tipo,
+               h."owner_id" AS owner_id,
+               lower(h."name") AS nome,
+               string_agg(h."id"::text, ', ' ORDER BY h."created_at") AS ids
+          FROM "hospitals" h
+         WHERE h."deleted_at" IS NULL
+         GROUP BY h."owner_id", lower(h."name")
+        HAVING count(*) > 1
+         UNION ALL
+        SELECT 'convênio' AS tipo,
+               hp."owner_id" AS owner_id,
+               lower(hp."name") AS nome,
+               string_agg(hp."id"::text, ', ' ORDER BY hp."created_at") AS ids
+          FROM "health_plans" hp
+         WHERE hp."deleted_at" IS NULL
+         GROUP BY hp."owner_id", lower(hp."name")
+        HAVING count(*) > 1
+         ORDER BY 1, 2, 3`,
+  comoResolver:
+    'Para cada grupo, escolha o registro que fica, aponte as solicitações cirúrgicas e os pacientes dos demais para ele (surgery_requests.hospital_id / health_plan_id, patients.health_plan_id) e exclua ou renomeie os outros antes de repetir o deploy.',
+  inspecionar:
+    'SELECT id, owner_id, name, active, created_at FROM hospitals WHERE id IN (...); SELECT id, owner_id, name, active, created_at FROM health_plans WHERE id IN (...);',
+  mapear: (linhas) =>
+    linhas.map((linha) => ({
+      chave: `${texto(linha.tipo)} da conta ${texto(linha.owner_id)}: ${texto(linha.nome)}`,
+      ids: texto(linha.ids),
+    })),
+};
+
+export const TELEFONE_REPETIDO_APOS_CANONIZAR: VerificacaoPreMigration = {
+  migration: 'CanonicalizeUserPhones1755802000000',
+  descricao:
+    'usuários vivos em "users" cujos telefones viram o mesmo número depois de canonizados (DDD + número, com o nono dígito)',
+  sql: `SELECT c.canonico AS phone,
+               string_agg(c.id::text, ', ' ORDER BY c.created_at) AS ids
+          FROM (SELECT u."id" AS id,
+                       u."created_at" AS created_at,
+                       ${telefoneCanonicoSql('u."phone"')} AS canonico
+                  FROM "users" u
+                 WHERE u."phone" IS NOT NULL AND u."deleted_at" IS NULL) c
+         WHERE c.canonico IS NOT NULL
+         GROUP BY c.canonico
+        HAVING count(*) > 1
+         ORDER BY c.canonico`,
+  comoResolver:
+    'Os números abaixo pertencem a mais de uma conta quando escritos sem máscara, sem DDI 55 e com o nono dígito. Confirme com cada titular qual conta é a dona do número e troque o telefone (ou desative) as demais antes de repetir o deploy.',
+  inspecionar:
+    'SELECT id, email, role, status, owner_id, created_at FROM users WHERE id IN (...);',
+  mapear: (linhas) =>
+    linhas.map((linha) => ({
+      chave: maskPhone(texto(linha.phone)),
+      ids: texto(linha.ids),
+    })),
+};
+
+export const EMAIL_REPETIDO_SEM_MAIUSCULAS: VerificacaoPreMigration = {
+  migration: 'NormalizeUserEmailsLowercase1755802237000',
+  descricao:
+    'usuários em "users" (inclusive excluídos) cujos e-mails viram o mesmo endereço depois de btrim + lower',
+  sql: `SELECT lower(btrim(u."email")) AS email,
+               string_agg(u."id"::text, ', ' ORDER BY u."created_at") AS ids
+          FROM "users" u
+         GROUP BY lower(btrim(u."email"))
+        HAVING count(*) > 1
+         ORDER BY 1`,
+  comoResolver:
+    'Os endereços abaixo pertencem a mais de uma conta quando comparados sem diferenciar maiúsculas. Confirme com cada titular qual conta fica com o e-mail e troque o e-mail (ou exclua definitivamente) as demais antes de repetir o deploy.',
+  inspecionar:
+    'SELECT id, email, role, status, owner_id, created_at, deleted_at FROM users WHERE id IN (...);',
+  mapear: (linhas) =>
+    linhas.map((linha) => ({
+      chave: maskEmail(texto(linha.email)),
+      ids: texto(linha.ids),
     })),
 };
 
@@ -454,9 +406,11 @@ export const VERIFICACOES_PRE_MIGRATION: VerificacaoPreMigration[] = [
   EXTENSAO_BTREE_GIST,
   SALAS_COM_NOME_REPETIDO,
   FOTO_DE_PACIENTE_REPETIDA,
+  HOSPITAL_OU_CONVENIO_COM_NOME_REPETIDO,
+  TELEFONE_REPETIDO_APOS_CANONIZAR,
+  EMAIL_REPETIDO_SEM_MAIUSCULAS,
 ];
 
-/** Mensagem única, usada tanto no erro da migration quanto no pré-flight. */
 export function montarDiagnostico(
   verificacao: VerificacaoPreMigration,
   conflitos: ConflitoDeDado[],
@@ -473,11 +427,6 @@ export function montarDiagnostico(
   ].join('\n');
 }
 
-/**
- * Roda uma verificação e devolve os conflitos encontrados. `consultar` é
- * injetado porque os dois consumidores falam com o banco de formas diferentes:
- * a migration pelo `QueryRunner` do TypeORM, o pré-flight por um client `pg`.
- */
 export async function verificar(
   verificacao: VerificacaoPreMigration,
   consultar: (sql: string) => Promise<Record<string, unknown>[]>,

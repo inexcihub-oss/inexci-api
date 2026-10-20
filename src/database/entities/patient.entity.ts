@@ -13,18 +13,11 @@ import {
 import { User } from './user.entity';
 import { HealthPlan } from './health-plan.entity';
 import { SurgeryRequest } from './surgery-request.entity';
+import { encryptedTransformer } from '../../shared/crypto/encryption.util';
 
-/**
- * Paciente — Entidade de negócio (não faz login).
- * Pertence a um médico (doctorId) e a uma clínica (ownerId).
- * O ownerId é denormalizado para acelerar filtros de tenant isolation.
- */
 @Entity('patients')
 @Index('idx_patients_doctor_id', ['doctorId'])
 @Index('idx_patients_owner_id', ['ownerId'])
-// Uma foto (objeto no R2) pertence a um paciente só: trocar a foto de um apaga
-// o objeto antigo, e o outro ficaria apontando para o nada. Inclui excluídos
-// (soft delete), como o `PatientsService.fotoEmUso`.
 @Index('UQ_patients_photo_path', ['photoPath'], {
   unique: true,
   where: 'photo_path IS NOT NULL',
@@ -36,7 +29,6 @@ export class Patient {
   @Column({ name: 'doctor_id', type: 'uuid' })
   doctorId: string;
 
-  /** ID do admin dono da clínica (denormalizado para tenant isolation). */
   @Column({ name: 'owner_id', type: 'uuid' })
   ownerId: string;
 
@@ -49,7 +41,6 @@ export class Patient {
   @Column({ type: 'varchar', length: 15, nullable: true })
   phone: string | null;
 
-  /** Telefone adicional (fixo, recado). O principal continua sendo `phone`. */
   @Column({
     name: 'secondary_phone',
     type: 'varchar',
@@ -58,17 +49,9 @@ export class Patient {
   })
   secondaryPhone: string | null;
 
-  /**
-   * Opcional: pacientes migrados de outros sistemas, estrangeiros e menores
-   * podem não ter. A SC continua exigindo CPF para avançar.
-   */
   @Column({ type: 'varchar', length: 14, nullable: true })
   cpf: string | null;
 
-  /**
-   * Caminho interno da foto no R2 (`patient-photos/<ownerId>/...`), nunca URL.
-   * A URL assinada é gerada na leitura (`PatientsService`).
-   */
   @Column({ name: 'photo_path', type: 'varchar', length: 255, nullable: true })
   photoPath: string | null;
 
@@ -78,12 +61,9 @@ export class Patient {
   @Column({ name: 'birth_date', type: 'date', nullable: true })
   birthDate: Date | null;
 
-  // ============ DADOS DO CONVÊNIO ============
-
   @Column({ name: 'health_plan_id', type: 'uuid', nullable: true })
   healthPlanId: string | null;
 
-  /** Número da carteirinha */
   @Column({
     name: 'health_plan_number',
     type: 'varchar',
@@ -92,7 +72,6 @@ export class Patient {
   })
   healthPlanNumber: string | null;
 
-  /** Tipo do plano (enfermaria, apartamento, etc) */
   @Column({
     name: 'health_plan_type',
     type: 'varchar',
@@ -100,8 +79,6 @@ export class Patient {
     nullable: true,
   })
   healthPlanType: string | null;
-
-  // ============ ENDEREÇO ============
 
   @Column({ name: 'zip_code', type: 'varchar', length: 10, nullable: true })
   zipCode: string | null;
@@ -134,9 +111,12 @@ export class Patient {
   @Column({ type: 'char', length: 2, nullable: true })
   state: string | null;
 
-  // ============ OBSERVAÇÕES ============
-
-  @Column({ name: 'medical_notes', type: 'text', nullable: true })
+  @Column({
+    name: 'medical_notes',
+    type: 'text',
+    nullable: true,
+    transformer: encryptedTransformer,
+  })
   medicalNotes: string | null;
 
   @Column({ type: 'boolean', default: true })
@@ -150,8 +130,6 @@ export class Patient {
 
   @DeleteDateColumn({ name: 'deleted_at' })
   deletedAt: Date | null;
-
-  // ============ RELAÇÕES ============
 
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'doctor_id' })

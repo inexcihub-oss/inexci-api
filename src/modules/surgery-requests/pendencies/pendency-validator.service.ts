@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import {
   SurgeryRequest,
   SurgeryRequestStatus,
@@ -72,8 +73,7 @@ export class PendencyValidatorService {
   };
 
   constructor(
-    @InjectRepository(SurgeryRequest)
-    private readonly surgeryRequestRepository: Repository<SurgeryRequest>,
+    private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly opmeItemRepository: OpmeItemRepository,
     private readonly documentRepository: DocumentRepository,
     private readonly tussItemRepository: SurgeryRequestTussItemRepository,
@@ -81,63 +81,22 @@ export class PendencyValidatorService {
     private readonly reportSectionRepository: Repository<ReportSection>,
   ) {}
 
-  /**
-   * Relações realmente consultadas por `checkResolved`/`getCheckItems`.
-   * hospital/healthPlan/procedure/analysis/contestations foram removidas porque
-   * os checks só leem colunas escalares (ex.: `hospitalId`), não os objetos das
-   * relações. `relationLoadStrategy: 'query'` evita o produto cartesiano entre as
-   * coleções to-many (tussItems, opmeItems, documents, reportSections).
-   */
-  private static readonly PENDENCY_RELATIONS = {
-    patient: true,
-    doctor: { doctorProfile: true },
-    tussItems: true,
-    opmeItems: true,
-    documents: true,
-    billing: true,
-    reportSections: true,
-  } as const;
-
-  /**
-   * Carrega a solicitação com as relações necessárias para avaliação.
-   */
   private loadRequest(id: string): Promise<SurgeryRequest | null> {
-    return this.surgeryRequestRepository.findOne({
-      where: { id },
-      relationLoadStrategy: 'query',
-      relations: PendencyValidatorService.PENDENCY_RELATIONS,
-    });
+    return this.surgeryRequestRepository.findOneForPendencies(id);
   }
 
-  /**
-   * Carrega várias solicitações de uma vez (WHERE id IN) para o resumo em lote do
-   * kanban. Antes eram 7-8 round-trips SEQUENCIAIS (`relationLoadStrategy: 'query'`
-   * com todas as relações numa única chamada `find`); agora são 2 round-trips de
-   * wall-time: (a) 1 query com `join` para as relações *ToOne (não multiplicam
-   * linhas: `patient`, `billing`, `doctor.doctorProfile`) e (b) as 4 coleções
-   * *ToMany reais em paralelo via `Promise.all` (WHERE IN), evitando o produto
-   * cartesiano que um join direto causaria.
-   */
   private async loadRequestsBatch(
     ids: string[],
-    ownerId: string | null,
+    accessibleDoctorIds: string[],
   ): Promise<SurgeryRequest[]> {
-    if (ids.length === 0) return [];
+    if (ids.length === 0 || accessibleDoctorIds.length === 0) return [];
 
     const [base, tussItems, opmeItems, documents, reportSections] =
       await Promise.all([
-        this.surgeryRequestRepository.find({
-          // Fail-closed: só SCs do tenant do usuário (V1). Ids de outra clínica
-          // não carregam e permanecem nos defaults seguros. ownerId null →
-          // In([]) não casa nada.
-          where: { id: In(ids), ownerId: In(ownerId ? [ownerId] : []) },
-          relationLoadStrategy: 'join',
-          relations: {
-            patient: true,
-            billing: true,
-            doctor: { doctorProfile: true },
-          },
-        }),
+        this.surgeryRequestRepository.findManyForPendencies(
+          ids,
+          accessibleDoctorIds,
+        ),
         this.tussItemRepository.findMany({ surgeryRequestId: In(ids) }),
         this.opmeItemRepository.findMany({ surgeryRequestId: In(ids) }),
         this.documentRepository.findMany({ surgeryRequestId: In(ids) }),
@@ -175,21 +134,16 @@ export class PendencyValidatorService {
     }));
   }
 
-  /**
-   * Gera pendências dinâmicas a partir dos documentos obrigatórios definidos no template.
-   */
   private buildDocumentPendencies(request: SurgeryRequest): PendencyConfig[] {
-    const requiredDocs: Array<{ type: string; name: string }> =
-      (request as any).requiredDocuments ?? [];
+    const requiredDocs = request.requiredDocuments ?? [];
     return requiredDocs.map((doc) => ({
       key: `doc_${doc.name}`,
       label: `Documento: ${doc.name}`,
-      blocking: false, // documentos são avisos, não bloqueantes
+      blocking: false,
       responsibleRole: 'collaborator' as const,
     }));
   }
 
-  /** Nome e CPF são os únicos campos obrigatórios do paciente. */
   private isPatientDataComplete(patient?: SurgeryRequest['patient']): boolean {
     return !!(patient?.name && patient?.cpf);
   }
@@ -203,9 +157,6 @@ export class PendencyValidatorService {
     ];
   }
 
-  /**
-   * Retorna os sub-itens de checklist para cada tipo de pendência.
-   */
   private getCheckItems(
     request: SurgeryRequest,
     key: string,
@@ -302,7 +253,6 @@ export class PendencyValidatorService {
       }
 
       default:
-        // Pendências dinâmicas de documentos (prefixo 'doc_')
         if (key.startsWith('doc_')) {
           const docName = key.slice(4);
           const hasUploaded = docs.some(
@@ -314,9 +264,6 @@ export class PendencyValidatorService {
     }
   }
 
-  /**
-   * Verifica se uma pendência individual está resolvida.
-   */
   private checkResolved(
     request: SurgeryRequest,
     pendency: PendencyConfig,
@@ -326,7 +273,6 @@ export class PendencyValidatorService {
     const opmeItems = request.opmeItems ?? [];
 
     switch (pendency.key) {
-      // ── PENDING ──────────────────────────────────────────────────────────
       case 'patient_data':
         return this.isPatientDataComplete(request.patient);
 
@@ -337,16 +283,11 @@ export class PendencyValidatorService {
         return procedures.length > 0;
 
       case 'opme_items':
-        // hasOpme === false → usuário indicou que não há OPME (pendência dispensada)
         if (request.hasOpme === false) return true;
-        // hasOpme === true → precisa ter ao menos 1 item cadastrado
         if (request.hasOpme === true) return opmeItems.length > 0;
-        // hasOpme === null/undefined → usuário ainda não indicou (pendência aberta)
         return false;
 
       case 'medical_report': {
-        // Campos obrigatórios: nome + CPF do paciente + ao menos 1 seção de laudo
-        // preenchida + assinatura do médico configurada.
         const sections = request.reportSections ?? [];
         const doctorHasSignature =
           !!request.doctor?.doctorProfile?.signatureUrl;
@@ -357,7 +298,6 @@ export class PendencyValidatorService {
         );
       }
 
-      // ── IN_SCHEDULING ─────────────────────────────────────────────────────
       case 'schedule_dates':
         return !!(
           request.dateOptions &&
@@ -372,13 +312,10 @@ export class PendencyValidatorService {
         );
 
       case 'consent_term':
-        // Resolvida se o termo já foi anexado em qualquer fase (início ou agendamento).
         return docs.some((d) => d.key === 'consent_term');
 
-      // ── SCHEDULED ────────────────────────────────────────────────────────
       case 'surgery_expired':
-        // Aviso: data da cirurgia está no passado
-        if (!request.surgeryDate) return true; // sem data = sem aviso
+        if (!request.surgeryDate) return true;
         return new Date(request.surgeryDate) > new Date();
 
       case 'post_surgery_documents': {
@@ -392,14 +329,12 @@ export class PendencyValidatorService {
         );
       }
 
-      // ── INVOICED ─────────────────────────────────────────────────────────
       case 'confirm_receipt':
         return !!(
           request.billing?.receivedValue && request.billing?.receivedAt
         );
 
       default:
-        // Pendências dinâmicas de documentos (prefixo 'doc_')
         if (pendency.key.startsWith('doc_')) {
           const docName = pendency.key.slice(4);
           return docs.some((d) => d.name === docName || d.key === docName);
@@ -408,54 +343,41 @@ export class PendencyValidatorService {
     }
   }
 
-  /**
-   * Retorna o resultado completo de validação no formato esperado pelo frontend.
-   */
-  async validateForStatus(
-    requestId: string,
-    targetStatus?: SurgeryRequestStatus,
-  ): Promise<ValidationResultDto> {
+  private evaluate(request: SurgeryRequest): {
+    status: SurgeryRequestStatus;
+    label: string;
+    items: ResolvedPendency[];
+  } {
+    const config = getPendenciesForStatus(request.status);
+    if (!config || config.pendencies.length === 0) {
+      return { status: request.status, label: config?.label ?? '', items: [] };
+    }
+
+    const documentPendencies =
+      request.status === SurgeryRequestStatus.PENDING
+        ? this.buildDocumentPendencies(request)
+        : [];
+
+    const items = [...config.pendencies, ...documentPendencies].map((p) => ({
+      ...p,
+      resolved: this.checkResolved(request, p),
+    }));
+    return { status: request.status, label: config.label, items };
+  }
+
+  async validateForStatus(requestId: string): Promise<ValidationResultDto> {
     const request = await this.loadRequest(requestId);
-    // Fail-closed: SC inexistente/apagada não pode devolver `canAdvance: true`.
-    // Via HTTP o `SurgeryRequestOwnerGuard` já barra antes, mas chamadores
-    // internos (tools de IA, jobs, handlers de workflow) passam direto e usariam
-    // o resultado para liberar a transição.
     if (!request) {
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
     }
 
-    const status = targetStatus ?? request.status;
-    const config = getPendenciesForStatus(status);
+    const { status, label, items } = this.evaluate(request);
 
-    if (!config || config.pendencies.length === 0) {
-      return {
-        currentStatus: status,
-        statusLabel: config?.label ?? '',
-        pendencies: [],
-        canAdvance: true,
-        nextStatus: this.nextStatusMap[status] ?? null,
-        completedCount: 0,
-        pendingCount: 0,
-        totalCount: 0,
-      };
-    }
-
-    // Combina pendências fixas + pendências dinâmicas de documentos obrigatórios.
-    // Documentos do template só fazem sentido no status PENDING (antes do envio).
-    const documentPendencies =
-      status === SurgeryRequestStatus.PENDING
-        ? this.buildDocumentPendencies(request)
-        : [];
-    const allPendencies: PendencyConfig[] = [
-      ...config.pendencies,
-      ...documentPendencies,
-    ];
-
-    const pendencies: CalculatedPendencyDto[] = allPendencies.map((p) => ({
+    const pendencies: CalculatedPendencyDto[] = items.map((p) => ({
       key: p.key,
       name: p.label,
       description: '',
-      isComplete: this.checkResolved(request, p),
+      isComplete: p.resolved,
       isOptional: !p.blocking,
       isWaiting: false,
       responsible: p.responsibleRole,
@@ -467,13 +389,12 @@ export class PendencyValidatorService {
     const pendingCount = pendencies.filter(
       (p) => !p.isComplete && !p.isOptional,
     ).length;
-    const canAdvance = pendingCount === 0;
 
     return {
       currentStatus: status,
-      statusLabel: config.label,
+      statusLabel: label,
       pendencies,
-      canAdvance,
+      canAdvance: pendingCount === 0,
       nextStatus: this.nextStatusMap[status] ?? null,
       completedCount,
       pendingCount,
@@ -481,58 +402,28 @@ export class PendencyValidatorService {
     };
   }
 
-  /**
-   * Verifica se a solicitação pode avançar de status (sem pendências bloqueantes).
-   */
   async canAdvance(requestId: string): Promise<boolean> {
     const summary = await this.getSummary(requestId);
     return summary.canAdvance;
   }
 
-  /**
-   * Retorna um resumo de pendências: pending, total, canAdvance, items.
-   */
   async getSummary(requestId: string): Promise<PendencySummary> {
     const request = await this.loadRequest(requestId);
-    // Fail-closed — ver `validateForStatus`.
     if (!request) {
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
     }
     return this.computeSummary(request);
   }
 
-  /**
-   * Computa o resumo de pendências de uma solicitação já carregada (sem I/O).
-   * Compartilhado por `getSummary` (1 request) e `getBatchSummary` (lote).
-   */
   private computeSummary(request: SurgeryRequest): PendencySummary {
-    const config = getPendenciesForStatus(request.status);
-    if (!config || config.pendencies.length === 0) {
-      return { pending: 0, total: 0, canAdvance: true, items: [] };
-    }
-
-    // Documentos do template só fazem sentido no status PENDING (antes do envio).
-    const documentPendencies =
-      request.status === SurgeryRequestStatus.PENDING
-        ? this.buildDocumentPendencies(request)
-        : [];
-    const allPendencies: PendencyConfig[] = [
-      ...config.pendencies,
-      ...documentPendencies,
-    ];
-
-    const items: ResolvedPendency[] = allPendencies.map((p) => ({
-      ...p,
-      resolved: this.checkResolved(request, p),
-    }));
-
+    const { items } = this.evaluate(request);
     const blockingPending = items.filter(
       (p) => p.blocking && !p.resolved,
     ).length;
 
     return {
       pending: blockingPending,
-      total: allPendencies.length,
+      total: items.length,
       canAdvance: blockingPending === 0,
       items,
     };
@@ -540,7 +431,7 @@ export class PendencyValidatorService {
 
   async getBatchSummary(
     rawIds: string,
-    ownerId: string | null,
+    accessibleDoctorIds: string[],
   ): Promise<
     Record<string, { pending: number; total: number; canAdvance: boolean }>
   > {
@@ -549,9 +440,6 @@ export class PendencyValidatorService {
       .map((id) => id.trim())
       .filter((id) => id.length > 0);
 
-    // Default fail-closed para todo id solicitado: id não encontrado (ou de
-    // outro tenant) e falha de carga permanecem em `canAdvance: false`, senão o
-    // kanban pintaria como "sem pendência" o que ele não conseguiu avaliar.
     const result: Record<
       string,
       { pending: number; total: number; canAdvance: boolean }
@@ -563,8 +451,7 @@ export class PendencyValidatorService {
     if (ids.length === 0) return result;
 
     try {
-      // Uma única carga em lote em vez de N cargas pesadas em paralelo (N+1).
-      const requests = await this.loadRequestsBatch(ids, ownerId);
+      const requests = await this.loadRequestsBatch(ids, accessibleDoctorIds);
       for (const request of requests) {
         const summary = this.computeSummary(request);
         result[request.id] = {
@@ -579,16 +466,11 @@ export class PendencyValidatorService {
           error instanceof Error ? error.message : String(error)
         }`,
       );
-      // Mantém os defaults já preenchidos.
     }
 
     return result;
   }
 
-  /**
-   * Lança BadRequestException quando há pendências bloqueantes não resolvidas.
-   * Deve ser chamado nos handlers de transição antes de executeInTransaction.
-   */
   async assertCanAdvance(requestId: string): Promise<void> {
     const result = await this.validateForStatus(requestId);
     if (!result.canAdvance) {
@@ -603,42 +485,5 @@ export class PendencyValidatorService {
         pendencies: blocking,
       });
     }
-  }
-
-  /**
-   * Versão síncrona para cálculos rápidos no kanban (sem I/O).
-   */
-  calculatePendenciesSync(request: SurgeryRequest): {
-    pendingCount: number;
-    completedCount: number;
-    totalCount: number;
-  } {
-    const config = getPendenciesForStatus(request.status);
-    if (!config || config.pendencies.length === 0) {
-      return { pendingCount: 0, completedCount: 0, totalCount: 0 };
-    }
-
-    const allPendencies: PendencyConfig[] = [
-      ...config.pendencies,
-      ...this.buildDocumentPendencies(request),
-    ];
-
-    let pendingCount = 0;
-    let completedCount = 0;
-
-    for (const p of allPendencies) {
-      const resolved = this.checkResolved(request, p);
-      if (resolved) {
-        completedCount++;
-      } else if (p.blocking) {
-        pendingCount++;
-      }
-    }
-
-    return {
-      pendingCount,
-      completedCount,
-      totalCount: allPendencies.length,
-    };
   }
 }

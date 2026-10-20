@@ -27,12 +27,6 @@ import { BulkDeleteSuppliersDto } from './dto/bulk-delete-suppliers.dto';
 @ApiTags('Fornecedores')
 @ApiBearerAuth()
 @Controller('suppliers')
-// Cadastro transversal às quatro áreas: `@RequireAnyArea()` exige ao menos
-// uma área (fail-closed p/ colaborador sem permissão) sem amarrar a uma
-// específica. Criar e atualizar herdam essa regra: quem monta a solicitação
-// precisa cadastrar o fornecedor de OPME que faltou, sem depender do admin.
-// Só `delete`/`bulkDelete` seguem em `ADMINISTRACAO` — apagar um fornecedor
-// afeta OPMEs e cotações que já o referenciam.
 @RequireAnyArea()
 export class SuppliersController {
   constructor(private readonly suppliersService: SuppliersService) {}

@@ -3,33 +3,14 @@ import * as path from 'path';
 import * as Handlebars from 'handlebars';
 import { MAIL_TEMPLATES } from 'src/config/mail.config';
 
-/**
- * 10.1.6 — Testes de renderização de todos os templates Handlebars de e-mail.
- * Verifica que cada template:
- * - Existe em disco
- * - Compila sem erros
- * - Renderiza HTML válido com contexto mock
- */
-
 const TEMPLATES_DIR = path.resolve(__dirname, 'templates');
 const PARTIALS_DIR = path.resolve(__dirname, 'templates', 'partials');
 
-/** Trecho do rodapé do `_layout` — prova que o layout envolveu o template. */
 const MARCADOR_DO_LAYOUT = 'Sistema de Gestão Cirúrgica';
 
 const normalizarEspacos = (texto: string) => texto.replace(/\s+/g, ' ').trim();
 
-/**
- * Trechos de texto literal do corpo do template filho (o que fica entre
- * `{{#> _layout}}` e `{{/_layout}}`), ignorando tags e expressões Handlebars.
- *
- * Existe para dar dentes ao teste do `{{> @partial-block}}`: sem isso, um
- * template que perdesse o corpo inteiro ainda renderizaria o layout — mais de
- * 50 caracteres de HTML — e passaria despercebido.
- */
 function literaisDoCorpo(source: string): string[] {
-  // A abertura `{{#> _layout ...}}` ocupa a primeira linha inteira. Procurar
-  // pelo primeiro `}}` não serve: um `title="{{title}}"` fecha antes dela.
   const abertura = source.indexOf('\n');
   const fechamento = source.lastIndexOf('{{/_layout}}');
   const corpo =
@@ -37,9 +18,6 @@ function literaisDoCorpo(source: string): string[] {
       ? source.slice(abertura + 1, fechamento)
       : source;
 
-  // Parte nas tags e nas expressões: só sobram corridas de texto que, no HTML
-  // final, aparecem contíguas. Trocar tag por espaço colaria dois parágrafos
-  // num literal que não existe na saída.
   return corpo
     .split(/<[^>]*>|\{\{[^}]*\}\}/)
     .map(normalizarEspacos)
@@ -47,7 +25,6 @@ function literaisDoCorpo(source: string): string[] {
     .sort((a, b) => b.length - a.length);
 }
 
-/** Fragmentos literais do `title="..."` passado como hash para o `_layout`. */
 function literaisDoTitulo(source: string): string[] {
   const match = source.match(
     /^\{\{#>\s*_layout\s+title=(?:"([^"]*)"|'([^']*)')/,
@@ -64,7 +41,6 @@ function literaisDoTitulo(source: string): string[] {
 const usaLayout = (source: string) =>
   source.trimStart().startsWith('{{#> _layout');
 
-// Registra partials antes dos testes (mesmo comportamento do MailProcessor)
 beforeAll(() => {
   if (fs.existsSync(PARTIALS_DIR)) {
     fs.readdirSync(PARTIALS_DIR)
@@ -77,7 +53,6 @@ beforeAll(() => {
   }
 });
 
-// Contexto mock genérico que cobre variáveis usadas nos templates
 const mockContext: Record<string, any> = {
   patientName: 'João Silva',
   doctorName: 'Dr. Carlos Souza',
@@ -103,13 +78,10 @@ const mockContext: Record<string, any> = {
   title: 'Título de teste',
   body: '<p>Conteúdo de teste</p>',
   year: 2026,
-  // Campos de pagamento
   invoiceNumber: 'INV-001',
   amount: 'R$ 5.000,00',
   paymentDate: '20/04/2026',
-  // Campos de contestação
   contestReason: 'Valor divergente',
-  // Campos de agendamento
   scheduledDate: '30/04/2026',
   scheduledTime: '08:00',
 };
@@ -147,7 +119,6 @@ describe('Mail Templates — Renderização', () => {
       const source = fs.readFileSync(templatePath, 'utf-8');
       const compiled = Handlebars.compile(source);
       const html = compiled(mockContext);
-      // Deve conter pelo menos algum HTML
       expect(html).toMatch(/<[a-z]/i);
     });
 
@@ -162,9 +133,6 @@ describe('Mail Templates — Renderização', () => {
       const literais = literaisDoCorpo(source);
       expect(literais.length).toBeGreaterThan(0);
 
-      // Basta um: boa parte dos literais mora dentro de `{{#if}}` que o
-      // contexto mock não satisfaz. Se o @partial-block parar de injetar o
-      // corpo, nenhum sobrevive — que é a regressão vigiada aqui.
       const encontrados = literais.filter((trecho) => html.includes(trecho));
       expect(encontrados.length).toBeGreaterThan(0);
     });
@@ -176,10 +144,6 @@ describe('Mail Templates — Renderização', () => {
       const quebra = source.indexOf('\n');
       const abertura = quebra >= 0 ? source.slice(0, quebra) : source;
 
-      // `title="{{title}}"` NÃO interpola: Handlebars trata o valor entre
-      // aspas como string literal, e o `{{title}}` cru chega ao cabeçalho do
-      // e-mail e ao <title> da página. Para passar o valor de uma variável o
-      // hash vai sem aspas — `title=title`, como o `preferencesUrl` ao lado.
       expect(abertura).not.toMatch(/=\s*(?:"[^"]*\{\{|'[^']*\{\{)/);
     });
 
@@ -211,7 +175,6 @@ describe('Mail Templates — Renderização', () => {
     const hbsFiles = fs
       .readdirSync(TEMPLATES_DIR)
       .filter((f) => f.endsWith('.hbs'));
-    // Templates em disco >= templates no config (pode haver partials na raiz)
     expect(hbsFiles.length).toBeGreaterThanOrEqual(MAIL_TEMPLATES.length);
   });
 });

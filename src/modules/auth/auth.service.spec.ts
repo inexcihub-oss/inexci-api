@@ -4,12 +4,14 @@ import {
   HttpStatus,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 
 import { AuthService } from './auth.service';
 import { RefreshTokenStore } from './refresh-token.store';
+import { SessionRevocationService } from './session-revocation.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
@@ -22,8 +24,11 @@ import { ConsentService } from '../privacy/consent.service';
 import { SubscriptionService } from '../billing/services/subscription.service';
 import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
+import { AuthAttemptLimiter } from './auth-attempt-limiter';
+import { TurnstileService } from './turnstile.service';
+import { RecoveryCodePurpose } from 'src/database/entities/recovery-code.entity';
+import { MfaService } from './mfa/mfa.service';
 
-// Mock bcryptjs before it's imported by the service
 jest.mock('bcryptjs', () => ({
   compare: jest.fn(),
   hash: jest.fn(),
@@ -35,6 +40,11 @@ jest.mock('src/shared/utils', () => ({
   generateValidationCode: () => '123456',
 }));
 
+type SessaoLogin = Extract<
+  Awaited<ReturnType<AuthService['login']>>,
+  { user: unknown }
+>;
+
 describe('AuthService', () => {
   let service: AuthService;
 
@@ -43,13 +53,37 @@ describe('AuthService', () => {
     findOneWithProfile: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
+    incrementTokenVersion: jest.fn(),
   };
 
   const mockRecoveryCodeRepository = {
     findOne: jest.fn(),
+    findActive: jest.fn(),
+    consumeAttempt: jest.fn(),
+    issueResetToken: jest.fn(),
     create: jest.fn(),
     updateByWhere: jest.fn(),
     deleteMany: jest.fn(),
+  };
+
+  const mockAttemptLimiter = {
+    isLoginLocked: jest.fn(),
+    registerLoginFailure: jest.fn(),
+    clearLoginFailures: jest.fn(),
+    tryConsumeRecoveryIssue: jest.fn(),
+    isRecoveryValidationLocked: jest.fn(),
+    registerRecoveryFailure: jest.fn(),
+  };
+
+  const mockMfaService = {
+    isEnabled: jest.fn(),
+    createLoginToken: jest.fn(),
+    verifyLoginToken: jest.fn(),
+    verifySecondFactor: jest.fn(),
+  };
+
+  const mockTurnstileService = {
+    assertHuman: jest.fn(),
   };
 
   const mockDoctorProfileRepository = {
@@ -58,7 +92,6 @@ describe('AuthService', () => {
   };
 
   const mockMailService = {
-    sendRaw: jest.fn(),
     sendPasswordRecovery: jest.fn(),
     sendEmailVerification: jest.fn().mockResolvedValue(undefined),
   };
@@ -136,14 +169,26 @@ describe('AuthService', () => {
         { provide: SubscriptionService, useValue: mockSubscriptionService },
         { provide: ProcedureRepository, useValue: mockProcedureRepository },
         { provide: StorageService, useValue: mockStorageService },
+        { provide: AuthAttemptLimiter, useValue: mockAttemptLimiter },
+        { provide: TurnstileService, useValue: mockTurnstileService },
+        SessionRevocationService,
+        { provide: MfaService, useValue: mockMfaService },
       ],
     }).compile();
 
     service = module.get<AuthService>(AuthService);
     jest.clearAllMocks();
+    mockAttemptLimiter.isLoginLocked.mockResolvedValue(false);
+    mockAttemptLimiter.registerLoginFailure.mockResolvedValue(undefined);
+    mockAttemptLimiter.clearLoginFailures.mockResolvedValue(undefined);
+    mockAttemptLimiter.tryConsumeRecoveryIssue.mockResolvedValue(true);
+    mockAttemptLimiter.isRecoveryValidationLocked.mockResolvedValue(false);
+    mockAttemptLimiter.registerRecoveryFailure.mockResolvedValue(undefined);
+    mockTurnstileService.assertHuman.mockResolvedValue(undefined);
+    mockMfaService.isEnabled.mockResolvedValue(false);
+    mockRecoveryCodeRepository.consumeAttempt.mockResolvedValue(1);
+    mockRecoveryCodeRepository.issueResetToken.mockResolvedValue(true);
   });
-
-  // ─── me ─────────────────────────────────────────────────────────
 
   describe('me', () => {
     it('inclui consents embutidos sem query adicional ao ConsentService', async () => {
@@ -220,8 +265,8 @@ describe('AuthService', () => {
         doctorProfile: { id: 'dp-1', council: 'CRM' },
       };
       mockUserRepository.findOneWithProfile
-        .mockResolvedValueOnce(collaborator) // lookup do próprio usuário
-        .mockResolvedValueOnce(owner); // lookup do dono em buildAccountInfo
+        .mockResolvedValueOnce(collaborator)
+        .mockResolvedValueOnce(owner);
 
       const result = await service.me('collab-1');
 
@@ -250,12 +295,6 @@ describe('AuthService', () => {
       expect(result.account).toBeNull();
     });
 
-    // ─── `accountId` é o nome do campo no contrato do frontend ────
-    // `AuthContext.tsx` deriva `isAccountOwner` de
-    // `user.role === 'admin' && user.id === user.accountId`. Enquanto
-    // esta rota devolvia só `ownerId`, `accountId` chegava `undefined` e
-    // `isAccountOwner` era `false` para TODO MUNDO — inclusive o dono —,
-    // escondendo a aba "Plano e Faturamento" e todo o billing.
     it('devolve accountId (além de ownerId) para o dono da conta', async () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'dono-1',
@@ -299,10 +338,6 @@ describe('AuthService', () => {
       expect(result.accountId).toBe('owner-1');
     });
 
-    // ─── Achado Critical: /auth/me nunca devolvia `permissions` ────
-    // (`AuthContext.tsx` do frontend lê `user.permissions` para montar
-    // `can()`; sem o campo, `can()` é sempre `false` para TODO MUNDO,
-    // inclusive o dono da conta.)
     describe('permissions (achado Critical)', () => {
       it('devolve as quatro permissões para o dono da conta (admin)', async () => {
         mockUserRepository.findOneWithProfile.mockResolvedValue({
@@ -385,7 +420,7 @@ describe('AuthService', () => {
           emailVerified: true,
           permissions: [],
           isPlatformAdmin: true,
-          doctorProfile: { id: 'dp-1', council: 'CRM' }, // efetiva soma 3 áreas — prova que não é a crua repassada
+          doctorProfile: { id: 'dp-1', council: 'CRM' },
         });
 
         const result = await service.me('colab-1');
@@ -399,7 +434,6 @@ describe('AuthService', () => {
       });
     });
 
-    // ─── onboardingState embutido no payload (mesmo motivo de `consents`) ──
     describe('onboardingState', () => {
       it('devolve o estado de onboarding vazio para quem nunca começou', async () => {
         mockUserRepository.findOneWithProfile.mockResolvedValue({
@@ -454,8 +488,6 @@ describe('AuthService', () => {
     });
   });
 
-  // ─── validateUser ───────────────────────────────────────────────
-
   describe('validateUser', () => {
     const mockUser = {
       id: 'user-1',
@@ -505,6 +537,81 @@ describe('AuthService', () => {
       ).rejects.toThrow(HttpException);
     });
 
+    it('usuário inexistente roda o bcrypt com hash fictício e conta a falha', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+      (bcryptjs.hash as jest.Mock).mockResolvedValue('$2a$12$hashficticio');
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(false);
+
+      await expect(
+        service.validateUser('ninguem@example.com', 'qualquer'),
+      ).rejects.toMatchObject({ status: HttpStatus.BAD_REQUEST });
+
+      expect(bcryptjs.compare).toHaveBeenCalledWith(
+        'qualquer',
+        '$2a$12$hashficticio',
+      );
+      expect(mockAttemptLimiter.registerLoginFailure).toHaveBeenCalledWith(
+        'ninguem@example.com',
+      );
+    });
+
+    it('resposta de conta inexistente e de senha errada é idêntica', async () => {
+      const capturar = async () => {
+        try {
+          await service.validateUser('alvo@example.com', 'errada');
+          throw new Error('deveria ter lançado');
+        } catch (err: any) {
+          return { status: err.getStatus?.(), body: err.getResponse?.() };
+        }
+      };
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(false);
+
+      mockUserRepository.findOne.mockResolvedValue(null);
+      const semConta = await capturar();
+      mockUserRepository.findOne.mockResolvedValue(mockUser);
+      const comConta = await capturar();
+
+      expect(semConta).toEqual(comConta);
+      expect(mockAttemptLimiter.registerLoginFailure).toHaveBeenCalledTimes(2);
+    });
+
+    it('senha errada registra falha para a conta', async () => {
+      mockUserRepository.findOne.mockResolvedValue(mockUser);
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(false);
+
+      await expect(
+        service.validateUser('test@example.com', 'errada'),
+      ).rejects.toThrow(HttpException);
+
+      expect(mockAttemptLimiter.registerLoginFailure).toHaveBeenCalledWith(
+        'test@example.com',
+      );
+      expect(mockAttemptLimiter.clearLoginFailures).not.toHaveBeenCalled();
+    });
+
+    it('login bem-sucedido zera o contador de falhas', async () => {
+      mockUserRepository.findOne.mockResolvedValue(mockUser);
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
+
+      await service.validateUser('test@example.com', 'correta');
+
+      expect(mockAttemptLimiter.clearLoginFailures).toHaveBeenCalledWith(
+        'test@example.com',
+      );
+      expect(mockAttemptLimiter.registerLoginFailure).not.toHaveBeenCalled();
+    });
+
+    it('conta bloqueada responde 429 sem consultar o banco nem o bcrypt', async () => {
+      mockAttemptLimiter.isLoginLocked.mockResolvedValue(true);
+
+      await expect(
+        service.validateUser('test@example.com', 'correta'),
+      ).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
+
+      expect(mockUserRepository.findOne).not.toHaveBeenCalled();
+      expect(bcryptjs.compare).not.toHaveBeenCalled();
+    });
+
     it('should throw UnauthorizedException (401) when user has no password', async () => {
       mockUserRepository.findOne.mockResolvedValue({
         ...mockUser,
@@ -529,8 +636,6 @@ describe('AuthService', () => {
       });
     });
   });
-
-  // ─── changePasswordAuthenticated ────────────────────────────────
 
   describe('changePasswordAuthenticated', () => {
     it('should throw UnauthorizedException when user has no password defined', async () => {
@@ -562,9 +667,64 @@ describe('AuthService', () => {
         status: 401,
       });
     });
+
+    it('revoga todas as sessões (refresh e access) depois de trocar a senha', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        password: 'hash-atual',
+      });
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
+      (bcryptjs.hash as jest.Mock).mockResolvedValue('hash-novo');
+
+      await service.changePasswordAuthenticated(
+        { currentPassword: 'Atual123@', newPassword: 'Nova1234@' },
+        'user-1',
+      );
+
+      expect(mockUserRepository.update).toHaveBeenCalledWith('user-1', {
+        password: 'hash-novo',
+      });
+      expect(mockUserRepository.incrementTokenVersion).toHaveBeenCalledWith(
+        'user-1',
+      );
+      expect(mockRefreshTokenStore.revokeAllForUser).toHaveBeenCalledWith(
+        'user-1',
+      );
+    });
   });
 
-  // ─── register ───────────────────────────────────────────────────
+  describe('e-mail sem diferenciar maiúsculas', () => {
+    it('login busca o e-mail normalizado', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(false);
+
+      await expect(
+        service.validateUser('  Fulano@Exemplo.COM ', 'x'),
+      ).rejects.toBeInstanceOf(HttpException);
+
+      expect(mockUserRepository.findOne).toHaveBeenCalledWith(
+        { email: 'fulano@exemplo.com', status: UserStatus.ACTIVE },
+        true,
+      );
+      expect(mockAttemptLimiter.registerLoginFailure).toHaveBeenCalledWith(
+        'fulano@exemplo.com',
+      );
+    });
+
+    it('check-email e recuperação buscam o e-mail normalizado', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+
+      await service.checkEmailAvailability('Novo@Exemplo.com');
+      await service.sendRecoveryPasswordEmail('Novo@Exemplo.com');
+
+      expect(mockUserRepository.findOne).toHaveBeenNthCalledWith(1, {
+        email: 'novo@exemplo.com',
+      });
+      expect(mockUserRepository.findOne).toHaveBeenNthCalledWith(2, {
+        email: 'novo@exemplo.com',
+      });
+    });
+  });
 
   describe('checkEmailAvailability', () => {
     it('deve retornar available quando o e-mail não existe', async () => {
@@ -618,17 +778,40 @@ describe('AuthService', () => {
       ).resolves.toEqual({ status: 'registered' });
     });
 
-    // O usuário digita o telefone mascarado. Sem normalizar, a etapa 1 diria
-    // "disponível" para um número que o submit recusaria — a checagem
-    // antecipada tem de consultar exatamente o que o `register` grava.
-    it('deve normalizar a máscara antes de consultar', async () => {
+    it('deve canonizar o telefone e consultar também as variantes legadas', async () => {
       mockUserRepository.findOne.mockResolvedValue(null);
 
-      await service.checkPhoneAvailability('(11) 99999-8888');
+      await service.checkPhoneAvailability('+55 (11) 99999-8888');
 
-      expect(mockUserRepository.findOne).toHaveBeenCalledWith({
-        phone: '11999998888',
-      });
+      const [filtro] = mockUserRepository.findOne.mock.calls[0];
+      expect(filtro).toEqual(
+        expect.arrayContaining([
+          { phone: '11999998888' },
+          { phone: '5511999998888' },
+          { phone: '+5511999998888' },
+        ]),
+      );
+    });
+
+    it('acusa como cadastrado o número gravado sem o nono dígito', async () => {
+      mockUserRepository.findOne.mockImplementation((where: any) =>
+        Promise.resolve(
+          Array.isArray(where) &&
+            where.some((w: { phone: string }) => w.phone === '1199998888')
+            ? { id: 'legado' }
+            : null,
+        ),
+      );
+
+      await expect(
+        service.checkPhoneAvailability('(11) 99999-8888'),
+      ).resolves.toEqual({ status: 'registered' });
+    });
+
+    it('recusa telefone fora do formato brasileiro', async () => {
+      await expect(service.checkPhoneAvailability('12345')).rejects.toThrow(
+        /telefone brasileiro válido/,
+      );
     });
   });
 
@@ -669,16 +852,12 @@ describe('AuthService', () => {
       );
     });
 
-    // Antes desta checagem o cadastro só olhava o e-mail: um telefone repetido
-    // passava direto e só estourava no INSERT, contra o índice parcial
-    // `IDX_users_phone_unique`. O QueryFailedError subia sem tratamento e o
-    // usuário recebia 500 — visto em produção em 16/08/2026, requestId
-    // 1efdb601-5217-4c09-8ec3-f7a5540ebad2.
     it('should throw a friendly error when the phone already belongs to another account', async () => {
       mockUserRepository.findOne.mockImplementation((where: any) =>
         Promise.resolve(
-          where?.phone === '11999998888'
-            ? { id: 'outro-user', phone: '11999998888' }
+          Array.isArray(where) &&
+            where.some((w: { phone: string }) => w.phone === '5511999998888')
+            ? { id: 'outro-user', phone: '5511999998888' }
             : null,
         ),
       );
@@ -698,9 +877,6 @@ describe('AuthService', () => {
       expect(mockUserRepository.create).not.toHaveBeenCalled();
     });
 
-    // A checagem acima é TOCTOU: entre o SELECT e o INSERT outro cadastro pode
-    // gravar o mesmo número. O índice único é quem de fato garante a regra, e
-    // a violação dele precisa virar a mesma mensagem — não um 500.
     it('should convert the unique phone violation into the same friendly error', async () => {
       mockUserRepository.findOne.mockResolvedValue(null);
       (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-password');
@@ -770,7 +946,7 @@ describe('AuthService', () => {
         crm: '12345',
         crmState: 'SP',
         specialty: 'Cardiology',
-      } as any);
+      });
 
       expect(result.user.isDoctor).toBe(true);
       expect(result.user.doctorProfile).toEqual({
@@ -781,8 +957,6 @@ describe('AuthService', () => {
         signatureUrl: null,
         clinicName: null,
       });
-      // O cadastro não inicia sessão: nenhum token é emitido e nenhum refresh
-      // token órfão é persistido (o usuário deve confirmar o e-mail antes de logar).
       expect((result as Record<string, unknown>).access_token).toBeUndefined();
       expect((result as Record<string, unknown>).refresh_token).toBeUndefined();
       expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
@@ -813,7 +987,7 @@ describe('AuthService', () => {
         password: '123456',
         phone: '11999998888',
         isDoctor: false,
-      } as any);
+      });
 
       expect(result.user.isDoctor).toBe(false);
       expect(result.user.doctorProfile).toBeNull();
@@ -822,9 +996,32 @@ describe('AuthService', () => {
       expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
     });
 
-    // ─── Achado Critical: /auth/register também ficou sem `permissions` ────
-    // (varredura pedida pela revisão — não alimenta o AuthContext hoje, mas
-    // é o mesmo padrão de resposta manual sem `permissions`.)
+    it('grava o telefone no formato canônico (sem DDI, com o nono dígito)', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+      (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-password');
+      mockUserRepository.create.mockResolvedValue({
+        id: 'mock-uuid-1234',
+        name: 'Assistant',
+        email: 'assistant@example.com',
+        role: UserRole.ADMIN,
+        status: UserStatus.ACTIVE,
+        phone: '11999998888',
+        ownerId: 'mock-uuid-1234',
+      });
+
+      await service.register({
+        name: 'Assistant',
+        email: 'assistant@example.com',
+        password: '123456',
+        phone: '+55 (11) 9999-8888',
+        isDoctor: false,
+      });
+
+      expect(mockUserRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ phone: '11999998888' }),
+      );
+    });
+
     it('devolve as quatro permissões (register só cria o dono/ADMIN da conta)', async () => {
       mockUserRepository.findOne.mockResolvedValue(null);
       (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-password');
@@ -849,7 +1046,7 @@ describe('AuthService', () => {
         email: 'dono@example.com',
         password: '123456',
         phone: '11999998888',
-      } as any);
+      });
 
       expect(result.user).not.toHaveProperty('isPlatformAdmin');
       expect(
@@ -863,15 +1060,7 @@ describe('AuthService', () => {
     });
   });
 
-  // ─── login ──────────────────────────────────────────────────────
-
   describe('login', () => {
-    /**
-     * `validateUser` resolve via `userRepository.findOne` (com
-     * `selectPassword: true`); o restante do perfil (ownerId,
-     * `doctorProfile`, `emailVerified` e a coluna crua de `permissions`)
-     * vem de uma única `findOneWithProfile` dentro de `login()`.
-     */
     const mockAuthenticatedUser = (
       overrides: Record<string, unknown> = {},
     ) => ({
@@ -893,7 +1082,7 @@ describe('AuthService', () => {
     it('should return user data and access_token', async () => {
       (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
       const authenticatedUser = mockAuthenticatedUser();
-      mockUserRepository.findOne.mockResolvedValue(authenticatedUser); // validateUser
+      mockUserRepository.findOne.mockResolvedValue(authenticatedUser);
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         ...authenticatedUser,
         permissions: [],
@@ -906,14 +1095,12 @@ describe('AuthService', () => {
         password: '123456',
       });
 
-      expect(result!.user.id).toBe('user-1');
-      expect(result!.user.email).toBe('test@example.com');
-      expect(result!.access_token).toBe('mock-jwt-token');
-      expect(result!.user.isDoctor).toBe(false);
+      expect((result as SessaoLogin).user.id).toBe('user-1');
+      expect((result as SessaoLogin).user.email).toBe('test@example.com');
+      expect((result as SessaoLogin).access_token).toBe('mock-jwt-token');
+      expect((result as SessaoLogin).user.isDoctor).toBe(false);
     });
 
-    // Mesmo contrato de `/auth/me`: o frontend guarda o payload do login no
-    // localStorage e usa `accountId` para derivar `isAccountOwner`.
     it('devolve accountId (além de ownerId) no payload do login', async () => {
       (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
       const authenticatedUser = mockAuthenticatedUser();
@@ -930,11 +1117,10 @@ describe('AuthService', () => {
         password: '123456',
       });
 
-      expect(result!.user.accountId).toBe('user-1');
-      expect(result!.user.ownerId).toBe('user-1');
+      expect((result as SessaoLogin).user.accountId).toBe('user-1');
+      expect((result as SessaoLogin).user.ownerId).toBe('user-1');
     });
 
-    // ─── Achado Critical: /auth/login nunca devolvia `permissions` ────
     describe('permissions (achado Critical)', () => {
       it('devolve as quatro permissões para o dono da conta (admin)', async () => {
         (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
@@ -954,7 +1140,7 @@ describe('AuthService', () => {
           password: '123456',
         });
 
-        expect(result!.user.permissions).toEqual([
+        expect((result as SessaoLogin).user.permissions).toEqual([
           Permission.AGENDA,
           Permission.ATENDIMENTO,
           Permission.SOLICITACOES,
@@ -982,7 +1168,9 @@ describe('AuthService', () => {
           password: '123456',
         });
 
-        expect(result!.user.permissions).toEqual([Permission.SOLICITACOES]);
+        expect((result as SessaoLogin).user.permissions).toEqual([
+          Permission.SOLICITACOES,
+        ]);
       });
 
       it('não devolve isPlatformAdmin nem a coluna crua de permissions', async () => {
@@ -997,7 +1185,6 @@ describe('AuthService', () => {
           ...authenticatedUser,
           permissions: [],
           isPlatformAdmin: true,
-          // efetiva soma 3 áreas — prova que não é a coluna crua repassada
           doctorProfile: { id: 'dp-1', council: 'CRM' },
         });
 
@@ -1006,8 +1193,10 @@ describe('AuthService', () => {
           password: '123456',
         });
 
-        expect(result!.user).not.toHaveProperty('isPlatformAdmin');
-        expect(result!.user.permissions).toEqual([
+        expect((result as SessaoLogin).user).not.toHaveProperty(
+          'isPlatformAdmin',
+        );
+        expect((result as SessaoLogin).user.permissions).toEqual([
           Permission.AGENDA,
           Permission.ATENDIMENTO,
           Permission.SOLICITACOES,
@@ -1016,13 +1205,41 @@ describe('AuthService', () => {
     });
   });
 
-  // ─── refreshAccessToken ─────────────────────────────────────────
-
   describe('refreshAccessToken', () => {
     it('rotaciona o token para um usuário ativo e verificado', async () => {
       mockRefreshTokenStore.consume.mockResolvedValue({
         status: 'valid',
         userId: 'user-1',
+        familyId: 'fam-1',
+      });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        status: UserStatus.ACTIVE,
+        emailVerified: true,
+        tokenVersion: 3,
+      });
+
+      const result = await service.refreshAccessToken('rt-token');
+
+      expect(result.access_token).toBe('mock-jwt-token');
+      expect(result.refresh_token).toBe('new-refresh-token');
+      expect(mockRefreshTokenStore.consume).toHaveBeenCalledWith('rt-token');
+      expect(mockRefreshTokenStore.issue).toHaveBeenCalledWith(
+        'user-1',
+        3,
+        'fam-1',
+      );
+      expect(mockJwtService.sign).toHaveBeenCalledWith({
+        userId: 'user-1',
+        tv: 3,
+      });
+    });
+
+    it('na janela de graça emite um token da mesma família', async () => {
+      mockRefreshTokenStore.consume.mockResolvedValue({
+        status: 'grace',
+        userId: 'user-1',
+        familyId: 'fam-1',
       });
       mockUserRepository.findOne.mockResolvedValue({
         id: 'user-1',
@@ -1030,13 +1247,97 @@ describe('AuthService', () => {
         emailVerified: true,
       });
 
+      const result = await service.refreshAccessToken('rt-corrida');
+
+      expect(result.refresh_token).toBe('new-refresh-token');
+      expect(mockRefreshTokenStore.issue).toHaveBeenCalledWith(
+        'user-1',
+        0,
+        'fam-1',
+      );
+    });
+
+    it('recusa o refresh emitido antes de uma revogação concorrente (versão de sessão mudou)', async () => {
+      mockRefreshTokenStore.consume.mockResolvedValue({
+        status: 'valid',
+        userId: 'user-1',
+        familyId: 'fam-1',
+        tokenVersion: 2,
+      });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        status: UserStatus.ACTIVE,
+        emailVerified: true,
+        tokenVersion: 3,
+      });
+
+      await expect(service.refreshAccessToken('rt-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
+      expect(mockJwtService.sign).not.toHaveBeenCalled();
+    });
+
+    it('aceita o refresh quando a versão de sessão do token bate com a do usuário', async () => {
+      mockRefreshTokenStore.consume.mockResolvedValue({
+        status: 'valid',
+        userId: 'user-1',
+        familyId: 'fam-1',
+        tokenVersion: 3,
+      });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        status: UserStatus.ACTIVE,
+        emailVerified: true,
+        tokenVersion: 3,
+      });
+
       const result = await service.refreshAccessToken('rt-token');
 
-      expect(result.access_token).toBe('mock-jwt-token');
       expect(result.refresh_token).toBe('new-refresh-token');
-      // O consume revoga o token usado atomicamente; um novo é emitido.
-      expect(mockRefreshTokenStore.consume).toHaveBeenCalledWith('rt-token');
-      expect(mockRefreshTokenStore.issue).toHaveBeenCalledWith('user-1');
+      expect(mockRefreshTokenStore.issue).toHaveBeenCalledWith(
+        'user-1',
+        3,
+        'fam-1',
+      );
+    });
+
+    it('token legado sem versão de sessão continua aceito até expirar', async () => {
+      mockRefreshTokenStore.consume.mockResolvedValue({
+        status: 'valid',
+        userId: 'user-1',
+        familyId: null,
+        tokenVersion: null,
+      });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        status: UserStatus.ACTIVE,
+        emailVerified: true,
+        tokenVersion: 5,
+      });
+
+      await service.refreshAccessToken('rt-legado');
+
+      expect(mockRefreshTokenStore.issue).toHaveBeenCalledWith(
+        'user-1',
+        5,
+        null,
+      );
+    });
+
+    it('graça esgotada devolve 409 sem emitir token nem revogar sessões', async () => {
+      mockRefreshTokenStore.consume.mockResolvedValue({
+        status: 'grace_exhausted',
+        userId: 'user-1',
+        familyId: 'fam-1',
+      });
+
+      await expect(service.refreshAccessToken('rt-corrida')).rejects.toThrow(
+        ConflictException,
+      );
+      expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
+      expect(mockRefreshTokenStore.revokeAllForUser).not.toHaveBeenCalled();
+      expect(mockUserRepository.incrementTokenVersion).not.toHaveBeenCalled();
     });
 
     it('rejeita e revoga a sessão quando o e-mail não está verificado', async () => {
@@ -1053,11 +1354,9 @@ describe('AuthService', () => {
       await expect(service.refreshAccessToken('rt-token')).rejects.toThrow(
         UnauthorizedException,
       );
-      // Revoga todos os refresh tokens do usuário para encerrar a sessão.
       expect(mockRefreshTokenStore.revokeAllForUser).toHaveBeenCalledWith(
         'user-1',
       );
-      // Não emite novo token.
       expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
     });
 
@@ -1095,16 +1394,15 @@ describe('AuthService', () => {
       await expect(service.refreshAccessToken('replayed')).rejects.toThrow(
         UnauthorizedException,
       );
-      // Revoga TODOS os refresh tokens do usuário (revogação de família).
       expect(mockRefreshTokenStore.revokeAllForUser).toHaveBeenCalledWith(
         'user-1',
       );
-      // Não emite novo token.
+      expect(mockUserRepository.incrementTokenVersion).toHaveBeenCalledWith(
+        'user-1',
+      );
       expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
     });
   });
-
-  // ─── sendRecoveryPasswordEmail ──────────────────────────────────
 
   const GENERIC_RECOVERY_MESSAGE =
     'Se o e-mail existir, enviaremos um código de recuperação.';
@@ -1141,13 +1439,14 @@ describe('AuthService', () => {
       expect(mockRecoveryCodeRepository.deleteMany).toHaveBeenCalledWith({
         userId: 'user-1',
         used: false,
+        purpose: RecoveryCodePurpose.PASSWORD_RESET,
       });
 
       const createCall = mockRecoveryCodeRepository.create.mock.calls[0][0];
       expect(createCall.userId).toBe('user-1');
+      expect(createCall.purpose).toBe(RecoveryCodePurpose.PASSWORD_RESET);
       expect(createCall.used).toBe(false);
       expect(createCall.code).toBe('123456');
-      // Verify expiry is ~15 minutes from now
       const expiresAt = createCall.expiresAt.getTime();
       expect(expiresAt).toBeGreaterThanOrEqual(
         beforeCall + 15 * 60 * 1000 - 100,
@@ -1159,9 +1458,61 @@ describe('AuthService', () => {
         expect.objectContaining({ validationCode: '123456' }),
       );
     });
-  });
 
-  // ─── validateRecoveryPasswordCode ───────────────────────────────
+    it('não toca no convite de um colaborador pendente', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'collab-1',
+        email: 'pendente@example.com',
+        name: 'Pendente',
+        status: UserStatus.PENDING,
+      });
+
+      const result = await service.sendRecoveryPasswordEmail(
+        'pendente@example.com',
+      );
+
+      expect(result).toEqual({ message: GENERIC_RECOVERY_MESSAGE });
+      expect(mockRecoveryCodeRepository.deleteMany).not.toHaveBeenCalled();
+      expect(mockRecoveryCodeRepository.create).not.toHaveBeenCalled();
+      expect(mockMailService.sendPasswordRecovery).not.toHaveBeenCalled();
+    });
+
+    it('limite de códigos por conta: responde genérico sem gerar código nem e-mail', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+        name: 'Test',
+        status: UserStatus.ACTIVE,
+      });
+      mockAttemptLimiter.tryConsumeRecoveryIssue.mockResolvedValue(false);
+
+      const result =
+        await service.sendRecoveryPasswordEmail('test@example.com');
+
+      expect(result).toEqual({ message: GENERIC_RECOVERY_MESSAGE });
+      expect(mockAttemptLimiter.tryConsumeRecoveryIssue).toHaveBeenCalledWith(
+        'user-1',
+      );
+      expect(mockRecoveryCodeRepository.create).not.toHaveBeenCalled();
+      expect(mockMailService.sendPasswordRecovery).not.toHaveBeenCalled();
+    });
+
+    it('conta com validação travada não recebe código novo', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+        name: 'Test',
+        status: UserStatus.ACTIVE,
+      });
+      mockAttemptLimiter.isRecoveryValidationLocked.mockResolvedValue(true);
+
+      const result =
+        await service.sendRecoveryPasswordEmail('test@example.com');
+
+      expect(result).toEqual({ message: GENERIC_RECOVERY_MESSAGE });
+      expect(mockRecoveryCodeRepository.create).not.toHaveBeenCalled();
+    });
+  });
 
   describe('validateRecoveryPasswordCode', () => {
     it('should throw NotFoundException when code is invalid', async () => {
@@ -1169,7 +1520,7 @@ describe('AuthService', () => {
         id: 'user-1',
         email: 'test@example.com',
       });
-      mockRecoveryCodeRepository.findOne.mockResolvedValue(null);
+      mockRecoveryCodeRepository.findActive.mockResolvedValue(null);
 
       await expect(
         service.validateRecoveryPasswordCode({
@@ -1179,8 +1530,6 @@ describe('AuthService', () => {
       ).rejects.toThrow('Código inválido');
     });
 
-    // Mesmo contrato anti-enumeração do `changePassword`: e-mail inexistente
-    // não pode responder diferente de código inválido numa conta existente.
     it('escopa por usuário sem revelar a existência da conta', async () => {
       const capture = async () => {
         try {
@@ -1199,13 +1548,13 @@ describe('AuthService', () => {
 
       mockUserRepository.findOne.mockResolvedValue(null);
       const semConta = await capture();
-      expect(mockRecoveryCodeRepository.findOne).not.toHaveBeenCalled();
+      expect(mockRecoveryCodeRepository.findActive).not.toHaveBeenCalled();
 
       mockUserRepository.findOne.mockResolvedValue({
         id: 'user-1',
         email: 'alvo@example.com',
       });
-      mockRecoveryCodeRepository.findOne.mockResolvedValue(null);
+      mockRecoveryCodeRepository.findActive.mockResolvedValue(null);
       const comConta = await capture();
 
       expect(semConta).toEqual(comConta);
@@ -1217,15 +1566,13 @@ describe('AuthService', () => {
         id: 'user-1',
         email: 'test@example.com',
       });
-      mockRecoveryCodeRepository.findOne.mockResolvedValue({
+      mockRecoveryCodeRepository.findActive.mockResolvedValue({
         id: 'code-1',
         code: '123456',
         used: false,
-        expiresAt: new Date(Date.now() - 60 * 1000), // expired 1 minute ago
+        expiresAt: new Date(Date.now() - 60 * 1000),
       });
 
-      // Mensagem generica de proposito (anti-enumeration): nao revela se o
-      // codigo esta expirado, ja usado ou simplesmente nao existe.
       await expect(
         service.validateRecoveryPasswordCode({
           code: '123456',
@@ -1239,41 +1586,140 @@ describe('AuthService', () => {
         id: 'user-1',
         email: 'test@example.com',
       });
-      mockRecoveryCodeRepository.findOne.mockResolvedValue({
+      mockRecoveryCodeRepository.findActive.mockResolvedValue({
         id: 'code-1',
         code: '123456',
         used: false,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // expires in 10 min
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       });
-      mockRecoveryCodeRepository.updateByWhere.mockResolvedValue({});
 
       const result = await service.validateRecoveryPasswordCode({
         code: '123456',
         email: 'test@example.com',
       });
 
-      // uuid mockado → 'mock-uuid-1234'
       expect(result).toEqual({
         message: 'Código validado com sucesso',
         resetToken: 'mock-uuid-1234',
       });
-      expect(mockRecoveryCodeRepository.updateByWhere).toHaveBeenCalledWith(
-        { id: 'code-1' },
-        expect.objectContaining({
-          used: true,
-          resetToken: 'mock-uuid-1234',
-          resetTokenExpiresAt: expect.any(Date),
-        }),
+      expect(mockRecoveryCodeRepository.findActive).toHaveBeenCalledWith(
+        'user-1',
+        RecoveryCodePurpose.PASSWORD_RESET,
       );
+      expect(mockRecoveryCodeRepository.consumeAttempt).toHaveBeenCalledWith(
+        'code-1',
+        5,
+      );
+      expect(mockRecoveryCodeRepository.issueResetToken).toHaveBeenCalledWith(
+        'code-1',
+        'mock-uuid-1234',
+        expect.any(Date),
+      );
+    });
+
+    const registroValido = () => ({
+      id: 'code-1',
+      code: '123456',
+      used: false,
+      attempts: 0,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+
+    it('colaborador pendente só valida código de convite', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'collab-1',
+        email: 'pendente@example.com',
+        status: UserStatus.PENDING,
+      });
+      mockRecoveryCodeRepository.findActive.mockResolvedValue(registroValido());
+
+      await service.validateRecoveryPasswordCode({
+        code: '123456',
+        email: 'pendente@example.com',
+      });
+
+      expect(mockRecoveryCodeRepository.findActive).toHaveBeenCalledWith(
+        'collab-1',
+        RecoveryCodePurpose.INVITE,
+      );
+    });
+
+    it('não compara o código quando a tentativa não foi registrada (corrida ou limite)', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+        status: UserStatus.ACTIVE,
+      });
+      mockRecoveryCodeRepository.findActive.mockResolvedValue(registroValido());
+      mockRecoveryCodeRepository.consumeAttempt.mockResolvedValue(null);
+
+      await expect(
+        service.validateRecoveryPasswordCode({
+          code: '123456',
+          email: 'test@example.com',
+        }),
+      ).rejects.toThrow('Código inválido ou expirado');
+
+      expect(mockRecoveryCodeRepository.issueResetToken).not.toHaveBeenCalled();
+      expect(mockAttemptLimiter.registerRecoveryFailure).toHaveBeenCalledWith(
+        'test@example.com',
+      );
+    });
+
+    it('código errado conta falha para a conta e não emite reset token', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+        status: UserStatus.ACTIVE,
+      });
+      mockRecoveryCodeRepository.findActive.mockResolvedValue(registroValido());
+
+      await expect(
+        service.validateRecoveryPasswordCode({
+          code: '654321',
+          email: 'test@example.com',
+        }),
+      ).rejects.toThrow('Código inválido ou expirado');
+
+      expect(mockRecoveryCodeRepository.consumeAttempt).toHaveBeenCalled();
+      expect(mockAttemptLimiter.registerRecoveryFailure).toHaveBeenCalledWith(
+        'test@example.com',
+      );
+      expect(mockRecoveryCodeRepository.issueResetToken).not.toHaveBeenCalled();
+    });
+
+    it('duas validações simultâneas do mesmo código: só uma recebe reset token', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+        status: UserStatus.ACTIVE,
+      });
+      mockRecoveryCodeRepository.findActive.mockResolvedValue(registroValido());
+      mockRecoveryCodeRepository.issueResetToken.mockResolvedValue(false);
+
+      await expect(
+        service.validateRecoveryPasswordCode({
+          code: '123456',
+          email: 'test@example.com',
+        }),
+      ).rejects.toThrow('Código inválido ou expirado');
+    });
+
+    it('conta travada por falhas acumuladas responde 429 sem consultar o banco', async () => {
+      mockAttemptLimiter.isRecoveryValidationLocked.mockResolvedValue(true);
+
+      await expect(
+        service.validateRecoveryPasswordCode({
+          code: '123456',
+          email: 'test@example.com',
+        }),
+      ).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
+
+      expect(mockUserRepository.findOne).not.toHaveBeenCalled();
     });
   });
 
-  // ─── changePassword ─────────────────────────────────────────────
-
   describe('changePassword', () => {
-    // Anti-enumeração: o par (status, mensagem) tem que ser idêntico para
-    // "e-mail não cadastrado" e "e-mail cadastrado + token inventado". Qualquer
-    // diferença transforma a rota num oráculo de existência de conta.
     it('e-mail inexistente é indistinguível de reset token inválido', async () => {
       const capture = async () => {
         try {
@@ -1281,7 +1727,7 @@ describe('AuthService', () => {
             email: 'alvo@example.com',
             resetToken: 'token-inventado',
             password: 'new',
-          } as any);
+          });
           throw new Error('deveria ter lançado');
         } catch (err: any) {
           return {
@@ -1333,7 +1779,7 @@ describe('AuthService', () => {
         userId: 'user-1',
         used: true,
         resetToken: 'reset-tok',
-        resetTokenExpiresAt: new Date(Date.now() - 60 * 1000), // expirado
+        resetTokenExpiresAt: new Date(Date.now() - 60 * 1000),
       });
 
       await expect(
@@ -1367,29 +1813,21 @@ describe('AuthService', () => {
         email: 'test@example.com',
         resetToken: 'reset-tok',
         password: 'new-password-123',
-      } as any);
+      });
 
       expect(result).toEqual({ message: 'Senha alterada com sucesso' });
 
-      // Verify bcryptjs.hash was called with the plain password
       expect(bcryptjs.hash).toHaveBeenCalledWith('new-password-123', 12);
 
-      // Verify the hashed password was stored
       const updateCall = mockUserRepository.update.mock.calls[0];
       expect(updateCall[0]).toBe('user-1');
       expect(updateCall[1].password).toBe('hashed-new-password');
 
-      // Verify recovery codes were cleaned up
       expect(mockRecoveryCodeRepository.deleteMany).toHaveBeenCalledWith({
         userId: 'user-1',
       });
     });
   });
-
-  // ─── verifyEmail ─────────────────────────────────────────────────
-  // O token de verificação é armazenado inline em `user`
-  // (colunas `emailVerificationToken` / `emailVerificationExpiresAt`),
-  // logo o spec usa `mockUserRepository` em vez de um repositório dedicado.
 
   describe('verifyEmail', () => {
     it('should throw BadRequestException when token is empty', async () => {
@@ -1445,6 +1883,53 @@ describe('AuthService', () => {
       );
     });
 
+    it('envia o WhatsApp de boas-vindas ao confirmar o e-mail', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        name: 'Novo Usuário',
+        email: 'test@example.com',
+        phone: '11988887777',
+        emailVerified: false,
+        emailVerificationToken: 'valid-token',
+        emailVerificationExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      });
+      mockUserRepository.update.mockResolvedValue({});
+
+      await service.verifyEmail('valid-token');
+      await new Promise((r) => setImmediate(r));
+
+      expect(mockWhatsappService.sendUserWelcome).toHaveBeenCalledWith(
+        '11988887777',
+        'Novo Usuário',
+      );
+    });
+
+    it('não envia WhatsApp quando o token expirou nem quando já estava confirmado', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        name: 'Novo Usuário',
+        email: 'test@example.com',
+        phone: '11988887777',
+        emailVerified: false,
+        emailVerificationToken: 'expired-token',
+        emailVerificationExpiresAt: new Date(Date.now() - 60_000),
+      });
+      await expect(service.verifyEmail('expired-token')).rejects.toThrow();
+
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        name: 'Novo Usuário',
+        email: 'test@example.com',
+        phone: '11988887777',
+        emailVerified: true,
+        emailVerificationToken: 'valid-token',
+      });
+      await service.verifyEmail('valid-token');
+      await new Promise((r) => setImmediate(r));
+
+      expect(mockWhatsappService.sendUserWelcome).not.toHaveBeenCalled();
+    });
+
     it('should return success without updating when email is already verified', async () => {
       mockUserRepository.findOne.mockResolvedValue({
         id: 'user-1',
@@ -1463,8 +1948,6 @@ describe('AuthService', () => {
       expect(mockUserRepository.update).not.toHaveBeenCalled();
     });
   });
-
-  // ─── resendEmailVerification ──────────────────────────────────────
 
   describe('resendEmailVerification', () => {
     it('should throw NotFoundException when user does not exist', async () => {
@@ -1507,13 +1990,39 @@ describe('AuthService', () => {
         expect.objectContaining({
           userName: 'Test User',
           email: 'test@example.com',
-          verificationUrl: expect.stringContaining('/confirmar-email?token='),
+          verificationUrl: expect.stringContaining('/confirmar-email#token='),
         }),
       );
     });
   });
 
-  // ─── register — dispatchEmailVerification ────────────────────────
+  describe('register — captcha', () => {
+    it('valida o captcha com o token e o IP antes de qualquer consulta', async () => {
+      mockTurnstileService.assertHuman.mockRejectedValue(
+        new BadRequestException('captcha'),
+      );
+
+      await expect(
+        service.register(
+          {
+            name: 'Bot',
+            email: 'bot@example.com',
+            password: 'Senha@123',
+            phone: '11988887777',
+            captchaToken: 'tok-1',
+          },
+          '203.0.113.9',
+        ),
+      ).rejects.toThrow('captcha');
+
+      expect(mockTurnstileService.assertHuman).toHaveBeenCalledWith(
+        'tok-1',
+        '203.0.113.9',
+      );
+      expect(mockUserRepository.findOne).not.toHaveBeenCalled();
+      expect(mockUserRepository.create).not.toHaveBeenCalled();
+    });
+  });
 
   describe('register — dispatchEmailVerification', () => {
     it('should call dispatchEmailVerification after successful registration', async () => {
@@ -1543,9 +2052,8 @@ describe('AuthService', () => {
         password: '123456',
         phone: '11999998888',
         isDoctor: false,
-      } as any);
+      });
 
-      // dispatchEmailVerification é chamado via `void` — aguarda um tick
       await new Promise((r) => setImmediate(r));
 
       expect(mockMailService.sendEmailVerification).toHaveBeenCalledWith(
@@ -1555,10 +2063,8 @@ describe('AuthService', () => {
     });
   });
 
-  // ─── register — WhatsApp welcome ─────────────────────────────────
-
   describe('register — WhatsApp welcome', () => {
-    it('envia WhatsApp de boas-vindas quando o usuário tem telefone', async () => {
+    it('não envia WhatsApp no cadastro: o telefone ainda não foi verificado', async () => {
       mockUserRepository.findOne.mockResolvedValue(null);
       (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-pw');
 
@@ -1584,14 +2090,12 @@ describe('AuthService', () => {
         password: '123456',
         phone: '11988887777',
         isDoctor: false,
-      } as any);
+      });
 
       await new Promise((r) => setImmediate(r));
 
-      expect(mockWhatsappService.sendUserWelcome).toHaveBeenCalledWith(
-        '11988887777',
-        'Novo Usuário',
-      );
+      expect(mockWhatsappService.sendUserWelcome).not.toHaveBeenCalled();
+      expect(mockMailService.sendEmailVerification).toHaveBeenCalled();
     });
 
     it('não envia WhatsApp quando o usuário não tem telefone', async () => {
@@ -1620,11 +2124,199 @@ describe('AuthService', () => {
         password: '123456',
         phone: '11999990000',
         isDoctor: false,
-      } as any);
+      });
 
       await new Promise((r) => setImmediate(r));
 
       expect(mockWhatsappService.sendUserWelcome).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('MFA', () => {
+    const usuarioAtivo = (overrides: Record<string, unknown> = {}) => ({
+      id: 'user-1',
+      email: 'test@example.com',
+      password: 'hashed-password',
+      role: UserRole.ADMIN,
+      name: 'Test User',
+      phone: '123',
+      cpf: null,
+      status: UserStatus.ACTIVE,
+      emailVerified: true,
+      ownerId: 'user-1',
+      tokenVersion: 2,
+      permissions: [],
+      doctorProfile: null,
+      createdAt: new Date('2024-01-01'),
+      updatedAt: new Date('2024-01-01'),
+      ...overrides,
+    });
+
+    it('login com MFA ativo não emite token nem refresh: devolve só o desafio', async () => {
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
+      mockUserRepository.findOne.mockResolvedValue(usuarioAtivo());
+      mockMfaService.isEnabled.mockResolvedValue(true);
+      mockMfaService.createLoginToken.mockReturnValue('mfa-token');
+
+      const result = await service.login({
+        email: 'test@example.com',
+        password: 'Senha123@',
+      });
+
+      expect(result).toEqual({ mfaRequired: true, mfaToken: 'mfa-token' });
+      expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
+      expect(mockJwtService.sign).not.toHaveBeenCalled();
+      expect(mockMfaService.createLoginToken).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'user-1', tokenVersion: 2 }),
+      );
+    });
+
+    it('senha errada com MFA ativo nem chega a consultar o MFA', async () => {
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(false);
+      mockUserRepository.findOne.mockResolvedValue(usuarioAtivo());
+
+      await expect(
+        service.login({ email: 'test@example.com', password: 'x' }),
+      ).rejects.toBeInstanceOf(HttpException);
+      expect(mockMfaService.isEnabled).not.toHaveBeenCalled();
+    });
+
+    it('login/mfa com código válido emite a sessão completa', async () => {
+      mockMfaService.verifyLoginToken.mockReturnValue({
+        userId: 'user-1',
+        tv: 2,
+      });
+      mockMfaService.verifySecondFactor.mockResolvedValue('totp');
+      mockUserRepository.findOne.mockResolvedValue(usuarioAtivo());
+      mockUserRepository.findOneWithProfile.mockResolvedValue(usuarioAtivo());
+
+      const result = await service.loginWithMfa({
+        mfaToken: 'mfa-token',
+        code: '123456',
+      });
+
+      expect(mockMfaService.verifySecondFactor).toHaveBeenCalledWith(
+        'user-1',
+        '123456',
+        { allowRecovery: true },
+      );
+      expect(result.access_token).toBe('mock-jwt-token');
+      expect(result.refresh_token).toBe('new-refresh-token');
+      expect(result.user.id).toBe('user-1');
+    });
+
+    it('login/mfa recusa desafio emitido antes de uma revogação de sessões', async () => {
+      mockMfaService.verifyLoginToken.mockReturnValue({
+        userId: 'user-1',
+        tv: 1,
+      });
+      mockUserRepository.findOne.mockResolvedValue(usuarioAtivo());
+
+      await expect(
+        service.loginWithMfa({ mfaToken: 't', code: '123456' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(mockMfaService.verifySecondFactor).not.toHaveBeenCalled();
+      expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
+    });
+
+    it('login/mfa recusa conta inativa ou inexistente', async () => {
+      mockMfaService.verifyLoginToken.mockReturnValue({
+        userId: 'user-1',
+        tv: 2,
+      });
+      mockUserRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.loginWithMfa({ mfaToken: 't', code: '123456' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(mockUserRepository.findOne).toHaveBeenCalledWith({
+        id: 'user-1',
+        status: UserStatus.ACTIVE,
+      });
+    });
+
+    it('login/mfa com código errado não emite sessão', async () => {
+      mockMfaService.verifyLoginToken.mockReturnValue({
+        userId: 'user-1',
+        tv: 2,
+      });
+      mockUserRepository.findOne.mockResolvedValue(usuarioAtivo());
+      mockMfaService.verifySecondFactor.mockRejectedValue(
+        new BadRequestException('Código de verificação inválido.'),
+      );
+
+      await expect(
+        service.loginWithMfa({ mfaToken: 't', code: '000000' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
+    });
+
+    it('issueSessionTokens assina com o tokenVersion atual', async () => {
+      mockUserRepository.findOne.mockResolvedValue(
+        usuarioAtivo({ tokenVersion: 7 }),
+      );
+
+      const tokens = await service.issueSessionTokens('user-1');
+
+      expect(mockJwtService.sign).toHaveBeenCalledWith({
+        userId: 'user-1',
+        tv: 7,
+      });
+      expect(tokens).toEqual({
+        access_token: 'mock-jwt-token',
+        refresh_token: 'new-refresh-token',
+      });
+    });
+
+    it('me informa mfaEnabled e recomenda MFA para quem administra', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue(usuarioAtivo());
+      mockMfaService.isEnabled.mockResolvedValue(false);
+
+      const result = await service.me('user-1');
+
+      expect(result.mfaEnabled).toBe(false);
+      expect(result.mfaRecommended).toBe(true);
+      expect(result).not.toHaveProperty('mfaSecret');
+      expect(result).not.toHaveProperty('mfaRecoveryCodes');
+    });
+
+    it('me não recomenda MFA quando já está ativo', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue(usuarioAtivo());
+      mockMfaService.isEnabled.mockResolvedValue(true);
+
+      const result = await service.me('user-1');
+
+      expect(result.mfaEnabled).toBe(true);
+      expect(result.mfaRecommended).toBe(false);
+    });
+
+    it('me não recomenda MFA para colaborador sem administração', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue(
+        usuarioAtivo({
+          role: UserRole.COLLABORATOR,
+          permissions: [Permission.AGENDA],
+          ownerId: 'owner-1',
+        }),
+      );
+
+      const result = await service.me('user-1');
+
+      expect(result.mfaEnabled).toBe(false);
+      expect(result.mfaRecommended).toBe(false);
+    });
+
+    it('me recomenda MFA para admin delegado (colaborador com ADMINISTRACAO)', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue(
+        usuarioAtivo({
+          role: UserRole.COLLABORATOR,
+          permissions: [Permission.ADMINISTRACAO],
+          ownerId: 'owner-1',
+        }),
+      );
+
+      const result = await service.me('user-1');
+
+      expect(result.mfaRecommended).toBe(true);
     });
   });
 });

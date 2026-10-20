@@ -2,12 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
+import { caminhoDoLogoDoCabecalho } from 'src/shared/storage/logo-do-cabecalho';
 import { CustomHeaderData } from './pdf.service';
+import { User } from 'src/database/entities/user.entity';
+import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
 
-/**
- * `CRM 12345/RJ`. Sem número, nada é impresso (como antes). Perfil antigo sem
- * `council` carregado é CRM — aqui é só exibição, não decide permissão.
- */
 export function formatarRegistroProfissional(
   profile:
     | { council?: string | null; crm?: string | null; crmState?: string | null }
@@ -20,25 +19,13 @@ export function formatarRegistroProfissional(
 }
 
 export interface DoctorPdfContext {
-  doctor: any;
-  profile: any;
-  /**
-   * Registro no conselho já formatado para impressão (ex.: `CRM 12345/RJ`,
-   * `CRN 4567/RJ`). Nome histórico `doctorCrm`: os templates `.hbs` o usam.
-   */
+  doctor: User;
+  profile: DoctorProfile | null | undefined;
   doctorCrm?: string;
   doctorSignatureUrl?: string;
   customHeader: CustomHeaderData | null;
 }
 
-/**
- * Dados do médico usados no cabeçalho e no rodapé de qualquer PDF assinado
- * (laudo, contestação, receita, atestado, encaminhamento de exames).
- *
- * Vive em `shared/pdf` porque não é específico da solicitação cirúrgica: o
- * módulo de atendimento precisa exatamente do mesmo bloco — nome, CRM,
- * assinatura e cabeçalho customizado do médico responsável.
- */
 @Injectable()
 export class DoctorPdfContextService {
   constructor(
@@ -47,7 +34,6 @@ export class DoctorPdfContextService {
     private readonly storageService: StorageService,
   ) {}
 
-  /** Carrega o médico pelo id e monta o contexto de PDF. */
   async buildForDoctorId(doctorId: string): Promise<DoctorPdfContext> {
     const doctor = await this.userRepository.findOneWithProfile({
       id: doctorId,
@@ -58,20 +44,23 @@ export class DoctorPdfContextService {
     return this.buildForDoctor(doctor);
   }
 
-  /** Monta o contexto a partir de um médico já carregado (com `doctorProfile`). */
-  async buildForDoctor(doctor: any): Promise<DoctorPdfContext> {
+  async buildForDoctor(doctor: User): Promise<DoctorPdfContext> {
     const profile = doctor?.doctorProfile;
 
     const doctorCrm = formatarRegistroProfissional(profile);
 
     const doctorSignatureUrl = await this.resolveSignatureUrl(profile);
-    const customHeader = await this.resolveCustomHeader(profile);
+    const customHeader = await this.resolveCustomHeader(
+      profile,
+      doctor?.ownerId,
+    );
 
     return { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader };
   }
 
-  /** URL da assinatura do médico (assinada quando é um path do storage). */
-  async resolveSignatureUrl(profile: any): Promise<string | undefined> {
+  async resolveSignatureUrl(
+    profile: DoctorProfile | null | undefined,
+  ): Promise<string | undefined> {
     if (!profile?.signatureUrl) return undefined;
     const raw: string = profile.signatureUrl;
     if (raw.startsWith('http')) return raw;
@@ -82,8 +71,10 @@ export class DoctorPdfContextService {
     }
   }
 
-  /** Cabeçalho customizado (logo + HTML livre) configurado pelo médico. */
-  async resolveCustomHeader(profile: any): Promise<CustomHeaderData | null> {
+  async resolveCustomHeader(
+    profile: DoctorProfile | null | undefined,
+    ownerId?: string | null,
+  ): Promise<CustomHeaderData | null> {
     if (!profile?.id) return null;
 
     const header =
@@ -92,15 +83,15 @@ export class DoctorPdfContextService {
     if (!header) return null;
 
     let logoUrl: string | null = null;
-    if (header.logoUrl) {
-      if (header.logoUrl.startsWith('http')) {
-        logoUrl = header.logoUrl;
-      } else {
-        try {
-          logoUrl = await this.storageService.getSignedUrl(header.logoUrl);
-        } catch {
-          logoUrl = null;
-        }
+    const caminhoDoLogo = caminhoDoLogoDoCabecalho(header.logoUrl, {
+      bucket: this.storageService.nomeDoBucket,
+      ownerId,
+    });
+    if (caminhoDoLogo) {
+      try {
+        logoUrl = await this.storageService.getSignedUrl(caminhoDoLogo);
+      } catch {
+        logoUrl = null;
       }
     }
 

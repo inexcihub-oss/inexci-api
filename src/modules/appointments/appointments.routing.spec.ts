@@ -4,13 +4,6 @@ import * as request from 'supertest';
 import { AppointmentsController } from './appointments.controller';
 import { AppointmentsService } from './appointments.service';
 
-/**
- * `appointments.id` e `patients.id` são `uuid`. Sem `ParseUUIDPipe`, um id
- * malformado chegava cru ao Postgres e o `AllExceptionsFilter` devolvia
- * "Erro na operação do banco de dados" — 400 genérico, depois de uma ida
- * inútil ao banco. Estes testes prendem a validação em todas as rotas com
- * `:id`/`:patientId`, no mesmo padrão do `ClinicalRecordsController`.
- */
 describe('AppointmentsController — validação de UUID nos parâmetros', () => {
   let app: INestApplication;
 
@@ -35,7 +28,6 @@ describe('AppointmentsController — validação de UUID nos parâmetros', () =>
     }).compile();
 
     app = moduleRef.createNestApplication();
-    // Substitui o JwtAuthGuard global (vive no AppModule).
     app.use((req: { user?: unknown }, _res: unknown, next: () => void) => {
       req.user = { userId: 'user-1', ownerId: 'owner-1', role: 'admin' };
       next();
@@ -61,8 +53,6 @@ describe('AppointmentsController — validação de UUID nos parâmetros', () =>
       const res = await request(app.getHttpServer())[metodo](rota).send({});
 
       expect(res.status).toBe(400);
-      // A mensagem precisa dizer o que está errado — não o 400 genérico de
-      // banco que o AllExceptionsFilter produzia.
       expect(JSON.stringify(res.body)).toContain('uuid');
       expect(appointmentsService[metodoDoService]).not.toHaveBeenCalled();
     },

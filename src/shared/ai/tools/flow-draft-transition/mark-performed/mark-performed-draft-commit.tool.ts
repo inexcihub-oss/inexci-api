@@ -1,8 +1,7 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
+import { draftConfirmationFingerprint } from '../../helpers/draft-fingerprint';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
-import { ActivityType } from '../../../../../database/entities/surgery-request-activity.entity';
 import { SurgeryRequestStatus } from '../../../../../database/entities/surgery-request.entity';
 import { FlowDraftTransitionDeps } from '../_types';
 import {
@@ -10,6 +9,7 @@ import {
   checkPostSurgeryDocuments,
   extractTransitionErrorMessage,
 } from '../_helpers';
+import { recordAiActivity } from '../../helpers/surgery-request-access';
 
 export function buildMarkPerformedDraftCommitTool(
   deps: FlowDraftTransitionDeps,
@@ -24,6 +24,9 @@ export function buildMarkPerformedDraftCommitTool(
   return {
     name: 'mark_performed_draft_commit',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
+    requiresConfirmation: true,
+    confirmationFingerprint: draftConfirmationFingerprint(deps.draftService),
     definition: {
       type: 'function',
       function: {
@@ -36,12 +39,12 @@ export function buildMarkPerformedDraftCommitTool(
           required: ['confirm'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context) {
       if (!context.userId) {
         return buildToolResult({ status: 'error', message: 'Acesso negado.' });
       }
-      if (!(args as any).confirm) {
+      if (!args.confirm) {
         return buildToolResult({
           status: 'pending_confirmation',
           message:
@@ -88,24 +91,25 @@ export function buildMarkPerformedDraftCommitTool(
           {
             surgeryPerformedAt: f.surgeryPerformedAt!,
             notifyPatient: f.notifyPatient,
-          } as any,
+          },
           context.userId,
         );
-        await activityRepo.create({
+        await recordAiActivity(
+          activityRepo,
+          context,
           surgeryRequestId,
-          userId: context.userId,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Cirurgia marcada como realizada em ${f.surgeryPerformedAt}.`,
-        });
+          `Cirurgia marcada como realizada em ${f.surgeryPerformedAt}.`,
+        );
         await draftService.finalizeCommit(context.conversationId, {
           id: surgeryRequestId,
           label: f.surgeryRequestLabel,
         });
         return buildToolResult({
           status: 'ok',
+          affected: [{ kind: 'surgery_request', id: surgeryRequestId }],
           message: `Solicitação ${f.surgeryRequestLabel ?? surgeryRequestId} marcada como realizada com sucesso.`,
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
           message: extractTransitionErrorMessage(

@@ -76,7 +76,6 @@ function linhaN(
   };
 }
 
-/** Cadastro → agenda → prontuário no mesmo ledger, como o runner faz. */
 function planejar(
   tabelas: Record<string, unknown[]>,
   opcoes: Partial<ContextoImportacao['opcoes']> = {},
@@ -85,7 +84,7 @@ function planejar(
     agendamentos: AGENDAMENTOS,
     formularios: FORMULARIOS,
     ...tabelas,
-  } as never);
+  });
   const ctx0 = contextoDeTeste({
     usuariosPorEmail: new Map([
       [
@@ -126,7 +125,6 @@ describe('planejarProntuario (export sintético)', () => {
       cidCodes: null,
       surgicalIndication: false,
     });
-    // 09:05 e 09:40 em São Paulo
     expect(f.createdAt.toISOString()).toBe('2025-01-10T12:05:00.000Z');
     expect(f.finalizedAt.toISOString()).toBe('2025-01-10T12:40:00.000Z');
     expect(f.updatedAt).toEqual(f.finalizedAt);
@@ -308,7 +306,7 @@ describe('planejarProntuario (export sintético)', () => {
       agendamentos: AGENDAMENTOS,
       formularios: FORMULARIOS,
       ...tabelas,
-    } as never);
+    });
     const segunda = planejarProntuario(
       exp,
       contextoDeTeste({ ledger: primeira.ctx.ledger }),

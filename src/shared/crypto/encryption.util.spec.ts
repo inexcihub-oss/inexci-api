@@ -1,4 +1,10 @@
-import { encrypt, decrypt, encryptedTransformer } from './encryption.util';
+import {
+  encrypt,
+  decrypt,
+  encryptedTransformer,
+  hasEncryptionKey,
+  isEncrypted,
+} from './encryption.util';
 import * as crypto from 'crypto';
 
 describe('encryption.util', () => {
@@ -49,6 +55,68 @@ describe('encryption.util', () => {
     expect(a).not.toBe(b);
     expect(decrypt(a)).toBe(text);
     expect(decrypt(b)).toBe(text);
+  });
+});
+
+describe('encryption.util — integridade do GCM', () => {
+  const TEST_KEY = crypto.randomBytes(32).toString('hex');
+
+  beforeEach(() => {
+    process.env.DB_ENCRYPTION_KEY = TEST_KEY;
+  });
+
+  afterEach(() => {
+    delete process.env.DB_ENCRYPTION_KEY;
+  });
+
+  function partes(valor: string) {
+    const [prefixo, iv, tag, dados] = valor.split(':');
+    return { prefixo, iv, tag, dados };
+  }
+
+  it('grava tag de 16 bytes', () => {
+    const { tag } = partes(encrypt('texto'));
+    expect(Buffer.from(tag, 'base64')).toHaveLength(16);
+  });
+
+  it('recusa tag truncada', () => {
+    const { iv, tag, dados } = partes(encrypt('texto'));
+    const truncada = Buffer.from(tag, 'base64')
+      .subarray(0, 4)
+      .toString('base64');
+    expect(() => decrypt(`enc:${iv}:${truncada}:${dados}`)).toThrow(
+      /tag de autenticação/,
+    );
+  });
+
+  it('recusa IV de tamanho errado', () => {
+    const { tag, dados } = partes(encrypt('texto'));
+    const iv = crypto.randomBytes(16).toString('base64');
+    expect(() => decrypt(`enc:${iv}:${tag}:${dados}`)).toThrow();
+  });
+
+  it('recusa conteúdo adulterado', () => {
+    const { iv, tag, dados } = partes(encrypt('texto original'));
+    const bytes = Buffer.from(dados, 'base64');
+    bytes[0] ^= 0xff;
+    expect(() =>
+      decrypt(`enc:${iv}:${tag}:${bytes.toString('base64')}`),
+    ).toThrow();
+  });
+
+  it('transformer devolve texto legado (não cifrado) como está', () => {
+    expect(encryptedTransformer.from('Anotação antiga')).toBe(
+      'Anotação antiga',
+    );
+  });
+
+  it('isEncrypted e hasEncryptionKey', () => {
+    expect(isEncrypted(encrypt('x'))).toBe(true);
+    expect(isEncrypted('x')).toBe(false);
+    expect(isEncrypted(null)).toBe(false);
+    expect(hasEncryptionKey()).toBe(true);
+    delete process.env.DB_ENCRYPTION_KEY;
+    expect(hasEncryptionKey()).toBe(false);
   });
 });
 

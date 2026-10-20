@@ -1,21 +1,11 @@
 import { WebhookService } from './webhook.service';
 import { AppointmentStatus } from 'src/database/entities/appointment.entity';
+import { PhoneNormalizerService } from 'src/shared/ai/services/orchestrator/phone-normalizer.service';
 
-/**
- * Resposta do paciente ao template `appointment_confirmation`.
- *
- * A consulta é localizada pelo telefone do remetente dentro da janela do
- * lembrete — o webhook do Twilio não entrega id de consulta. Os ids de botão
- * próprios (`consulta_confirmar`/`consulta_cancelar`) é que separam este fluxo
- * do agendamento cirúrgico, que usa `opcao_*`.
- */
 describe('WebhookService — confirmação de consulta', () => {
   const configService = { get: jest.fn().mockReturnValue('') };
-  const surgeryRequestRepository = {
-    getRepository: jest.fn(),
-    update: jest.fn(),
-  };
-  const activityRepository = { create: jest.fn() };
+  const schedulingHandler = { registerPatientDateSelection: jest.fn() };
+  const phoneNormalizer = new PhoneNormalizerService({} as any);
   const appointmentActivityRepository = { create: jest.fn() };
   let whatsappService: { sendMessage: jest.Mock; sendTemplate: jest.Mock };
   let appointmentRepository: {
@@ -24,6 +14,7 @@ describe('WebhookService — confirmação de consulta', () => {
   };
   let notificationsService: { notifyAppointmentPatientResponse: jest.Mock };
   let service: WebhookService;
+  let conversationRepository: { findActiveByPhone: jest.Mock };
 
   const consulta = {
     id: 'appt-1',
@@ -52,21 +43,23 @@ describe('WebhookService — confirmação de consulta', () => {
       findAtivaPorTelefone: jest.fn().mockResolvedValue({ ...consulta }),
       update: jest.fn().mockResolvedValue({}),
     };
+    conversationRepository = {
+      findActiveByPhone: jest.fn().mockResolvedValue(null),
+    };
     notificationsService = {
       notifyAppointmentPatientResponse: jest.fn().mockResolvedValue(undefined),
     };
     service = new WebhookService(
       configService as any,
-      surgeryRequestRepository as any,
-      activityRepository as any,
+      schedulingHandler as any,
+      phoneNormalizer,
       whatsappService as any,
       appointmentRepository as any,
       notificationsService as any,
       appointmentActivityRepository as any,
+      conversationRepository as any,
     );
   });
-
-  // ─── MIG-04: histórico da consulta ───────────────────────────────────────
 
   it('registra a confirmação pelo paciente no histórico da consulta', async () => {
     await service.tryHandleAppointmentConfirmation(
@@ -147,10 +140,6 @@ describe('WebhookService — confirmação de consulta', () => {
     });
   });
 
-  /**
-   * O paciente acabou de cancelar apertando o botão — reenviar o template
-   * `appointment_cancelled` seria avisá-lo do que ele mesmo fez.
-   */
   it('não reenvia o template de cancelamento para quem cancelou pelo botão', async () => {
     await service.tryHandleAppointmentConfirmation(evento('consulta_cancelar'));
 
@@ -173,8 +162,6 @@ describe('WebhookService — confirmação de consulta', () => {
     );
   });
 
-  // ─── Localização da consulta ─────────────────────────────────────────────
-
   it('procura pelas variantes do telefone e numa janela que cobre o lembrete', async () => {
     jest
       .spyOn(Date, 'now')
@@ -188,19 +175,12 @@ describe('WebhookService — confirmação de consulta', () => {
       appointmentRepository.findAtivaPorTelefone.mock.calls[0];
     expect(telefones).toContain('5511998877665');
     expect(telefones).toContain('11998877665');
-    // O lembrete sai até 24h antes; a resposta pode chegar já com a consulta
-    // recém-passada, então a janela abre um pouco antes de agora.
     expect(janela.from.getTime()).toBeLessThan(Date.now());
     expect(janela.to.getTime()).toBeGreaterThan(Date.now() + 24 * 3600 * 1000);
 
     jest.restoreAllMocks();
   });
 
-  /**
-   * O status já foi gravado. Deixar a exceção subir fazia o controller cair no
-   * `catch` e entregar o clique do botão ao orquestrador de IA, que respondia
-   * ao paciente qualquer coisa sobre uma consulta que já estava cancelada.
-   */
   it('continua tratando a resposta quando o aviso ao paciente falha', async () => {
     whatsappService.sendMessage.mockRejectedValue(new Error('twilio fora'));
 
@@ -246,11 +226,6 @@ describe('WebhookService — confirmação de consulta', () => {
     expect(appointmentRepository.findAtivaPorTelefone).not.toHaveBeenCalled();
   });
 
-  /**
-   * `opcao_1`/`opcao_2` são do template de agendamento cirúrgico. Aceitá-los
-   * aqui traria de volta a colisão que os ids próprios do template de consulta
-   * resolveram.
-   */
   it('ignora os ids do template de agendamento cirúrgico', async () => {
     for (const payload of ['opcao_1', 'opcao_2', 'opcao_3']) {
       await expect(
@@ -273,12 +248,6 @@ describe('WebhookService — confirmação de consulta', () => {
     });
   });
 
-  // ─── Local do atendimento na resposta ────────────────────────────────────
-
-  /**
-   * A janela de 24h abre quando o paciente aperta o botão — é a única chance de
-   * mandar o endereço sem gastar template (variável opcional não cabe num).
-   */
   it('informa nome e endereço da unidade ao confirmar', async () => {
     appointmentRepository.findAtivaPorTelefone.mockResolvedValue({
       ...consulta,
@@ -332,7 +301,6 @@ describe('WebhookService — confirmação de consulta', () => {
     expect(texto).not.toContain('📍');
   });
 
-  /** Quem cancelou não precisa saber onde era. */
   it('não menciona local no cancelamento', async () => {
     appointmentRepository.findAtivaPorTelefone.mockResolvedValue({
       ...consulta,
@@ -343,5 +311,91 @@ describe('WebhookService — confirmação de consulta', () => {
 
     const [, texto] = whatsappService.sendMessage.mock.calls[0];
     expect(texto).not.toContain('Clínica Vida');
+  });
+
+  describe('colisão com a confirmação pendente da IA', () => {
+    const conversaComPendencia = (createdAt: Date) => ({
+      id: 'conv-1',
+      conversationMemory: {
+        pending_confirmation: {
+          tool: 'advance_surgery_request',
+          createdAt: createdAt.toISOString(),
+        },
+      },
+    });
+
+    it('payload próprio da consulta vence mesmo com confirmação da IA pendente', async () => {
+      conversationRepository.findActiveByPhone.mockResolvedValue(
+        conversaComPendencia(new Date()),
+      );
+
+      const tratou = await service.tryHandleAppointmentConfirmation(
+        evento('consulta_confirmar', 'Confirmar'),
+      );
+
+      expect(tratou).toBe(true);
+      expect(appointmentRepository.update).toHaveBeenCalledWith('appt-1', {
+        status: AppointmentStatus.CONFIRMED,
+      });
+    });
+
+    it('botão da IA (payload próprio) com texto "Confirmar" não confirma a consulta', async () => {
+      const tratou = await service.tryHandleAppointmentConfirmation(
+        evento('ai_confirm_yes', 'Confirmar'),
+      );
+
+      expect(tratou).toBe(false);
+      expect(appointmentRepository.findAtivaPorTelefone).not.toHaveBeenCalled();
+      expect(appointmentRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('texto sem payload vai para a IA quando a confirmação dela é mais recente que o lembrete', async () => {
+      appointmentRepository.findAtivaPorTelefone.mockResolvedValue({
+        ...consulta,
+        reminderSentAt: new Date(Date.now() - 60 * 60 * 1000),
+      });
+      conversationRepository.findActiveByPhone.mockResolvedValue(
+        conversaComPendencia(new Date(Date.now() - 60 * 1000)),
+      );
+
+      const tratou = await service.tryHandleAppointmentConfirmation(
+        evento('', 'Cancelar'),
+      );
+
+      expect(tratou).toBe(false);
+      expect(appointmentRepository.update).not.toHaveBeenCalled();
+      expect(conversationRepository.findActiveByPhone).toHaveBeenCalledWith(
+        '+5511998877665',
+      );
+    });
+
+    it('texto sem payload fica com a consulta quando o lembrete é mais recente que a pendência da IA', async () => {
+      appointmentRepository.findAtivaPorTelefone.mockResolvedValue({
+        ...consulta,
+        reminderSentAt: new Date(Date.now() - 60 * 1000),
+      });
+      conversationRepository.findActiveByPhone.mockResolvedValue(
+        conversaComPendencia(new Date(Date.now() - 5 * 60 * 1000)),
+      );
+
+      const tratou = await service.tryHandleAppointmentConfirmation(
+        evento('', 'Confirmo'),
+      );
+
+      expect(tratou).toBe(true);
+      expect(appointmentRepository.update).toHaveBeenCalled();
+    });
+
+    it('ignora pendência da IA expirada', async () => {
+      conversationRepository.findActiveByPhone.mockResolvedValue(
+        conversaComPendencia(new Date(Date.now() - 60 * 60 * 1000)),
+      );
+
+      const tratou = await service.tryHandleAppointmentConfirmation(
+        evento('', 'Confirmo'),
+      );
+
+      expect(tratou).toBe(true);
+    });
   });
 });

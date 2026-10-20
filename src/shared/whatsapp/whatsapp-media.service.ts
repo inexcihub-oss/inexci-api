@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { promises as fs } from 'fs';
 import * as path from 'path';
@@ -23,7 +23,6 @@ export interface DownloadedWhatsappDocument {
   mimeType: string;
   sizeBytes: number;
   fileName: string;
-  /** `image` ou `pdf` — definido pelo MIME aceito. */
   kind: 'image' | 'pdf';
 }
 
@@ -50,6 +49,8 @@ type MediaKind = 'audio' | 'image' | 'pdf';
 
 @Injectable()
 export class WhatsappMediaService {
+  private readonly logger = new Logger(WhatsappMediaService.name);
+
   constructor(private readonly configService: ConfigService) {}
 
   isAudioMime(mimeType: string | null | undefined): boolean {
@@ -73,14 +74,11 @@ export class WhatsappMediaService {
     );
   }
 
-  /**
-   * Backwards-compatible wrapper para o pipeline de áudio existente.
-   */
   async downloadInboundAudio(
     media: InboundWhatsappMedia,
   ): Promise<DownloadedWhatsappAudio> {
     const downloaded = await this.downloadInboundMedia(media, 'audio');
-    const durationSeconds = await this.resolveAudioDuration(
+    const durationSeconds = this.resolveAudioDuration(
       media,
       downloaded.responseHeaders,
     );
@@ -100,10 +98,6 @@ export class WhatsappMediaService {
     };
   }
 
-  /**
-   * Baixa imagem ou PDF inbound vindo do WhatsApp via Twilio.
-   * Aplica whitelist de MIME e limite de bytes específico para documentos.
-   */
   async downloadInboundDocument(
     media: InboundWhatsappMedia,
   ): Promise<DownloadedWhatsappDocument> {
@@ -134,11 +128,6 @@ export class WhatsappMediaService {
     };
   }
 
-  /**
-   * Núcleo do download (auth Twilio, validação de host/mime, leitura com
-   * limite). Mantemos privado para que `audio`/`image`/`pdf` reaproveitem o
-   * mesmo caminho de erro/observabilidade.
-   */
   private async downloadInboundMedia(
     media: InboundWhatsappMedia,
     kind: MediaKind,
@@ -380,10 +369,10 @@ export class WhatsappMediaService {
     return Buffer.concat(chunks, total);
   }
 
-  private async resolveAudioDuration(
+  private resolveAudioDuration(
     media: InboundWhatsappMedia,
     headers: Headers,
-  ): Promise<number | null> {
+  ): number | null {
     if (
       typeof media.durationSeconds === 'number' &&
       Number.isFinite(media.durationSeconds)
@@ -486,8 +475,10 @@ export class WhatsappMediaService {
           if (stat.isFile() && stat.mtimeMs < threshold) {
             await fs.unlink(absolute);
           }
-        } catch {
-          // ignora erros de limpeza de debug
+        } catch (err) {
+          this.logger.debug(
+            `Falha ao limpar arquivo de debug ${entry}: ${(err as Error)?.message}`,
+          );
         }
       }),
     );

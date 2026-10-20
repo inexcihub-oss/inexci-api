@@ -9,25 +9,9 @@ import {
 } from '../../../../config/post-surgery-documents.config';
 import { buildToolResult } from '../tool-result';
 import { OperationDraftType } from '../../drafts/operation-draft.types';
-import { resolveAuthorizedRequest } from '../_helpers/resolve-surgery-request';
+import { resolveAuthorizedRequest } from '../helpers/surgery-request-access';
+import { getStatusLabel } from '../../../utils/status';
 
-const STATUS_LABELS: Record<number, string> = {
-  1: 'Pendente',
-  2: 'Enviada',
-  3: 'Em Análise',
-  4: 'Em Agendamento',
-  5: 'Agendada',
-  6: 'Realizada',
-  7: 'Faturada',
-  8: 'Finalizada',
-  9: 'Encerrada',
-};
-
-/**
- * Bloqueia uso da tool quando não há draft ativo do tipo esperado. A
- * checagem complementa a filtragem do `ToolRegistryService`, que já
- * só expõe as tools de `mark_performed` quando há draft desse tipo.
- */
 export async function guardDraft(
   draftService: OperationDraftService,
   context: ToolContext,
@@ -50,27 +34,10 @@ export async function guardDraft(
 }
 
 export interface AssertStatusResult {
-  /** Payload `blocked`/`error` pronto para retornar à tool. Null quando OK. */
   error: string | null;
-  /** UUID real da SC quando resolvida (mesmo que `surgeryRequestId` tenha vindo como protocolo `SC-XXXX`). */
   resolvedId: string | null;
 }
 
-/**
- * Valida que a SC apontada pelo draft está no status esperado para a
- * transição. Retorna `{ error, resolvedId }` — `error` preenchido quando a
- * SC não existe ou está em outro status; `resolvedId` traz o UUID real (útil
- * quando o `surgeryRequestId` veio como protocolo SC-XXXX).
- *
- * Aceita tanto UUID quanto protocolo (`SC-XXXXXX`). Antes desta versão, se o
- * LLM gravasse o protocolo (formato amigável) no `surgeryRequestId` do draft,
- * a busca falhava com "Solicitação não encontrada" e o usuário ficava em
- * loop no WhatsApp.
- *
- * Resolve via `resolveAuthorizedRequest`, que confere `context.accessibleDoctorIds`
- * antes de devolver a SC — o `draft_update` valida o campo na escrita, mas esta
- * função é a última barreira antes de qualquer transição de status.
- */
 export async function assertCurrentStatusIs(
   surgeryRequestRepo: SurgeryRequestRepository,
   surgeryRequestId: string,
@@ -82,7 +49,7 @@ export async function assertCurrentStatusIs(
     surgeryRequestId,
     context,
   );
-  if (erroDeAcesso) {
+  if (!sc) {
     return {
       error: buildToolResult({
         status: 'error',
@@ -95,7 +62,7 @@ export async function assertCurrentStatusIs(
     return {
       error: buildToolResult({
         status: 'blocked',
-        message: `A solicitação ${sc.protocol ?? sc.id} está no status "${STATUS_LABELS[sc.status] ?? sc.status}", não em "${STATUS_LABELS[expected]}". Essa transição não é mais válida.`,
+        message: `A solicitação ${sc.protocol ?? sc.id} está no status "${getStatusLabel(sc.status)}", não em "${getStatusLabel(expected)}". Essa transição não é mais válida.`,
       }),
       resolvedId: sc.id,
     };
@@ -103,27 +70,36 @@ export async function assertCurrentStatusIs(
   return { error: null, resolvedId: sc.id };
 }
 
-/**
- * Extrai uma mensagem legível de erros de transição de status.
- * Quando o backend retorna pendencies[], lista-as para o LLM.
- */
+interface TransitionErrorLike {
+  message?: unknown;
+  response?: unknown;
+  getResponse?: unknown;
+}
+
 export function extractTransitionErrorMessage(
-  err: any,
+  err: unknown,
   defaultPrefix: string,
 ): string {
-  const response =
-    typeof err?.getResponse === 'function' ? err.getResponse() : err?.response;
+  const errLike: TransitionErrorLike | null =
+    typeof err === 'object' && err !== null ? err : null;
+  const errMessage =
+    typeof errLike?.message === 'string' ? errLike.message : undefined;
+  const response: unknown =
+    typeof errLike?.getResponse === 'function'
+      ? (errLike.getResponse as () => unknown).call(err)
+      : errLike?.response;
 
   if (response && typeof response === 'object') {
+    const responseObj = response as { pendencies?: unknown; message?: unknown };
     const pendencies: Array<{ key: string; name: string }> = Array.isArray(
-      response.pendencies,
+      responseObj.pendencies,
     )
-      ? response.pendencies
+      ? (responseObj.pendencies as Array<{ key: string; name: string }>)
       : [];
     const baseMessage: string =
-      typeof response.message === 'string'
-        ? response.message
-        : (err?.message ?? 'erro desconhecido');
+      typeof responseObj.message === 'string'
+        ? responseObj.message
+        : (errMessage ?? 'erro desconhecido');
 
     if (pendencies.length > 0) {
       const list = pendencies.map((p) => p.name).join('; ');
@@ -132,13 +108,9 @@ export function extractTransitionErrorMessage(
     return baseMessage;
   }
 
-  return `${defaultPrefix}: ${err?.message || 'erro desconhecido'}`;
+  return `${defaultPrefix}: ${errMessage || 'erro desconhecido'}`;
 }
 
-/**
- * Lista os documentos cirúrgicos pós-operatórios já presentes na SC e
- * indica quais ainda faltam para que a transição possa acontecer.
- */
 export async function checkPostSurgeryDocuments(
   documentRepo: DocumentRepository,
   surgeryRequestId: string,

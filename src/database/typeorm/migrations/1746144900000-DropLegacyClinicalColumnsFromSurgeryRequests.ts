@@ -1,8 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Remove colunas clínicas legadas substituídas por `report_sections` + `patients`.
- */
 export class DropLegacyClinicalColumnsFromSurgeryRequests1746144900000 implements MigrationInterface {
   name = 'DropLegacyClinicalColumnsFromSurgeryRequests1746144900000';
 

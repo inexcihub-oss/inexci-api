@@ -1,9 +1,5 @@
 import { registerAs } from '@nestjs/config';
 
-/**
- * Configuração de e-mail via Nodemailer (SMTP genérico).
- * As credenciais são lidas das variáveis de ambiente via ConfigService.
- */
 export const mailConfig = registerAs('mail', () => ({
   host: process.env.MAIL_HOST || 'smtp.example.com',
   port: parseInt(process.env.MAIL_PORT || '587', 10),
@@ -19,10 +15,6 @@ export const mailConfig = registerAs('mail', () => ({
   appUrl: process.env.DASHBOARD_URL || '',
 }));
 
-/**
- * Templates de e-mail disponíveis.
- * Usados para validar o template solicitado no endpoint POST /notify.
- */
 export type MailTemplateName =
   | 'surgery-request-sent'
   | 'surgery-authorized'
@@ -31,14 +23,9 @@ export type MailTemplateName =
   | 'invoice-sent'
   | 'payment-received'
   | 'payment-contested'
-  | 'status-change-stakeholder'
   | 'status-change-patient'
-  | 'stale-reminder'
-  | 'stale-critical'
-  | 'action-admin-alert'
   | 'appointment-reminder'
   | 'welcome-patient'
-  | 'welcome-doctor'
   | 'invite-collaborator'
   | 'password-recovery'
   | 'email-verification'
@@ -53,14 +40,9 @@ export const MAIL_TEMPLATES: MailTemplateName[] = [
   'invoice-sent',
   'payment-received',
   'payment-contested',
-  'status-change-stakeholder',
   'status-change-patient',
-  'stale-reminder',
-  'stale-critical',
-  'action-admin-alert',
   'appointment-reminder',
   'welcome-patient',
-  'welcome-doctor',
   'invite-collaborator',
   'password-recovery',
   'email-verification',

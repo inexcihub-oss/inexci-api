@@ -22,23 +22,19 @@ export class CreateAppointmentDto {
   @IsNotEmpty()
   doctorId: string;
 
-  /** Local de atendimento (opcional). */
   @IsOptional()
   @IsUUID()
   clinicId?: string;
 
-  /** Sala da clínica (precisa ser da clínica da consulta). `null` tira a sala. */
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsUUID()
   roomId?: string | null;
 
-  /** Encaixe: não passa pela checagem de conflito de horário. */
   @IsOptional()
   @IsBoolean()
   isWalkIn?: boolean;
 
-  /** Convênio da consulta. `null` = particular. */
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsUUID()
@@ -48,7 +44,6 @@ export class CreateAppointmentDto {
   @IsEnum(AppointmentType)
   type?: AppointmentType;
 
-  /** Início da consulta (ISO 8601 com data e hora). */
   @IsDateString()
   @IsNotEmpty()
   scheduledAt: string;

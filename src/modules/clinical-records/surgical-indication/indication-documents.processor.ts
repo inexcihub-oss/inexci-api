@@ -39,8 +39,6 @@ export class IndicationDocumentsProcessor {
       },
     );
 
-    // O serviço não lança: quem transforma pendência em retentativa é o job.
-    // O que já foi copiado é reconhecido na próxima passada e não duplica.
     if (failed > 0) {
       throw new Error(
         `[SC_DOCS] SC ${surgeryRequestId}: faltaram ${failed} de ${copied + failed} documentos (tentativa ${job.attemptsMade + 1}).`,

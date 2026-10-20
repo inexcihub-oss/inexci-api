@@ -11,12 +11,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Setup Node.js 20
-        uses: actions/setup-node@v4
+      - name: Setup Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'yarn'
 
       - name: Instalar dependências
@@ -30,10 +30,14 @@ jobs:
         env:
           NODE_ENV: test
 
+  audit:
+    name: Auditoria de dependências
+    uses: ./.github/workflows/audit.yml
+
   deploy:
     name: Deploy VPS
     runs-on: ubuntu-latest
-    needs: ci
+    needs: [ci, audit]
 
     steps:
       - name: Diagnóstico SSH (DNS + porta)
@@ -43,15 +47,15 @@ jobs:
           nc -zvw5 "${{ secrets.VPS_HOST }}" "${{ secrets.VPS_PORT || 22 }}"
 
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          fingerprint: ${{ secrets.VPS_SSH_FINGERPRINT }}
           port: ${{ secrets.VPS_PORT || 22 }}
           timeout: 2m
           command_timeout: 20m
-          debug: true
           script: |
             set -euo pipefail
 
@@ -60,24 +64,19 @@ jobs:
             echo "==> Atualizando código..."
             cd /opt/inexci/inexci-api && git pull && cd /opt/inexci
 
-            echo "==> Reconstruindo imagem da API..."
-            $COMPOSE build api
+            echo "==> Reconstruindo imagens da API e do stt-service..."
+            $COMPOSE build api stt-service
 
-            # Migrations rodam num container descartável, antes de encostar na
-            # API que está no ar. Enquanto estavam no `command:` do serviço
-            # (`migration:run && start:prod`), uma migration que falhava virava
-            # indisponibilidade: o container morria, o `restart: always`
-            # ressuscitava, e o loop durava os 6 minutos de espera abaixo.
-            # Agora falha aqui, com `set -e` abortando o deploy e a versão
-            # anterior da API intacta. Sem `|| true`: falha aqui tem que parar.
             echo "==> Pré-flight de migrations (somente leitura)..."
             $COMPOSE run --rm --no-deps api npm run migration:preflight
 
             echo "==> Aplicando migrations..."
             $COMPOSE run --rm --no-deps api npm run typeorm:migration:run
 
-            echo "==> Subindo redis, stt-service, api e alloy..."
-            $COMPOSE up -d redis stt-service api alloy || true
+            echo "==> Subindo redis, stt-service, api, docker-socket-proxy e alloy..."
+            if ! $COMPOSE up -d redis stt-service api docker-socket-proxy alloy; then
+              echo "==> Aviso: docker compose reportou erro ao subir serviços. Vou coletar diagnósticos da API..."
+            fi
 
             echo "==> Aguardando API ficar healthy..."
             HEALTHY=false
@@ -101,8 +100,8 @@ jobs:
               exit 1
             fi
 
-            echo "==> Subindo nginx..."
-            $COMPOSE up -d nginx
+            echo "==> Subindo nginx (recriado para reresolver o IP da api)..."
+            $COMPOSE up -d --force-recreate nginx
 
             echo "==> Status final:"
             $COMPOSE ps

@@ -5,6 +5,7 @@ import {
   FindOptionsWhere,
   DataSource,
   EntityManager,
+  In,
   QueryDeepPartialEntity,
 } from 'typeorm';
 import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
@@ -28,7 +29,6 @@ import { Contestation } from '../entities/contestation.entity';
 import { BaseRepository } from './base.repository';
 import { getStatusLabel } from 'src/shared/utils';
 
-/** Ordenação da listagem: coluna materializada `last_activity_at` (item 5.2). */
 const SURGERY_REQUEST_LIST_SORT_COLUMN = 'surgeryRequest.lastActivityAt';
 
 @Global()
@@ -110,12 +110,6 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     return qb.groupBy('sr.status').orderBy('COUNT(*)', 'DESC').getRawMany();
   }
 
-  /**
-   * Contagens agregadas do dashboard numa ÚNICA query via `COUNT(*) FILTER`
-   * (P13), substituindo os 4 `count` separados (total/agendada/realizada/
-   * faturada). Reaproveita os mesmos filtros de hospital/convênio/período
-   * aplicados às demais agregações.
-   */
   async countsByStatus(
     doctorIds: string[],
     filters?: {
@@ -254,17 +248,6 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
   async findOne(
     where: FindOptionsWhere<SurgeryRequest>,
   ): Promise<SurgeryRequest | null> {
-    // Split em 2 blocos em vez de uma única query com `relationLoadStrategy: 'query'`
-    // para todas as relações (que gerava ~15 round-trips sequenciais — cada um
-    // pagando a latência de rede até o Postgres, dominante no tempo total).
-    // Relações *ToOne/OneToOne nunca multiplicam linhas, então vão todas juntas
-    // num único SELECT com leftJoin (`relationLoadStrategy: 'join'`). As
-    // coleções *ToMany reais (que multiplicariam linhas se juntadas na mesma
-    // query base) são buscadas em `Promise.all` (paralelo, WHERE por
-    // `surgeryRequestId` já resolvido pelo bloco base — evita repetir o filtro
-    // de acesso). `activities` e `quotations` continuam fora do payload (P5): a
-    // página de detalhe busca activities em endpoint próprio e quotations não é
-    // consumida a partir da SC.
     const base = await this.repository.findOne({
       where,
       relationLoadStrategy: 'join',
@@ -305,12 +288,6 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
 
     if (!base) return null;
 
-    // As 4 coleções em paralelo (1 round-trip de wall-time). `opmeItems` entra
-    // com `relationLoadStrategy: 'join'` para as 3 relações aninhadas
-    // (suppliers/manufacturers/selectedSupplier) numa única query — o produto
-    // cartesiano opme×suppliers×manufacturers é pequeno e o TypeORM hidrata
-    // corretamente os arrays por item. `documents.creator` é *ToOne, entra via
-    // join sem multiplicar linhas.
     const [opmeItems, tussItems, documents, contestations] = await Promise.all([
       this.dataSource.getRepository(OpmeItem).find({
         where: { surgeryRequestId: base.id },
@@ -362,7 +339,6 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     return await this.repository.findOne({ where });
   }
 
-  /** Carrega campos base + paciente, médico e plano. Sem documents/chats/quotations. */
   async findOneMinimal(
     where: FindOptionsWhere<SurgeryRequest>,
   ): Promise<SurgeryRequest | null> {
@@ -378,7 +354,6 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .getOne();
   }
 
-  /** Carrega dados de workflow: campos base + activities + análise + contestações. */
   async findOneForWorkflow(
     where: FindOptionsWhere<SurgeryRequest>,
   ): Promise<SurgeryRequest | null> {
@@ -405,7 +380,6 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .getOne();
   }
 
-  /** Carrega dados de faturamento: campos base + billing + procedures + tuss. */
   async findOneForBilling(
     where: FindOptionsWhere<SurgeryRequest>,
   ): Promise<SurgeryRequest | null> {
@@ -446,8 +420,6 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       }
     >
   > {
-    // Paginação em query sem joins: TypeORM quebra ORDER BY com expressões SQL
-    // quando skip/take combinam com joins (subquery distinctAlias).
     const idRows = await this.repository
       .createQueryBuilder('surgeryRequest')
       .select('surgeryRequest.id', 'id')
@@ -537,7 +509,8 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
         row.surgeryRequest_id ??
         row.surgery_request_id ??
         row.surgeryrequest_id;
-      return value != null ? String(value) : null;
+      if (value == null) return null;
+      return typeof value === 'string' ? value : JSON.stringify(value);
     };
 
     const hasIncompletePaymentById = new Map<string, boolean>();
@@ -610,7 +583,6 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     });
   }
 
-  /** Carrega solicitação com todas as relações padrão necessárias para a state machine */
   findOneWithAllRelations(
     where: FindOptionsWhere<SurgeryRequest>,
   ): Promise<SurgeryRequest | null> {
@@ -649,10 +621,6 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     return results.map((r) => r.userId);
   }
 
-  /**
-   * Recupera o número do status anterior a partir do conteúdo da última activity
-   * do tipo STATUS_CHANGE (formato: "Status alterado de \"X\" para \"Y\"").
-   */
   async findPreviousStatus(
     surgeryRequestId: string,
   ): Promise<SurgeryRequestStatus | null> {
@@ -684,7 +652,6 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     return STATUSES.find((s) => getStatusLabel(s) === prevLabel) ?? null;
   }
 
-  /** Registra mudança de status em activities (deve ser chamado dentro de uma transação) */
   async recordStatusChange(
     manager: EntityManager,
     surgeryRequestId: string,
@@ -694,11 +661,6 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     statusChangedAt?: Date,
     note?: string | null,
   ): Promise<void> {
-    // Resolvido uma única vez: quando `statusChangedAt` é uma data retroativa
-    // (ex.: "Confirmar com documento de origem" perguntando a data real de
-    // envio), tanto o registro na SC quanto a atividade da timeline precisam
-    // concordar — senão o kanban mostra dias parado enquanto a aba
-    // Atividades diz "agora".
     const effectiveChangedAt = statusChangedAt ?? new Date();
 
     const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
@@ -720,6 +682,109 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       content,
       createdAt: effectiveChangedAt,
     });
+  }
+
+  findOneForPendencies(id: string): Promise<SurgeryRequest | null> {
+    return this.repository.findOne({
+      where: { id },
+      relationLoadStrategy: 'query',
+      relations: {
+        patient: true,
+        doctor: { doctorProfile: true },
+        tussItems: true,
+        opmeItems: true,
+        documents: true,
+        billing: true,
+        reportSections: true,
+      },
+    });
+  }
+
+  findManyForPendencies(
+    ids: string[],
+    doctorIds: string[],
+  ): Promise<SurgeryRequest[]> {
+    if (ids.length === 0 || doctorIds.length === 0) return Promise.resolve([]);
+    return this.repository.find({
+      where: { id: In(ids), doctorId: In(doctorIds) },
+      relationLoadStrategy: 'join',
+      relations: {
+        patient: true,
+        billing: true,
+        doctor: { doctorProfile: true },
+      },
+    });
+  }
+
+  async applyStatusTransition(
+    manager: EntityManager,
+    params: {
+      id: string;
+      from: SurgeryRequestStatus;
+      to: SurgeryRequestStatus;
+      data?: QueryDeepPartialEntity<SurgeryRequest>;
+      userId?: string | null;
+      statusChangedAt?: Date;
+      note?: string | null;
+    },
+  ): Promise<boolean> {
+    const applied = await this.updateIfStatus(
+      params.id,
+      params.from,
+      { ...(params.data ?? {}), status: params.to },
+      manager,
+    );
+    if (!applied) return false;
+
+    await this.recordStatusChange(
+      manager,
+      params.id,
+      params.from,
+      params.to,
+      params.userId ?? null,
+      params.statusChangedAt,
+      params.note,
+    );
+    return true;
+  }
+
+  async updateIfStatus(
+    id: string,
+    expectedStatus: SurgeryRequestStatus,
+    data: QueryDeepPartialEntity<SurgeryRequest>,
+    manager?: EntityManager,
+  ): Promise<boolean> {
+    const repo = manager
+      ? manager.getRepository(SurgeryRequest)
+      : this.repository;
+    const result = await repo.update({ id, status: expectedStatus }, data);
+    return (result.affected ?? 0) > 0;
+  }
+
+  findInSchedulingByPatientPhones(
+    phoneDigitCandidates: string[],
+    options: { id?: string; limit?: number } = {},
+  ): Promise<SurgeryRequest[]> {
+    if (phoneDigitCandidates.length === 0) return Promise.resolve([]);
+
+    const query = this.repository
+      .createQueryBuilder('sr')
+      .innerJoinAndSelect('sr.patient', 'patient')
+      .leftJoinAndSelect('sr.doctor', 'doctor')
+      .where('sr.status = :status', {
+        status: SurgeryRequestStatus.IN_SCHEDULING,
+      })
+      .andWhere(
+        "regexp_replace(patient.phone, '[^0-9]', '', 'g') IN (:...phones)",
+        { phones: phoneDigitCandidates },
+      );
+    if (options.id) query.andWhere('sr.id = :id', { id: options.id });
+
+    return query
+      .orderBy('sr.updatedAt', 'DESC')
+      .addOrderBy('sr.createdAt', 'DESC')
+      .take(options.limit ?? 2)
+      .getMany();
   }
 
   async getTemporalEvolution(
@@ -768,7 +833,6 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
   async getAverageCompletionTime(
     where: FindOptionsWhere<SurgeryRequest>,
   ): Promise<{ averageDays: number }> {
-    // Calcula a média de dias entre createdAt e updatedAt para solicitações finalizadas (status 9)
     const result = await this.repository
       .createQueryBuilder('surgeryRequest')
       .select(
@@ -785,18 +849,11 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     };
   }
 
-  // ============================================================
-  // Pendências — use PendencyValidatorService para validação completa
-  // O método calculatePendencies abaixo é simplificado para uso em listagens
-  // ============================================================
-
   calculatePendencies(surgeryRequest: SurgeryRequest): {
     pendingCount: number;
     completedCount: number;
     totalCount: number;
   } {
-    // Lógica simplificada para kanban/listagens
-    // A validação detalhada fica no PendencyValidatorService
     const documents = surgeryRequest.documents || [];
     const procedure = surgeryRequest.procedure;
     const patient = surgeryRequest.patient;
@@ -815,10 +872,6 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     return { pendingCount, completedCount, totalCount };
   }
 
-  /**
-   * Busca solicitações paradas (stale) — que não mudaram de status há mais de `minDays` dias.
-   * Exclui status finais: PERFORMED, INVOICED, FINALIZED, CLOSED.
-   */
   findStaleRequests(minDays: number): Promise<SurgeryRequest[]> {
     const terminalStatuses = [
       SurgeryRequestStatus.PERFORMED,

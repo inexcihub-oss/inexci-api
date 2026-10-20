@@ -10,7 +10,6 @@ import {
 import { User } from './user.entity';
 import { Appointment } from './appointment.entity';
 
-/** O que aconteceu com a consulta. Gravado como texto (`varchar(20)`). */
 export enum AppointmentActivityType {
   CREATED = 'created',
   STATUS_CHANGE = 'status_change',
@@ -20,13 +19,6 @@ export enum AppointmentActivityType {
   SYSTEM = 'system',
 }
 
-/**
- * Linha do tempo da consulta: agendada, confirmada, chegou, remarcada,
- * cancelada, comentário. Espelha `SurgeryRequestActivity`.
- *
- * Gravada como efeito colateral dos services (consultas e ficha) e lida só
- * sob demanda no detalhe da consulta — a listagem da agenda não a carrega.
- */
 @Entity('appointment_activities')
 @Index('idx_appointment_activities_appointment_created', [
   'appointmentId',
@@ -39,7 +31,6 @@ export class AppointmentActivity {
   @Column({ name: 'appointment_id', type: 'uuid' })
   appointmentId: string;
 
-  /** Quem fez. `null` = sistema (ex.: ficha finalizada pelo fluxo) ou usuário excluído. */
   @Column({ name: 'user_id', type: 'uuid', nullable: true })
   userId: string | null;
 

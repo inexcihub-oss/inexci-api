@@ -13,14 +13,7 @@ import {
   VERIFICACOES_PRE_MIGRATION,
 } from './preflight/data-checks';
 
-/**
- * A constraint fecha a corrida do check-then-insert de `assertNoOverlap`. Três
- * cópias do mesmo predicado precisam andar juntas: a lista de status do
- * código (`OCCUPYING_APPOINTMENT_STATUSES`), o SQL gravado pela migration e o
- * `@Exclusion` da entidade (sem ele, `migration:generate` a derrubaria).
- */
 describe('AddAppointmentsNoOverlapConstraint1755800900000', () => {
-  /** `nomesAtuais`: nome da FK de cada coluna no banco simulado. */
   function criarQueryRunner(
     conflitos: Record<string, unknown>[] = [],
     nomesAtuais: Record<string, string | null> = {},

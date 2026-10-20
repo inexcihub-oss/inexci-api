@@ -32,12 +32,6 @@ import { BulkDeleteHospitalsDto } from './dto/bulk-delete-hospitals.dto';
 @ApiTags('Hospitais')
 @ApiBearerAuth()
 @Controller('hospitals')
-// Cadastro transversal às quatro áreas: `@RequireAnyArea()` exige ao menos
-// uma área (fail-closed p/ colaborador sem permissão) sem amarrar a uma
-// específica. Criar e atualizar herdam essa regra: quem monta a solicitação
-// ou marca a consulta precisa cadastrar o hospital que faltou, sem depender do
-// admin. Só `delete`/`bulkDelete` seguem em `ADMINISTRACAO` — apagar um
-// hospital afeta solicitações que já o referenciam.
 @RequireAnyArea()
 export class HospitalsController {
   constructor(private readonly hospitalsService: HospitalsService) {}

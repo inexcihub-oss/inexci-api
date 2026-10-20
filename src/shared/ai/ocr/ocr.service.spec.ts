@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { PiiVaultService } from '../services/pii-vault.service';
-import { OcrService } from './ocr.service';
+import { MAX_NATIVE_PDF_TEXT_CHARS, OcrService } from './ocr.service';
 import { OcrUnsupportedMimeError } from './ocr.types';
 
 const recognizeMock = jest.fn();
@@ -157,12 +157,6 @@ describe('OcrService', () => {
   });
 
   it('REGRESSION: extractAndTokenize NÃO transforma laudo grande em payload_blob', async () => {
-    // Bug observado em prod: laudos médicos de PDF (frequentemente
-    // > 1500 chars) saíam como UM ÚNICO `{{payload_blob_1}}`, fazendo o
-    // classifier text-only devolver `kind=unknown, confidence=0.5,
-    // extracted={}`. O fix foi remover o `payload_blob` automático do
-    // PII Vault — apenas dados sensíveis estruturados (CPF/telefone/
-    // email) seguem sendo tokenizados.
     const longLaudo =
       'Paciente Jean Pierre Pereira Proximo, CPF 529.982.247-25. ' +
       'Diagnóstico: artrose cervical em 2 níveis. Indicação: artrodese cervical. ' +
@@ -205,6 +199,22 @@ describe('OcrService', () => {
     expect(result.confidence).toBeCloseTo(0.99, 2);
     expect(result.text).toContain('Relatório de cirurgia');
     expect(result.pages[0].source).toBe('text-layer');
+  });
+
+  it('limita o text-layer às primeiras maxPages páginas e trunca texto gigante', async () => {
+    const gigante = 'x'.repeat(MAX_NATIVE_PDF_TEXT_CHARS + 5000);
+    getTextMock.mockResolvedValueOnce({ text: gigante, total: 40 });
+
+    const result = await service.extract({
+      buffer: Buffer.from('%PDF-1.4 fake'),
+      mimeType: 'application/pdf',
+      maxPages: 3,
+    });
+
+    expect(getTextMock).toHaveBeenCalledWith({ first: 3 });
+    expect(result.text.length).toBe(MAX_NATIVE_PDF_TEXT_CHARS);
+    expect(result.warnings).toContain('pdf_text_truncated');
+    expect(result.truncatedPages).toBe(37);
   });
 
   it('cai para rasterização + Tesseract quando text-layer é insuficiente', async () => {

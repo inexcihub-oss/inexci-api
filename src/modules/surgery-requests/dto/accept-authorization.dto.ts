@@ -29,9 +29,7 @@ function HasExplicitTime(validationOptions?: ValidationOptions) {
             if (typeof iso !== 'string') return false;
             const d = new Date(iso);
             if (isNaN(d.getTime())) return false;
-            // Rejeita datas que chegam sem componente de tempo (somente data)
             if (!iso.includes('T')) return false;
-            // Rejeita meia-noite UTC — sentinela de horário não preenchido
             return (
               d.getUTCHours() !== 0 ||
               d.getUTCMinutes() !== 0 ||
@@ -44,21 +42,12 @@ function HasExplicitTime(validationOptions?: ValidationOptions) {
   };
 }
 
-/**
- * POST /surgery-requests/:id/accept-authorization
- * Transição: IN_ANALYSIS → IN_SCHEDULING
- */
 export class AcceptAuthorizationDto {
   @IsOptional()
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   notifyPatient?: boolean;
 
-  /**
-   * Datas opcionais (até 3). Se informadas, cada uma precisa ter horário
-   * explícito. Podem ser definidas depois, já em Agendamento (o pendency
-   * bloqueante `schedule_dates` garante as datas antes de ir para Agendada).
-   */
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(3)

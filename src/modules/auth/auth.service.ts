@@ -4,6 +4,7 @@ import {
 } from 'src/database/entities/doctor-profile.entity';
 import {
   BadRequestException,
+  ConflictException,
   HttpException,
   HttpStatus,
   Logger,
@@ -14,6 +15,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { HttpMessages } from 'src/common';
@@ -21,6 +23,7 @@ import { MailService } from 'src/shared/mail/mail.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
+import { RecoveryCodePurpose } from 'src/database/entities/recovery-code.entity';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { ConfigService } from '@nestjs/config';
 import { AuthDto } from './dto/auth.dto';
@@ -38,57 +41,52 @@ import { LogTrace } from 'src/shared/logging/trace.decorator';
 import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
 import { DEFAULT_PROCEDURE_NAMES } from '../procedures/default-procedures.constants';
 import { RefreshTokenStore } from './refresh-token.store';
-import { resolveEffectivePermissions } from 'src/shared/permissions';
+import { SessionRevocationService } from './session-revocation.service';
+import { normalizarEmail } from 'src/shared/validators/normalize-email.decorator';
+import { canAdministrate, permissionsOf } from 'src/shared/permissions';
+import { MfaService } from './mfa/mfa.service';
+import { LoginMfaDto } from './mfa/dto/mfa.dto';
 import {
   assertCodigoUtilizavel,
+  codigoInvalido,
+  codigosIguais,
   consumirTentativa,
 } from './recovery-code-attempts.util';
+import { AuthAttemptLimiter } from './auth-attempt-limiter';
+import { TurnstileService } from './turnstile.service';
+import { violouIndice } from 'src/database/repositories/unique-violation.util';
+import { errorMessage } from 'src/shared/utils/error-message.util';
+import {
+  TELEFONE_INVALIDO_MENSAGEM,
+  canonicalizarTelefone,
+  variantesLegadasDoTelefone,
+} from 'src/shared/utils/phone.util';
 
-/**
- * Mensagem única para telefone já em uso. Vive numa constante porque os dois
- * caminhos que a produzem (checagem prévia e violação do índice único) têm de
- * dizer exatamente a mesma coisa — o frontend classifica o erro por ela.
- */
 export const PHONE_ALREADY_IN_USE_MESSAGE =
   'Este telefone já está sendo utilizado por outra conta.';
 
-/** Índice parcial criado em `AddUniqueIndexUserPhone1752300900000`. */
 const PHONE_UNIQUE_INDEX = 'IDX_users_phone_unique';
 
-/**
- * O telefone é gravado só com dígitos, e é assim que o índice único o compara.
- * Normalizar no mesmo ponto para a checagem antecipada e para o cadastro é o
- * que faz "(11) 99999-8888" colidir com "11999998888" nos dois caminhos.
- */
+export const LOGIN_BLOQUEADO_MENSAGEM =
+  'Muitas tentativas de login. Aguarde alguns minutos e tente novamente.';
+
+export const RECOVERY_BLOQUEADO_MENSAGEM =
+  'Muitas tentativas com código inválido. Tente novamente mais tarde.';
+
 function normalizePhone(phone: string): string {
-  return phone.replace(/\D/g, '');
+  const canonico = canonicalizarTelefone(phone);
+  if (!canonico) {
+    throw new HttpException(TELEFONE_INVALIDO_MENSAGEM, HttpStatus.BAD_REQUEST);
+  }
+  return canonico;
 }
 
-/**
- * Identifica a violação de unicidade do telefone no erro cru do Postgres
- * (SQLSTATE 23505). O TypeORM embrulha o erro do driver em `QueryFailedError`,
- * mas nem sempre copia `constraint` para o nível de cima — por isso olha os
- * dois níveis, e cai na mensagem como último recurso.
- */
+function filtroPorTelefone(canonico: string): { phone: string }[] {
+  return variantesLegadasDoTelefone(canonico).map((phone) => ({ phone }));
+}
+
 function isPhoneUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-
-  const erro = err as {
-    code?: string;
-    constraint?: string;
-    message?: string;
-    driverError?: { code?: string; constraint?: string; message?: string };
-  };
-  const driver = erro.driverError ?? {};
-
-  if ((erro.code ?? driver.code) !== '23505') return false;
-
-  return (
-    erro.constraint === PHONE_UNIQUE_INDEX ||
-    driver.constraint === PHONE_UNIQUE_INDEX ||
-    (erro.message ?? '').includes(PHONE_UNIQUE_INDEX) ||
-    (driver.message ?? '').includes(PHONE_UNIQUE_INDEX)
-  );
+  return violouIndice(err, PHONE_UNIQUE_INDEX);
 }
 
 @Injectable()
@@ -108,74 +106,100 @@ export class AuthService {
     private readonly subscriptionService: SubscriptionService,
     private readonly procedureRepository: ProcedureRepository,
     private readonly storageService: StorageService,
+    private readonly attemptLimiter: AuthAttemptLimiter,
+    private readonly turnstileService: TurnstileService,
+    private readonly sessionRevocation: SessionRevocationService,
+    private readonly mfaService: MfaService,
   ) {}
 
-  /** Email verification token expiry: 24 hours */
-  private readonly EMAIL_VERIFICATION_EXPIRY_MS = 24 * 60 * 60 * 1000;
+  private hashFicticio: Promise<string> | null = null;
 
-  /**
-   * Generates a new refresh token (persisted as hash in Redis) and returns the
-   * raw value to be sent to the client via httpOnly cookie.
-   */
-  private async createRefreshToken(userId: string): Promise<string> {
-    return this.refreshTokenStore.issue(userId);
+  private obterHashFicticio(): Promise<string> {
+    if (!this.hashFicticio) {
+      this.hashFicticio = bcrypt.hash(randomUUID(), BCRYPT_ROUNDS);
+    }
+    return this.hashFicticio;
   }
 
-  async validateUser(email: string, password: string): Promise<User | null> {
+  private async falhaDeLogin(email: string): Promise<never> {
+    await this.attemptLimiter.registerLoginFailure(email);
+    throw new HttpException(HttpMessages.loginFailed, HttpStatus.BAD_REQUEST);
+  }
+
+  private readonly EMAIL_VERIFICATION_EXPIRY_MS = 24 * 60 * 60 * 1000;
+  private readonly RECOVERY_CODE_EXPIRY_MS = 15 * 60 * 1000;
+
+  private async createRefreshToken(
+    user: Pick<User, 'id' | 'tokenVersion'>,
+    familyId?: string | null,
+  ): Promise<string> {
+    return this.refreshTokenStore.issue(
+      user.id,
+      user.tokenVersion ?? 0,
+      familyId,
+    );
+  }
+
+  private signAccessToken(user: Pick<User, 'id' | 'tokenVersion'>): string {
+    return this.jwtService.sign({
+      userId: user.id,
+      tv: user.tokenVersion ?? 0,
+    });
+  }
+
+  async validateUser(rawEmail: string, password: string): Promise<User | null> {
+    const email = normalizarEmail(rawEmail);
+    if (await this.attemptLimiter.isLoginLocked(email)) {
+      throw new HttpException(
+        LOGIN_BLOQUEADO_MENSAGEM,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
     const user = await this.userRepository.findOne(
       { email, status: UserStatus.ACTIVE },
       true,
     );
 
-    if (user && password) {
-      if (!user.password) {
-        throw new UnauthorizedException(
-          'Conta sem senha definida. Acesse pelo link de primeiro acesso.',
-        );
-      }
-      const isValid = await bcrypt.compare(password, user.password);
-
-      if (!isValid) {
-        throw new HttpException(
-          HttpMessages.loginFailed,
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      if (!user.emailVerified) {
-        throw new HttpException(
-          'Confirme seu e-mail antes de fazer login. Verifique sua caixa de entrada.',
-          HttpStatus.FORBIDDEN,
-        );
-      }
-
-      // Rehash oportunista: a senha em claro so existe aqui. Sem isto, contas
-      // antigas ficariam em 10 rounds para sempre.
-      if (precisaRehash(user.password)) {
-        const novoHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-        await this.userRepository.update(user.id, { password: novoHash });
-      }
-
-      return user;
-    } else {
-      throw new HttpException(HttpMessages.loginFailed, HttpStatus.BAD_REQUEST);
+    if (!user || !password) {
+      await bcrypt.compare(password ?? '', await this.obterHashFicticio());
+      return this.falhaDeLogin(email);
     }
+
+    if (!user.password) {
+      throw new UnauthorizedException(
+        'Conta sem senha definida. Acesse pelo link de primeiro acesso.',
+      );
+    }
+
+    const isValid = await bcrypt.compare(password, user.password);
+    if (!isValid) {
+      return this.falhaDeLogin(email);
+    }
+
+    await this.attemptLimiter.clearLoginFailures(email);
+
+    if (!user.emailVerified) {
+      throw new HttpException(
+        'Confirme seu e-mail antes de fazer login. Verifique sua caixa de entrada.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    if (precisaRehash(user.password)) {
+      const novoHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+      await this.userRepository.update(user.id, { password: novoHash });
+    }
+
+    return user;
   }
 
-  /**
-   * Checagem antecipada de disponibilidade de e-mail para o fluxo de cadastro.
-   * Permite ao wizard barrar logo na primeira etapa quando o e-mail já pertence
-   * a uma conta ativa ou a um convite de colaborador pendente — evitando que a
-   * pessoa percorra todas as etapas (inclusive a seleção de plano) para só então
-   * receber o erro no submit. Não expõe mais informação do que o próprio
-   * `register` já revela.
-   */
   async checkEmailAvailability(
     email: string,
   ): Promise<{ status: 'available' | 'pending_invite' | 'registered' }> {
-    // Espelha exatamente o lookup do `register` para que o resultado seja
-    // consistente com o que o submit fará.
-    const existingUser = await this.userRepository.findOne({ email });
+    const existingUser = await this.userRepository.findOne({
+      email: normalizarEmail(email),
+    });
 
     if (!existingUser) return { status: 'available' };
     if (existingUser.status === UserStatus.PENDING) {
@@ -184,139 +208,38 @@ export class AuthService {
     return { status: 'registered' };
   }
 
-  /**
-   * Equivalente do `checkEmailAvailability` para o telefone, pelo mesmo motivo:
-   * o índice único `IDX_users_phone_unique` recusa o número no submit, e sem
-   * esta checagem o usuário só descobriria depois de escolher o plano.
-   *
-   * Não existe `pending_invite` aqui — convite é chaveado por e-mail; o
-   * telefone só responde "livre" ou "ocupado".
-   */
   async checkPhoneAvailability(
     phone: string,
   ): Promise<{ status: 'available' | 'registered' }> {
-    // Mesmo lookup do `register`, sobre o mesmo valor normalizado, para que a
-    // etapa 1 nunca discorde do submit.
-    const existingUser = await this.userRepository.findOne({
-      phone: normalizePhone(phone),
-    });
+    const existingUser = await this.userRepository.findOne(
+      filtroPorTelefone(normalizePhone(phone)),
+    );
 
     return { status: existingUser ? 'registered' : 'available' };
   }
 
-  async register(data: RegisterDto) {
-    // Verifica se o email já existe
-    const existingUser = await this.userRepository.findOne({
-      email: data.email,
-    });
+  async register(data: RegisterDto, remoteIp?: string) {
+    await this.turnstileService.assertHuman(data.captchaToken, remoteIp);
 
-    if (existingUser) {
-      if (existingUser.status === UserStatus.PENDING) {
-        throw new HttpException(
-          'Este e-mail está associado a um convite pendente. Verifique sua caixa de entrada para ativar sua conta.',
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-      throw new HttpException(
-        'Este e-mail já está cadastrado. Faça login ou recupere sua senha.',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    const phoneDigits = normalizePhone(data.phone);
-
-    // Sem esta checagem o telefone repetido só era barrado pelo índice único,
-    // no INSERT, e o QueryFailedError virava 500 na cara do usuário.
-    const phoneOwner = await this.userRepository.findOne({
-      phone: phoneDigits,
-    });
-
-    if (phoneOwner) {
-      throw new HttpException(
-        PHONE_ALREADY_IN_USE_MESSAGE,
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    // Hash da senha
-    const hashedPassword = await bcrypt.hash(data.password, BCRYPT_ROUNDS);
-
-    const isDoctor = data.isDoctor || false;
-
-    // Gera o UUID antes para usar como id E ownerId (self-referência)
-    const userId = uuidv4();
-
-    // Cria o usuário como Admin com ownerId = self.id na mesma operação
-    const user = await this.userRepository
-      .create({
-        id: userId,
-        name: data.name,
-        email: data.email,
-        password: hashedPassword,
-        role: UserRole.ADMIN,
-        status: UserStatus.ACTIVE,
-        phone: phoneDigits,
-        ownerId: userId, // self-referência — mesmo ID
-      } as Partial<User>)
-      .catch((err: unknown) => {
-        // A checagem acima é TOCTOU: entre o SELECT e o INSERT outro cadastro
-        // pode gravar o mesmo número. Quem garante a regra de fato é o índice
-        // único — e a violação dele tem que virar a mesma mensagem, não um 500.
-        if (isPhoneUniqueViolation(err)) {
-          throw new HttpException(
-            PHONE_ALREADY_IN_USE_MESSAGE,
-            HttpStatus.BAD_REQUEST,
-          );
-        }
-        throw err;
-      });
-
-    await Promise.all(
-      DEFAULT_PROCEDURE_NAMES.map((name) =>
-        this.procedureRepository.create({ name, ownerId: user.id }),
-      ),
+    const phoneDigits = await this.assertCadastroDisponivel(
+      data.email,
+      data.phone,
     );
 
-    // Cria assinatura inicial em trial — pagamento via Stripe Checkout
-    try {
-      await this.subscriptionService.createInitialSubscription(
-        user.id,
-        data.planSlug,
-      );
-    } catch (err) {
-      this.logger.error(
-        `Falha ao criar subscription para userId=${user.id}: ${err instanceof Error ? err.message : err}`,
-      );
-    }
+    const user = await this.criarDonoDaConta(data, phoneDigits);
+    await this.provisionarConta(user.id, data.planSlug);
 
-    // Se é médico, criar doctorProfile
-    let doctorProfile = null;
-    if (isDoctor) {
-      doctorProfile = await this.doctorProfileRepository.create({
-        userId: user.id,
-        crm: data.crm || '',
-        crmState: data.crmState || '',
-        specialty: data.specialty || null,
-      });
-    }
+    const doctorProfile = data.isDoctor
+      ? await this.doctorProfileRepository.create({
+          userId: user.id,
+          crm: data.crm || '',
+          crmState: data.crmState || '',
+          specialty: data.specialty || null,
+        })
+      : null;
 
-    // Envia e-mail de confirmação (não bloqueia caso falhe)
     void this.dispatchEmailVerification(user.id, user.name, user.email);
 
-    // Envia WhatsApp de boas-vindas (não bloqueia caso falhe)
-    if (user.phone) {
-      void this.whatsappService
-        .sendUserWelcome(user.phone, user.name)
-        .catch((err) => {
-          this.logger.warn(
-            `Falha ao enfileirar WhatsApp de boas-vindas para userId=${user.id}: ${err?.message ?? err}`,
-          );
-        });
-    }
-
-    // O cadastro NÃO inicia sessão: o usuário precisa confirmar o e-mail antes de
-    // logar. Não geramos access/refresh token aqui para evitar persistir um
-    // refresh token órfão em `refresh_tokens` (o controller já não os utiliza).
     return {
       user: {
         id: user.id.toString(),
@@ -332,14 +255,10 @@ export class AuthService {
         canIssueClinicalDocuments:
           isClinicalDocumentIssuerProfile(doctorProfile),
         emailVerified: user.emailVerified ?? false,
-        // A permissão EFETIVA, não a coluna crua — `register` só cria
-        // ADMIN (dono da conta), então isto é sempre ALL_PERMISSIONS
-        // independente do que `user.permissions` trouxer.
-        permissions: resolveEffectivePermissions({
+        permissions: permissionsOf({
           role: user.role,
           permissions: user.permissions,
-          isDoctor: !!doctorProfile,
-          isPhysician: isPhysicianProfile(doctorProfile),
+          doctorProfile,
         }),
         doctorProfile: doctorProfile
           ? {
@@ -358,85 +277,207 @@ export class AuthService {
     };
   }
 
-  async login(user: AuthDto) {
-    const result = await this.validateUser(user.email, user.password);
-
-    if (result) {
-      // Uma única consulta traz doctorProfile, ownerId, emailVerified e a
-      // coluna crua de `permissions`/`isPlatformAdmin` — precisa da coluna
-      // crua para montar a permissão EFETIVA da resposta (mesmo padrão de
-      // `me`/`getProfile`). Substitui as duas consultas anteriores
-      // (`doctorProfileRepository.findByUserId` + `userRepository.findOne`,
-      // cujo `select` não inclui `permissions`).
-      const fullUser = await this.userRepository.findOneWithProfile({
-        id: result.id,
-      });
-      const doctorProfile = fullUser?.doctorProfile ?? null;
-      const account = await this.buildAccountInfo(result.id, fullUser?.ownerId);
-
-      const refreshToken = await this.createRefreshToken(result.id);
-
-      let pendingConsents: string[] = [];
-      try {
-        const status = await this.consentService.getStatus(result.id);
-        pendingConsents = status.pendingRequired;
-      } catch (err) {
-        this.logger.error(
-          `Falha ao verificar consentimentos no login do usuário ${result.id}`,
-          err instanceof Error ? err.stack : String(err),
+  private async assertCadastroDisponivel(
+    email: string,
+    phone: string,
+  ): Promise<string> {
+    const existingUser = await this.userRepository.findOne({
+      email: normalizarEmail(email),
+    });
+    if (existingUser) {
+      if (existingUser.status === UserStatus.PENDING) {
+        throw new HttpException(
+          'Este e-mail está associado a um convite pendente. Verifique sua caixa de entrada para ativar sua conta.',
+          HttpStatus.BAD_REQUEST,
         );
       }
+      throw new HttpException(
+        'Este e-mail já está cadastrado. Faça login ou recupere sua senha.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
 
+    const phoneDigits = normalizePhone(phone);
+    const phoneOwner = await this.userRepository.findOne(
+      filtroPorTelefone(phoneDigits),
+    );
+    if (phoneOwner) {
+      throw new HttpException(
+        PHONE_ALREADY_IN_USE_MESSAGE,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    return phoneDigits;
+  }
+
+  private async criarDonoDaConta(
+    data: RegisterDto,
+    phoneDigits: string,
+  ): Promise<User> {
+    const hashedPassword = await bcrypt.hash(data.password, BCRYPT_ROUNDS);
+    const userId = uuidv4();
+
+    return this.userRepository
+      .create({
+        id: userId,
+        name: data.name,
+        email: normalizarEmail(data.email),
+        password: hashedPassword,
+        role: UserRole.ADMIN,
+        status: UserStatus.ACTIVE,
+        phone: phoneDigits,
+        ownerId: userId,
+      })
+      .catch((err: unknown) => {
+        if (isPhoneUniqueViolation(err)) {
+          throw new HttpException(
+            PHONE_ALREADY_IN_USE_MESSAGE,
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+        throw err;
+      });
+  }
+
+  private async provisionarConta(
+    ownerId: string,
+    planSlug?: string,
+  ): Promise<void> {
+    await Promise.all(
+      DEFAULT_PROCEDURE_NAMES.map((name) =>
+        this.procedureRepository.create({ name, ownerId }),
+      ),
+    );
+
+    try {
+      await this.subscriptionService.createInitialSubscription(
+        ownerId,
+        planSlug,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Falha ao criar subscription para userId=${ownerId}: ${errorMessage(err)}`,
+      );
+    }
+  }
+
+  private enviarWhatsappDeBoasVindas(user: User): void {
+    if (!user.phone) return;
+    void this.whatsappService
+      .sendUserWelcome(user.phone, user.name)
+      .catch((err: unknown) => {
+        this.logger.warn(
+          `Falha ao enfileirar WhatsApp de boas-vindas para userId=${user.id}: ${errorMessage(err)}`,
+        );
+      });
+  }
+
+  async login(user: AuthDto) {
+    const result = await this.validateUser(user.email, user.password);
+    if (!result) return null;
+
+    if (await this.mfaService.isEnabled(result.id)) {
       return {
-        user: {
-          id: result.id.toString(),
-          role: result.role,
-          name: result.name,
-          phone: result.phone,
-          email: result.email,
-          cpf: result.cpf,
-          status: result.status,
-          ownerId: fullUser?.ownerId,
-          // Mesmo dado de `ownerId`, sob o nome que o frontend usa no
-          // contrato (`User.accountId`). Ver o comentário em `me()`.
-          accountId: fullUser?.ownerId,
-          account,
-          isDoctor: !!doctorProfile,
-          isPhysician: isPhysicianProfile(doctorProfile),
-          canIssueClinicalDocuments:
-            isClinicalDocumentIssuerProfile(doctorProfile),
-          emailVerified: fullUser?.emailVerified ?? false,
-          // A permissão EFETIVA, não a coluna crua — decide o que o
-          // AuthContext do frontend (`permissions`/`can`) libera para este
-          // usuário logo após o login, inclusive para o dono da conta.
-          permissions: resolveEffectivePermissions({
-            role: result.role,
-            permissions: fullUser?.permissions,
-            isDoctor: !!doctorProfile,
-            isPhysician: isPhysicianProfile(doctorProfile),
-          }),
-          doctorProfile: doctorProfile
-            ? {
-                id: doctorProfile.id,
-                crm: doctorProfile.crm,
-                crmState: doctorProfile.crmState,
-                council: doctorProfile.council,
-                specialty: doctorProfile.specialty,
-                signatureUrl: doctorProfile.signatureUrl,
-                clinicName: doctorProfile.clinicName,
-              }
-            : null,
-          createdAt:
-            result.createdAt?.toISOString() || new Date().toISOString(),
-          updatedAt:
-            result.updatedAt?.toISOString() || new Date().toISOString(),
-        },
-        access_token: this.jwtService.sign({ userId: result.id }),
-        refresh_token: refreshToken,
-        pending_consents: pendingConsents,
+        mfaRequired: true as const,
+        mfaToken: this.mfaService.createLoginToken(result),
       };
     }
-    return null;
+
+    return this.emitirSessao(result);
+  }
+
+  async loginWithMfa(data: LoginMfaDto) {
+    const { userId, tv } = this.mfaService.verifyLoginToken(data.mfaToken);
+
+    const user = await this.userRepository.findOne({
+      id: userId,
+      status: UserStatus.ACTIVE,
+    });
+    if (!user || !user.emailVerified || (user.tokenVersion ?? 0) !== tv) {
+      throw new UnauthorizedException(
+        'Sua verificação expirou. Entre com e-mail e senha novamente.',
+      );
+    }
+
+    await this.mfaService.verifySecondFactor(userId, data.code, {
+      allowRecovery: true,
+    });
+
+    return this.emitirSessao(user);
+  }
+
+  async issueSessionTokens(userId: string) {
+    const user = await this.userRepository.findOne({
+      id: userId,
+      status: UserStatus.ACTIVE,
+    });
+    if (!user) throw new UnauthorizedException('Sessão inválida');
+    return {
+      access_token: this.signAccessToken(user),
+      refresh_token: await this.createRefreshToken(user),
+    };
+  }
+
+  private async emitirSessao(result: User) {
+    const fullUser = await this.userRepository.findOneWithProfile({
+      id: result.id,
+    });
+    const doctorProfile = fullUser?.doctorProfile ?? null;
+    const account = await this.buildAccountInfo(result.id, fullUser?.ownerId);
+
+    const refreshToken = await this.createRefreshToken(result);
+
+    let pendingConsents: string[] = [];
+    try {
+      const status = await this.consentService.getStatus(result.id);
+      pendingConsents = status.pendingRequired;
+    } catch (err) {
+      this.logger.error(
+        `Falha ao verificar consentimentos no login do usuário ${result.id}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+    }
+
+    return {
+      user: {
+        id: result.id.toString(),
+        role: result.role,
+        name: result.name,
+        phone: result.phone,
+        email: result.email,
+        cpf: result.cpf,
+        status: result.status,
+        ownerId: fullUser?.ownerId,
+        accountId: fullUser?.ownerId,
+        account,
+        isDoctor: !!doctorProfile,
+        isPhysician: isPhysicianProfile(doctorProfile),
+        canIssueClinicalDocuments:
+          isClinicalDocumentIssuerProfile(doctorProfile),
+        emailVerified: fullUser?.emailVerified ?? false,
+        permissions: permissionsOf({
+          role: result.role,
+          permissions: fullUser?.permissions,
+          doctorProfile,
+        }),
+        doctorProfile: doctorProfile
+          ? {
+              id: doctorProfile.id,
+              crm: doctorProfile.crm,
+              crmState: doctorProfile.crmState,
+              council: doctorProfile.council,
+              specialty: doctorProfile.specialty,
+              signatureUrl: doctorProfile.signatureUrl,
+              clinicName: doctorProfile.clinicName,
+            }
+          : null,
+        createdAt: result.createdAt?.toISOString() || new Date().toISOString(),
+        updatedAt: result.updatedAt?.toISOString() || new Date().toISOString(),
+      },
+      access_token: this.signAccessToken(result),
+      refresh_token: refreshToken,
+      pending_consents: pendingConsents,
+    };
   }
 
   async me(userId: string) {
@@ -444,10 +485,11 @@ export class AuthService {
     if (!user) throw new NotFoundException('Usuário não encontrado');
     const doctorProfile = user.doctorProfile ?? null;
 
-    const [avatarUrl, signatureUrl, account] = await Promise.all([
+    const [avatarUrl, signatureUrl, account, mfaEnabled] = await Promise.all([
       this.resolveStorageUrl(user.avatarUrl),
       this.resolveStorageUrl(doctorProfile?.signatureUrl),
       this.buildAccountInfo(user.id, user.ownerId),
+      this.mfaService.isEnabled(user.id),
     ]);
 
     return {
@@ -457,12 +499,6 @@ export class AuthService {
       phone: user.phone,
       email: user.email,
       ownerId: user.ownerId,
-      // `owner_id` é exposto ao frontend como `accountId` (mesmo nome usado
-      // por `UsersService.findById`). `AuthContext` deriva `isAccountOwner`
-      // de `user.id === user.accountId` — sem este campo, o dono da conta
-      // não é reconhecido como dono e a aba "Plano e Faturamento" (e o
-      // restante do billing) some para todo mundo. `ownerId` continua no
-      // payload por retrocompatibilidade.
       accountId: user.ownerId,
       account,
       avatarUrl,
@@ -470,15 +506,10 @@ export class AuthService {
       isPhysician: isPhysicianProfile(doctorProfile),
       canIssueClinicalDocuments: isClinicalDocumentIssuerProfile(doctorProfile),
       emailVerified: user.emailVerified ?? false,
-      // A permissão EFETIVA, não a coluna crua — é o que decide o que o
-      // AuthContext do frontend (`permissions`/`can`) libera no menu,
-      // inclusive para o dono da conta. `user` já vem de
-      // `findOneWithProfile`, cujo `select` inclui a coluna `permissions`.
-      permissions: resolveEffectivePermissions({
+      permissions: permissionsOf({
         role: user.role,
         permissions: user.permissions,
-        isDoctor: !!doctorProfile,
-        isPhysician: isPhysicianProfile(doctorProfile),
+        doctorProfile,
       }),
       doctorProfile: doctorProfile
         ? {
@@ -492,18 +523,12 @@ export class AuthService {
           }
         : null,
       consents: this.consentService.buildStatusFromUser(user),
-      // Embutido no payload pelo mesmo motivo dos consentimentos: sem isso o
-      // boot paga um request extra só para decidir se mostra o modal de
-      // boas-vindas — e o modal pisca depois da tela já ter carregado.
       onboardingState: normalizeOnboardingState(user.onboardingState),
+      mfaEnabled,
+      mfaRecommended: !mfaEnabled && canAdministrate(user),
     };
   }
 
-  /**
-   * Monta a identificação da conta (tenant) à qual o usuário pertence, para que
-   * colaboradores possam ver facilmente "de quem" é a equipe. Retorna `null`
-   * para admins (donos da própria conta), já que `ownerId === self`.
-   */
   private async buildAccountInfo(
     userId: string,
     ownerId?: string | null,
@@ -526,29 +551,38 @@ export class AuthService {
     }
   }
 
-  /**
-   * Mensagem genérica de recuperação. **Não** revela se o e-mail existe
-   * (anti-enumeration): tanto sucesso quanto e-mail inexistente retornam isto.
-   */
   private readonly GENERIC_RECOVERY_MESSAGE =
     'Se o e-mail existir, enviaremos um código de recuperação.';
 
   async sendRecoveryPasswordEmail(email: string) {
-    const normalizedEmail = email.trim();
+    const normalizedEmail = normalizarEmail(email);
     const user = await this.userRepository.findOne({ email: normalizedEmail });
 
-    // Anti-enumeration: para um e-mail inexistente, retorna a MESMA resposta do
-    // caso de sucesso (sem lançar, sem enfileirar e-mail). Assim não dá para
-    // distinguir e-mails cadastrados por status/corpo. O throttle (3/h) já
-    // protege contra varredura por latência.
     if (!user) {
       return { message: this.GENERIC_RECOVERY_MESSAGE };
     }
 
-    // Remove any existing unused recovery codes for this user
+    if (user.status === UserStatus.PENDING) {
+      this.logger.log(
+        `[AUTH_RECOVERY] Recuperação ignorada para convite pendente userId=${user.id}`,
+      );
+      return { message: this.GENERIC_RECOVERY_MESSAGE };
+    }
+
+    if (
+      (await this.attemptLimiter.isRecoveryValidationLocked(normalizedEmail)) ||
+      !(await this.attemptLimiter.tryConsumeRecoveryIssue(user.id))
+    ) {
+      this.logger.warn(
+        `[AUTH_RECOVERY] Limite de códigos por conta atingido para userId=${user.id}`,
+      );
+      return { message: this.GENERIC_RECOVERY_MESSAGE };
+    }
+
     await this.recoveryCodeRepository.deleteMany({
       userId: user.id,
       used: false,
+      purpose: RecoveryCodePurpose.PASSWORD_RESET,
     });
 
     const validationCode = generateValidationCode();
@@ -556,8 +590,9 @@ export class AuthService {
     await this.recoveryCodeRepository.create({
       userId: user.id,
       used: false,
+      purpose: RecoveryCodePurpose.PASSWORD_RESET,
       code: validationCode,
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
+      expiresAt: new Date(Date.now() + this.RECOVERY_CODE_EXPIRY_MS),
     });
 
     void this.mailService.sendPasswordRecovery(user.email, {
@@ -568,50 +603,62 @@ export class AuthService {
     return { message: this.GENERIC_RECOVERY_MESSAGE };
   }
 
-  /** TTL do reset token de uso único: 10 minutos. */
   private readonly RESET_TOKEN_EXPIRY_MS = 10 * 60 * 1000;
 
   async validateRecoveryPasswordCode(data: validationCodeDto) {
-    const normalizedEmail = data.email.trim();
+    const normalizedEmail = normalizarEmail(data.email);
     const normalizedCode = data.code.trim().replace(/\s+/g, '');
 
-    // Escopa a validação ao usuário (via e-mail): um código não pode ser
-    // validado fora da conta dona dele.
-    const user = await this.userRepository.findOne({ email: normalizedEmail });
-    // Anti-enumeração: mesma resposta (400 genérico) que um código inválido
-    // numa conta existente — o 404 anterior denunciava e-mails não cadastrados.
-    if (!user) throw new BadRequestException('Código inválido ou expirado');
-
-    const registro = await this.recoveryCodeRepository.findOne({
-      userId: user.id,
-      used: false,
-    });
-
-    assertCodigoUtilizavel(registro);
-
-    if (registro!.code !== normalizedCode) {
-      await consumirTentativa(this.recoveryCodeRepository, registro!);
-      throw new BadRequestException('Código inválido ou expirado');
+    if (await this.attemptLimiter.isRecoveryValidationLocked(normalizedEmail)) {
+      throw new HttpException(
+        RECOVERY_BLOQUEADO_MENSAGEM,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
 
-    const validationCode = registro!;
+    const user = await this.userRepository.findOne({ email: normalizedEmail });
+    if (!user) return this.falhaDeCodigo(normalizedEmail);
 
-    // Marca o código como usado e emite um reset token de uso único e curta
-    // duração, exigido no changePassword.
-    const resetToken = uuidv4();
-    await this.recoveryCodeRepository.updateByWhere(
-      { id: validationCode.id },
-      {
-        used: true,
-        resetToken,
-        resetTokenExpiresAt: new Date(Date.now() + this.RESET_TOKEN_EXPIRY_MS),
-      },
+    const purpose =
+      user.status === UserStatus.PENDING
+        ? RecoveryCodePurpose.INVITE
+        : RecoveryCodePurpose.PASSWORD_RESET;
+
+    const registro = await this.recoveryCodeRepository.findActive(
+      user.id,
+      purpose,
     );
+
+    try {
+      assertCodigoUtilizavel(registro);
+    } catch {
+      return this.falhaDeCodigo(normalizedEmail);
+    }
+
+    const tentativaRegistrada = await consumirTentativa(
+      this.recoveryCodeRepository,
+      registro,
+    );
+    if (!tentativaRegistrada || !codigosIguais(registro.code, normalizedCode)) {
+      return this.falhaDeCodigo(normalizedEmail);
+    }
+
+    const resetToken = uuidv4();
+    const emitido = await this.recoveryCodeRepository.issueResetToken(
+      registro.id,
+      resetToken,
+      new Date(Date.now() + this.RESET_TOKEN_EXPIRY_MS),
+    );
+    if (!emitido) throw codigoInvalido();
 
     return { message: 'Código validado com sucesso', resetToken };
   }
 
-  /** Erro único do reset token: mesma resposta para conta inexistente e token inválido. */
+  private async falhaDeCodigo(email: string): Promise<never> {
+    await this.attemptLimiter.registerRecoveryFailure(email);
+    throw codigoInvalido();
+  }
+
   private invalidResetTokenError(): BadRequestException {
     return new BadRequestException(
       'Token de redefinição inválido. Reinicie a recuperação de senha.',
@@ -619,18 +666,13 @@ export class AuthService {
   }
 
   async changePassword(data: changePasswordDto) {
-    const normalizedEmail = data.email.trim();
+    const normalizedEmail = normalizarEmail(data.email);
     const normalizedResetToken = data.resetToken.trim();
 
     const user = await this.userRepository.findOne({ email: normalizedEmail });
 
-    // Anti-enumeração: e-mail não cadastrado responde exatamente como token
-    // inválido numa conta existente. Um 404 aqui transformava a rota num
-    // oráculo de existência de conta (404 = não cadastrado, 400 = cadastrado).
     if (!user) throw this.invalidResetTokenError();
 
-    // Exige o reset token de uso único emitido na validação do código, escopado
-    // ao usuário. Sem isso, qualquer código "usado" da conta liberaria a troca.
     const validatedCode = await this.recoveryCodeRepository.findOne({
       userId: user.id,
       resetToken: normalizedResetToken,
@@ -652,8 +694,6 @@ export class AuthService {
 
     const password = await bcrypt.hash(data.password, BCRYPT_ROUNDS);
 
-    // Atualiza senha e ativa conta caso ainda esteja pendente (primeiro acesso).
-    // Marca e-mail como verificado: o link do convite já prova a posse do endereço.
     const now = new Date();
     const updatePayload: Partial<User> = { password };
     if (user.status === UserStatus.PENDING) {
@@ -664,13 +704,9 @@ export class AuthService {
 
     await this.userRepository.update(user.id, updatePayload);
 
-    // Invalidate all recovery codes for this user after successful password change
     await this.recoveryCodeRepository.deleteMany({ userId: user.id });
 
-    // Trocar a senha por recuperacao precisa encerrar as sessoes existentes:
-    // sem isto, o refresh token de quem comprometeu a conta seguia valido por
-    // 7 dias e a acao de remediacao mais obvia do usuario nao remediava nada.
-    await this.revokeRefreshTokens(user.id);
+    await this.sessionRevocation.revokeAllSessions(user.id, 'password_reset');
 
     return { message: 'Senha alterada com sucesso' };
   }
@@ -683,7 +719,6 @@ export class AuthService {
 
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    // Verifica se a senha atual está correta
     if (!user.password) {
       throw new UnauthorizedException(
         'Conta sem senha definida. Acesse pelo link de primeiro acesso.',
@@ -698,47 +733,44 @@ export class AuthService {
       throw new BadRequestException('Senha atual incorreta');
     }
 
-    // Hash da nova senha
     const newPasswordHash = await bcrypt.hash(data.newPassword, BCRYPT_ROUNDS);
 
     await this.userRepository.update(user.id, { password: newPasswordHash });
 
+    await this.sessionRevocation.revokeAllSessions(user.id, 'password_changed');
+
     return { message: 'Senha alterada com sucesso' };
   }
 
-  /**
-   * Validates a refresh token and returns a new access_token + rotated refresh_token.
-   *
-   * O consumo é atômico no Redis (marca o token usado como revogado). Reações:
-   *  - `not_found` (inexistente/expirado): "Refresh token inválido".
-   *  - `reused` (token conhecido, já rotacionado e fora da janela de graça):
-   *    sinal de roubo → revoga **toda** a família de refresh tokens do usuário e
-   *    força novo login. Corridas legítimas são absorvidas pela janela de graça
-   *    do store (Fase 6b), então `reused` aqui é genuíno.
-   *  - `valid` (inclui reuso dentro da janela de graça): rotaciona normalmente.
-   */
   async refreshAccessToken(token: string) {
     const consumed = await this.refreshTokenStore.consume(token);
 
     if (consumed.status === 'reused') {
-      // Sinal de possível roubo de token — incidente de segurança acionável,
-      // não um evento operacional trivial (ver comentário do método acima).
       this.logger.error(
-        `[AUTH_REUSE_DETECTED] Reuso de refresh token detectado para userId=${consumed.userId}. Revogando todos os tokens da família.`,
+        `[AUTH_REUSE_DETECTED] Reuso de refresh token detectado para userId=${consumed.userId} familyId=${consumed.familyId ?? 'legado'}. Revogando todas as sessões do usuário.`,
       );
-      await this.revokeRefreshTokens(consumed.userId);
+      await this.sessionRevocation.revokeAllSessions(
+        consumed.userId,
+        'refresh_reuse',
+      );
       throw new UnauthorizedException(
         'Sessão revogada por segurança. Faça login novamente.',
       );
     }
 
-    if (consumed.status !== 'valid') {
+    if (consumed.status === 'grace_exhausted') {
+      this.logger.warn(
+        `[AUTH_REFRESH_GRACE_EXHAUSTED] Token já renovado reapresentado na janela de graça userId=${consumed.userId} familyId=${consumed.familyId ?? 'legado'}`,
+      );
+      throw new ConflictException(
+        'Sessão já renovada em outra aba. Tente novamente.',
+      );
+    }
+
+    if (consumed.status !== 'valid' && consumed.status !== 'grace') {
       throw new BadRequestException('Refresh token inválido');
     }
 
-    // Revalida o usuário: um refresh token não pode reanimar uma sessão de uma
-    // conta inativa ou com e-mail ainda não confirmado (mesma barreira do login).
-    // Sem isso, um refresh token antigo furaria a verificação de e-mail.
     const user = await this.userRepository.findOne({ id: consumed.userId });
     if (!user || user.status !== UserStatus.ACTIVE || !user.emailVerified) {
       await this.revokeRefreshTokens(consumed.userId);
@@ -747,26 +779,32 @@ export class AuthService {
       );
     }
 
-    // Emite o novo refresh token (o anterior já foi revogado no consume).
-    const newRefreshToken = await this.createRefreshToken(consumed.userId);
+    if (
+      typeof consumed.tokenVersion === 'number' &&
+      consumed.tokenVersion !== (user.tokenVersion ?? 0)
+    ) {
+      throw new UnauthorizedException('Sessão revogada. Faça login novamente.');
+    }
+
+    const newRefreshToken = await this.createRefreshToken(
+      user,
+      consumed.familyId,
+    );
 
     return {
-      access_token: this.jwtService.sign({ userId: consumed.userId }),
+      access_token: this.signAccessToken(user),
       refresh_token: newRefreshToken,
     };
   }
 
-  /**
-   * Revokes all refresh tokens for a user (used on logout or password change).
-   */
   async revokeRefreshTokens(userId: string) {
     await this.refreshTokenStore.revokeAllForUser(userId);
   }
 
-  /**
-   * Cria token de verificação, persiste e envia e-mail de confirmação.
-   * Falhas no envio são apenas logadas — não interrompem o fluxo do chamador.
-   */
+  async logout(userId: string) {
+    await this.sessionRevocation.revokeRefreshTokens(userId, 'logout');
+  }
+
   private async dispatchEmailVerification(
     userId: string,
     userName: string,
@@ -785,23 +823,20 @@ export class AuthService {
 
       const dashboardUrl =
         this.configService.get<string>('DASHBOARD_URL') || '';
-      const verificationUrl = `${dashboardUrl}/confirmar-email?token=${token}`;
+      const verificationUrl = `${dashboardUrl}/confirmar-email#token=${token}`;
 
       await this.mailService.sendEmailVerification(email, {
         userName,
         email,
         verificationUrl,
       });
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `Falha ao enviar e-mail de verificação para userId=${userId}: ${err?.message}`,
+        `Falha ao enviar e-mail de verificação para userId=${userId}: ${errorMessage(err)}`,
       );
     }
   }
 
-  /**
-   * Confirma o e-mail de um usuário a partir do token enviado por e-mail.
-   */
   async verifyEmail(token: string) {
     if (!token) {
       throw new BadRequestException('Token de verificação inválido');
@@ -812,12 +847,9 @@ export class AuthService {
     });
 
     if (!user) {
-      // Token não encontrado — pode já ter sido consumido ou nunca existiu.
-      // Verifica se algum usuário verificado possui esse token nulo (clique duplo)
       throw new BadRequestException('Token de verificação inválido');
     }
 
-    // Se o usuário já está verificado mas o token ainda está na coluna (clique duplo / StrictMode)
     if (user.emailVerified) {
       return {
         message: 'E-mail confirmado com sucesso',
@@ -842,15 +874,14 @@ export class AuthService {
       emailVerificationExpiresAt: null,
     });
 
+    this.enviarWhatsappDeBoasVindas(user);
+
     return {
       message: 'E-mail confirmado com sucesso',
       email: user.email,
     };
   }
 
-  /**
-   * Reenvia o e-mail de confirmação para o usuário autenticado.
-   */
   async resendEmailVerification(userId: string) {
     const user = await this.userRepository.findOne({ id: userId });
 

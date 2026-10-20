@@ -60,9 +60,6 @@ export class SurgeryRequestReportService {
     dto: UpdateReportSectionDto,
     _userId: string,
   ): Promise<ReportSection> {
-    // Escopo por SC obrigatório: o SurgeryRequestOwnerGuard valida apenas o
-    // :id (a SC) contra o tenant; sem amarrar a seção à SC, um atacante usaria
-    // uma SC própria no :id e o sectionId de outra clínica — IDOR cross-tenant.
     const section = await this.reportSectionRepository.findOne({
       where: { id: sectionId, surgeryRequestId },
     });
@@ -95,8 +92,6 @@ export class SurgeryRequestReportService {
     sectionId: string,
     _userId: string,
   ): Promise<{ deleted: boolean }> {
-    // Escopo por SC obrigatório — mesmo motivo de updateReportSection: evita
-    // apagar seção de laudo de outro tenant via sectionId não escopado.
     const result = await this.reportSectionRepository.delete({
       id: sectionId,
       surgeryRequestId,
@@ -111,7 +106,6 @@ export class SurgeryRequestReportService {
   ): Promise<ReportSection[]> {
     if (dto.ids.length === 0) return this.getReportSections(id, _userId);
 
-    // Batch update via VALUES: 1 round-trip ao banco em vez de N
     const rows = dto.ids
       .map((_, index) => `($${index * 2 + 1}::uuid, $${index * 2 + 2}::int)`)
       .join(', ');

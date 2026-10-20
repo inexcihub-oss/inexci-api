@@ -8,7 +8,6 @@ import {
 } from 'class-validator';
 import { CidCodeDto } from '../../dto/cid-code.dto';
 
-/** Atualiza um modelo. O médico dono não muda depois de criado. */
 export class UpdateClinicalRecordTemplateDto {
   @IsOptional()
   @IsString()

@@ -1,22 +1,23 @@
 import {
   BadRequestException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 
 import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { MailService } from 'src/shared/mail/mail.service';
-import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { NotificationsService } from 'src/modules/notifications/notifications.service';
-import { PatientNotificationService } from 'src/modules/notifications/patient-notification.service';
+import {
+  PatientNotificationService,
+  type PatientNotificationContext,
+  type PatientSchedulingNotificationContext,
+} from 'src/modules/notifications/patient-notification.service';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
+import { SchedulingSelectionStore } from './workflow/scheduling-selection.store';
 
 @Injectable()
 export class SurgeryRequestNotificationService {
-  private readonly logger = new Logger(SurgeryRequestNotificationService.name);
-
   private readonly STATUS_TEMPLATE_MAP: Record<number, string[]> = {
     [SurgeryRequestStatus.SENT]: ['surgery-request-sent'],
     [SurgeryRequestStatus.IN_SCHEDULING]: ['surgery-authorized'],
@@ -29,17 +30,13 @@ export class SurgeryRequestNotificationService {
   constructor(
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly mailService: MailService,
-    private readonly whatsappService: WhatsappService,
     private readonly notificationsService: NotificationsService,
     private readonly patientNotificationService: PatientNotificationService,
+    private readonly schedulingSelectionStore: SchedulingSelectionStore,
   ) {}
 
-  /**
-   * Envia e-mail + WhatsApp de atualização de status ao paciente, se solicitado.
-   * Delega para PatientNotificationService. Não bloqueia nem lança exceção.
-   */
   async notifyPatientIfRequested(
-    request: any,
+    request: PatientNotificationContext['request'],
     prevStatus: SurgeryRequestStatus,
     newStatus: SurgeryRequestStatus,
     notifyPatient?: boolean,
@@ -54,22 +51,21 @@ export class SurgeryRequestNotificationService {
     });
   }
 
-  /**
-   * Envia as opções de data ao paciente quando explicitamente solicitado (notifyPatient=true).
-   */
   async notifyPatientSchedulingOptions(
-    request: any,
+    request: PatientSchedulingNotificationContext['request'],
     dateOptions: string[],
   ): Promise<void> {
     await this.patientNotificationService.notifyPatientSchedulingOptions({
       request,
       dateOptions,
     });
+
+    const patientPhone = request.patient?.phone;
+    if (patientPhone) {
+      await this.schedulingSelectionStore.remember(patientPhone, request.id);
+    }
   }
 
-  /**
-   * Envia e-mail com template específico conforme o status atual da solicitação.
-   */
   async notify(
     id: string,
     dto: {
@@ -94,10 +90,9 @@ export class SurgeryRequestNotificationService {
     if (!request)
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
 
-    // Template especial: notificação ao paciente com canais selecionados pelo usuário
     if (dto.template === 'status-change-patient') {
       const previousStatus =
-        (dto.oldStatus as SurgeryRequestStatus | undefined) ??
+        dto.oldStatus ??
         (await this.surgeryRequestRepository.findPreviousStatus(id)) ??
         request.status;
 
@@ -221,9 +216,6 @@ export class SurgeryRequestNotificationService {
     return { notified: true, template: dto.template, to };
   }
 
-  /**
-   * Notifica todos os envolvidos na solicitação sobre uma mudança de status.
-   */
   async notifyStakeholdersOfStatusChange(
     request: {
       id: string;
@@ -246,9 +238,6 @@ export class SurgeryRequestNotificationService {
     );
   }
 
-  /**
-   * Notifica admins da conta sobre uma ação de workflow realizada por um usuário.
-   */
   async notifyAdminsOfWorkflowAction(
     actorId: string,
     patientName: string,

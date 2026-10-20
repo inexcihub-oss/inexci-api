@@ -9,10 +9,6 @@ export class ScheduleBlockRepository extends BaseRepository<ScheduleBlock> {
     super(dataSource.getRepository(ScheduleBlock));
   }
 
-  /**
-   * Bloqueios da conta que encostam em `[from, to)`. Com `doctorIds`, só os
-   * desses profissionais **e** os da clínica inteira (`doctor_id` nulo).
-   */
   findInRange(
     ownerId: string,
     from: Date,

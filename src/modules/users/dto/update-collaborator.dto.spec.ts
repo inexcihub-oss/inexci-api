@@ -3,14 +3,6 @@ import { plainToInstance } from 'class-transformer';
 import { UpdateCollaboratorDto } from './update-collaborator.dto';
 import { Permission } from 'src/shared/permissions';
 
-/**
- * Tarefa 13 — grava e devolve as permissões do colaborador.
- * Cobre especificamente `permissions`: o service distingue `undefined`
- * ("não mexi") de `[]` ("retirei todas"), então a validação do DTO precisa
- * deixar `undefined` passar sem checar o enum, mas rejeitar `null` (que
- * senão seguiria como "mexeu" e estouraria a constraint `NOT NULL` da
- * coluna no banco).
- */
 describe('UpdateCollaboratorDto', () => {
   it('deve validar sem nenhum campo (tudo opcional)', async () => {
     const dto = plainToInstance(UpdateCollaboratorDto, {});

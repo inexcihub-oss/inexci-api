@@ -17,8 +17,7 @@ import {
 import { SkipThrottle } from '@nestjs/throttler';
 import { NotificationsService } from './notifications.service';
 import { UpdateNotificationSettingsDto } from './dto/update-notification-settings.dto';
-import { PatientNotificationSettingsService } from './patient-settings/patient-notification-settings.service';
-import { UpdatePatientNotificationSettingsDto } from './patient-settings/update-patient-notification-settings.dto';
+import { UpdatePatientNotificationSettingsDto } from './dto/update-patient-notification-settings.dto';
 import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
 import { Permission } from 'src/shared/permissions';
 import {
@@ -31,12 +30,7 @@ import {
 @SkipThrottle()
 @Controller('notifications')
 export class NotificationsController {
-  constructor(
-    private readonly notificationsService: NotificationsService,
-    private readonly patientNotificationSettingsService: PatientNotificationSettingsService,
-  ) {}
-
-  // ============ Settings ============
+  constructor(private readonly notificationsService: NotificationsService) {}
 
   @Get('settings')
   @ApiOperation({ summary: 'Obter configurações de notificação' })
@@ -53,35 +47,32 @@ export class NotificationsController {
     return await this.notificationsService.updateSettings(user.userId, data);
   }
 
-  // ============ Avisos ao paciente (por conta) ============
-
-  // Configuração da conta, não do usuário: desligar um aviso vale para todos
-  // os pacientes da clínica — por isso só a administração mexe.
   @Get('patient-settings')
   @RequirePermission(Permission.ADMINISTRACAO)
-  @ApiOperation({ summary: 'Obter os avisos automáticos ao paciente da conta' })
+  @ApiOperation({
+    summary: 'Obter os avisos automáticos ao paciente (configuração da conta)',
+  })
   async getPatientSettings(@CurrentUser() user: AuthenticatedUser) {
-    return await this.patientNotificationSettingsService.getForUser(
-      user.userId,
+    return await this.notificationsService.getPatientSettings(
+      user.ownerId ?? user.userId,
     );
   }
 
   @Put('patient-settings')
   @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({
-    summary: 'Ligar/desligar os avisos automáticos ao paciente da conta',
+    summary:
+      'Atualizar os avisos automáticos ao paciente (configuração da conta)',
   })
   async updatePatientSettings(
     @Body() data: UpdatePatientNotificationSettingsDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return await this.patientNotificationSettingsService.updateForUser(
-      user.userId,
+    return await this.notificationsService.updatePatientSettings(
+      user.ownerId ?? user.userId,
       data,
     );
   }
-
-  // ============ Notifications ============
 
   @Get()
   @ApiOperation({ summary: 'Listar notificações' })
@@ -104,7 +95,6 @@ export class NotificationsController {
   @Put(':id/read')
   @ApiOperation({ summary: 'Marcar notificação como lida' })
   async markAsRead(
-    // Coluna `uuid`: sem o pipe, um id malformado só falhava no Postgres.
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {

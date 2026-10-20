@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, Repository } from 'typeorm';
+import { Between, FindOptionsWhere, Repository } from 'typeorm';
 import {
   NotificationSendLog,
   NotificationChannel,
@@ -30,10 +30,6 @@ export class NotificationLogsService {
     private readonly repo: Repository<NotificationSendLog>,
   ) {}
 
-  /**
-   * Lista paginada de logs (mais recentes primeiro). `body` e `errorMessage`
-   * vêm do banco já truncados em VARCHAR(600). Default 50/página, máx 200.
-   */
   async list(query: NotificationLogQuery): Promise<{
     items: NotificationSendLog[];
     total: number;
@@ -41,7 +37,7 @@ export class NotificationLogsService {
     const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
     const offset = Math.max(query.offset ?? 0, 0);
 
-    const where: Record<string, any> = {};
+    const where: FindOptionsWhere<NotificationSendLog> = {};
     if (query.channel) where.channel = query.channel;
     if (query.status) where.status = query.status;
     if (query.ownerId) where.ownerId = query.ownerId;
@@ -59,11 +55,6 @@ export class NotificationLogsService {
     return { items, total };
   }
 
-  /**
-   * Estatísticas agregadas (count por channel/status) para o intervalo dado.
-   * Útil para dashboards de saúde dos canais (e.g. % de falhas no WhatsApp
-   * nas últimas 24h).
-   */
   async stats(from?: string, to?: string): Promise<NotificationLogStatsRow[]> {
     const qb = this.repo
       .createQueryBuilder('l')

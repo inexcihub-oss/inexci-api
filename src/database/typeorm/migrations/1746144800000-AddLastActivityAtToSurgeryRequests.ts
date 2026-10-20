@@ -1,12 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Coluna materializada `last_activity_at` + índice composto para ordenação
- * indexável da listagem (item 5.2 / P15).
- *
- * A coluna é mantida por trigger BEFORE INSERT OR UPDATE porque fluxos de
- * domínio usam `repo.update()`, que ignora hooks `@BeforeUpdate`.
- */
 export class AddLastActivityAtToSurgeryRequests1746144800000 implements MigrationInterface {
   name = 'AddLastActivityAtToSurgeryRequests1746144800000';
 

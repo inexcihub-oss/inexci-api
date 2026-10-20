@@ -4,9 +4,6 @@ import { StorageService } from '../../shared/storage/storage.service';
 import { DocumentRepository } from '../../database/repositories/document.repository';
 import { sharp } from '../../shared/storage/foto-paciente';
 
-// `file-type` é ESM puro e o Jest (CommonJS) não o resolve. O dublê reconhece
-// as mesmas assinaturas que importam aqui (PNG, JPEG, WebP, GIF, PDF) e, como
-// o real, não detecta texto — SVG incluído.
 const detectarTipo = async (buf: Buffer) => {
   const hex = buf.subarray(0, 12).toString('hex');
   if (hex.startsWith('89504e470d0a1a0a'))
@@ -25,31 +22,44 @@ const detectarTipo = async (buf: Buffer) => {
 const fileTypeFromBuffer = jest.fn(detectarTipo);
 jest.mock('file-type', () => ({ fileTypeFromBuffer }), { virtual: true });
 
+const LIVRE = {
+  surgeryRequestId: null,
+  clinicalRecordId: null,
+  surgeryRequestDoctorId: null,
+  clinicalRecordDoctorId: null,
+};
+
 describe('UploadService — IDOR (VULN-03)', () => {
   let service: UploadService;
   let mockDocumentRepository: Partial<DocumentRepository>;
   let mockStorageService: Partial<StorageService>;
+  let mockAccessControl: { getAccessibleDoctorIds: jest.Mock };
 
   beforeEach(() => {
     mockDocumentRepository = {
-      existsByUriAndOwner: jest.fn(),
+      findAccessScopesByUriAndOwner: jest.fn(),
     };
 
     mockStorageService = {
       getSignedUrl: jest.fn().mockResolvedValue('https://example.com/signed'),
     };
 
+    mockAccessControl = {
+      getAccessibleDoctorIds: jest.fn().mockResolvedValue(['medico-a']),
+    };
+
     service = new UploadService(
       mockStorageService as StorageService,
       mockDocumentRepository as DocumentRepository,
+      mockAccessControl as never,
     );
   });
 
   describe('pastas com escopo de tenant (documents, post-surgical, report)', () => {
     it('deve lançar ForbiddenException se arquivo não pertence ao tenant', async () => {
       (
-        mockDocumentRepository.existsByUriAndOwner as jest.Mock
-      ).mockResolvedValue(false);
+        mockDocumentRepository.findAccessScopesByUriAndOwner as jest.Mock
+      ).mockResolvedValue([]);
 
       await expect(
         service.getSignedUrl(
@@ -67,8 +77,8 @@ describe('UploadService — IDOR (VULN-03)', () => {
 
     it('deve gerar URL se arquivo pertence ao tenant', async () => {
       (
-        mockDocumentRepository.existsByUriAndOwner as jest.Mock
-      ).mockResolvedValue(true);
+        mockDocumentRepository.findAccessScopesByUriAndOwner as jest.Mock
+      ).mockResolvedValue([LIVRE]);
 
       const result = await service.getSignedUrl(
         'documents/meu-arquivo.pdf',
@@ -80,8 +90,8 @@ describe('UploadService — IDOR (VULN-03)', () => {
 
     it('deve verificar post-surgical e report também', async () => {
       (
-        mockDocumentRepository.existsByUriAndOwner as jest.Mock
-      ).mockResolvedValue(false);
+        mockDocumentRepository.findAccessScopesByUriAndOwner as jest.Mock
+      ).mockResolvedValue([]);
 
       await expect(
         service.getSignedUrl('post-surgical/laudo.pdf', 'owner-a'),
@@ -93,18 +103,103 @@ describe('UploadService — IDOR (VULN-03)', () => {
     });
   });
 
+  describe('vínculo com o médico (documents da SC e da ficha)', () => {
+    const escopos = () =>
+      mockDocumentRepository.findAccessScopesByUriAndOwner as jest.Mock;
+
+    it('libera documento da SC de médico vinculado', async () => {
+      escopos().mockResolvedValue([
+        {
+          ...LIVRE,
+          surgeryRequestId: 'sr-1',
+          surgeryRequestDoctorId: 'medico-a',
+        },
+      ]);
+
+      await expect(
+        service.getSignedUrl('documents/owner-a/x.pdf', 'owner-a', 'u1'),
+      ).resolves.toEqual({ url: 'https://example.com/signed' });
+      expect(mockAccessControl.getAccessibleDoctorIds).toHaveBeenCalledWith(
+        'u1',
+      );
+    });
+
+    it('recusa documento da SC de médico sem vínculo', async () => {
+      escopos().mockResolvedValue([
+        {
+          ...LIVRE,
+          surgeryRequestId: 'sr-1',
+          surgeryRequestDoctorId: 'medico-b',
+        },
+      ]);
+
+      await expect(
+        service.getSignedUrl('documents/owner-a/x.pdf', 'owner-a', 'u1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('recusa documento da ficha de médico sem vínculo', async () => {
+      escopos().mockResolvedValue([
+        {
+          ...LIVRE,
+          clinicalRecordId: 'cr-1',
+          clinicalRecordDoctorId: 'medico-b',
+        },
+      ]);
+
+      await expect(
+        service.getSignedUrl('documents/owner-a/x.pdf', 'owner-a', 'u1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('recusa quando a SC vinculada não resolve o médico', async () => {
+      escopos().mockResolvedValue([{ ...LIVRE, surgeryRequestId: 'sr-1' }]);
+
+      await expect(
+        service.getSignedUrl('documents/owner-a/x.pdf', 'owner-a', 'u1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('recusa documento vinculado sem usuário identificado', async () => {
+      escopos().mockResolvedValue([
+        {
+          ...LIVRE,
+          surgeryRequestId: 'sr-1',
+          surgeryRequestDoctorId: 'medico-a',
+        },
+      ]);
+
+      await expect(
+        service.getSignedUrl('documents/owner-a/x.pdf', 'owner-a'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('documento só do paciente segue o recorte por conta', async () => {
+      escopos().mockResolvedValue([LIVRE]);
+
+      await expect(
+        service.getSignedUrl('documents/owner-a/x.pdf', 'owner-a', 'u1'),
+      ).resolves.toEqual({ url: 'https://example.com/signed' });
+      expect(mockAccessControl.getAccessibleDoctorIds).not.toHaveBeenCalled();
+    });
+  });
+
   describe('pastas públicas (avatars, headers)', () => {
     it('deve gerar URL sem verificação de tenant para avatars', async () => {
       const result = await service.getSignedUrl('avatars/photo.png', 'owner-a');
 
-      expect(mockDocumentRepository.existsByUriAndOwner).not.toHaveBeenCalled();
+      expect(
+        mockDocumentRepository.findAccessScopesByUriAndOwner,
+      ).not.toHaveBeenCalled();
       expect(result.url).toBe('https://example.com/signed');
     });
 
     it('deve gerar URL sem verificação de tenant para headers', async () => {
       const result = await service.getSignedUrl('headers/logo.png', 'owner-a');
 
-      expect(mockDocumentRepository.existsByUriAndOwner).not.toHaveBeenCalled();
+      expect(
+        mockDocumentRepository.findAccessScopesByUriAndOwner,
+      ).not.toHaveBeenCalled();
       expect(result.url).toBe('https://example.com/signed');
     });
   });
@@ -341,6 +436,44 @@ describe('UploadService — IDOR (VULN-03)', () => {
           'owner-a',
         ),
       ).resolves.toMatchObject({ path: 'documents/owner-a/uuid-x' });
+    });
+
+    it('recusa HTML e SVG declarados como tal', async () => {
+      await expect(
+        service.uploadFile(
+          arquivo('text/html', Buffer.from('<html></html>')),
+          'documents',
+          'owner-a',
+        ),
+      ).rejects.toThrow('Tipo de arquivo não permitido: text/html');
+      await expect(
+        service.uploadFile(
+          arquivo('image/svg+xml', Buffer.from('<svg/>')),
+          'avatars',
+          'owner-a',
+        ),
+      ).rejects.toThrow('Tipo de arquivo não permitido: image/svg+xml');
+      expect(mockStorageService.create).not.toHaveBeenCalled();
+    });
+
+    it('grava o tipo detectado e a extensão coerente com ele', async () => {
+      await service.uploadFile(
+        arquivo(
+          'application/octet-stream',
+          Buffer.from('%PDF-1.4\n%%EOF'),
+          'laudo.html',
+        ),
+        'pdfs',
+        'owner-a',
+      );
+      expect(mockStorageService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mimetype: 'application/pdf',
+          originalname: 'laudo.pdf',
+        }),
+        'pdfs',
+        'owner-a',
+      );
     });
 
     it('áudio não detectado segue aceito (file-type tem variantes de MIME)', async () => {
