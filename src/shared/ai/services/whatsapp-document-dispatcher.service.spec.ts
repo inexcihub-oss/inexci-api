@@ -1,3 +1,21 @@
+const detectarTipo = (buf: Buffer) => {
+  const hex = buf.subarray(0, 8).toString('hex');
+  if (hex.startsWith('89504e470d0a1a0a'))
+    return Promise.resolve({ ext: 'png', mime: 'image/png' });
+  if (hex.startsWith('ffd8ff'))
+    return Promise.resolve({ ext: 'jpg', mime: 'image/jpeg' });
+  if (buf.subarray(0, 4).toString() === '%PDF')
+    return Promise.resolve({ ext: 'pdf', mime: 'application/pdf' });
+  return Promise.resolve(undefined);
+};
+jest.mock('file-type', () => ({ fileTypeFromBuffer: detectarTipo }), {
+  virtual: true,
+});
+
+const PDF = Buffer.from('%PDF-1.7 conteudo');
+const JPG = Buffer.from('ffd8ffe000104a46', 'hex');
+const PNG = Buffer.from('89504e470d0a1a0a0000', 'hex');
+
 import { ConfigService } from '@nestjs/config';
 import {
   WhatsappMediaService,
@@ -119,7 +137,7 @@ describe('WhatsappDocumentDispatcherService', () => {
   describe('stageInboundDocument', () => {
     it('faz download, sobe para o tmp e grava pendência', async () => {
       mediaService.downloadInboundDocument.mockResolvedValue({
-        buffer: Buffer.from('hello'),
+        buffer: PDF,
         mimeType: 'application/pdf',
         sizeBytes: 5,
         fileName: 'whatsapp-doc-1.pdf',
@@ -144,6 +162,61 @@ describe('WhatsappDocumentDispatcherService', () => {
 
       const stored = await service.getPending('5511999990000');
       expect(stored?.fileName).toBe('whatsapp-doc-1.pdf');
+      expect(storageService.uploadBuffer).toHaveBeenCalledWith(
+        PDF,
+        'whatsapp-tmp',
+        'whatsapp-doc-1.pdf',
+        'application/pdf',
+      );
+    });
+
+    it('usa o tipo detectado pelo conteúdo para nome, extensão e ContentType', async () => {
+      mediaService.downloadInboundDocument.mockResolvedValue({
+        buffer: PNG,
+        mimeType: 'image/jpeg',
+        sizeBytes: PNG.length,
+        fileName: 'Imagem_do_laudo',
+        kind: 'image',
+      });
+      storageService.uploadBuffer.mockResolvedValue('whatsapp-tmp/u-img.png');
+
+      const outcome = await service.stageInboundDocument({
+        media: { url: 'https://api.twilio.com/m/2', contentType: 'image/jpeg' },
+        phone: '5511999990001',
+        messageSid: 'SM-PNG',
+      });
+
+      expect(storageService.uploadBuffer).toHaveBeenCalledWith(
+        PNG,
+        'whatsapp-tmp',
+        'Imagem_do_laudo.png',
+        'image/png',
+      );
+      expect(outcome.pending?.contentType).toBe('image/png');
+      expect(outcome.pending?.kind).toBe('image');
+    });
+
+    it('recusa conteúdo que não é imagem nem PDF, mesmo com MIME declarado válido', async () => {
+      mediaService.downloadInboundDocument.mockResolvedValue({
+        buffer: Buffer.from('<html>nao sou pdf</html>'),
+        mimeType: 'application/pdf',
+        sizeBytes: 24,
+        fileName: 'whatsapp-doc.pdf',
+        kind: 'pdf',
+      });
+
+      const outcome = await service.stageInboundDocument({
+        media: {
+          url: 'https://api.twilio.com/m/3',
+          contentType: 'application/pdf',
+        },
+        phone: '5511999990002',
+        messageSid: 'SM-FAKE',
+      });
+
+      expect(outcome.status).toBe('failed');
+      expect(outcome.failureReason).toBe('DOC_NOT_ALLOWED');
+      expect(storageService.uploadBuffer).not.toHaveBeenCalled();
     });
 
     it('retorna failure quando o MIME é proibido', async () => {
@@ -190,7 +263,7 @@ describe('WhatsappDocumentDispatcherService', () => {
   describe('clearPending / deleteStoragePath', () => {
     it('apaga corretamente do in-memory store', async () => {
       mediaService.downloadInboundDocument.mockResolvedValue({
-        buffer: Buffer.from('hi'),
+        buffer: JPG,
         mimeType: 'image/jpeg',
         sizeBytes: 2,
         fileName: 'whatsapp-doc-1.jpg',

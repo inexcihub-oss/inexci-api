@@ -18,6 +18,7 @@ import { inexciTracer, SpanStatusCode } from '../../observability/tracer';
 import { errorMessage } from '../../utils/error-message.util';
 
 const MIN_NATIVE_PDF_TEXT_CHARS = 100;
+export const MAX_NATIVE_PDF_TEXT_CHARS = 120_000;
 
 type SharpFactory = (
   input: Buffer,
@@ -55,7 +56,7 @@ interface PdfParseInfoResult {
 }
 
 interface PdfParseInstance {
-  getText(): Promise<PdfParseTextResult>;
+  getText(params?: { first?: number }): Promise<PdfParseTextResult>;
   getInfo(opts: {
     parsePageInfo?: boolean;
     first?: number;
@@ -374,11 +375,12 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
 
     let pageCount = 0;
     let nativeText = '';
+    const maxPages = this.resolveMaxPages(input.maxPages);
 
     let parser: PdfParseInstance | undefined;
     try {
       parser = new PDFParseCtor({ data: input.buffer });
-      const textResult = await parser.getText();
+      const textResult = await parser.getText({ first: maxPages });
       nativeText = (textResult?.text || '').toString();
       pageCount = Number(textResult?.total ?? textResult?.numpages ?? 0) || 0;
     } catch (err) {
@@ -395,14 +397,18 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    const trimmedNative = nativeText.trim();
+    let trimmedNative = nativeText.trim();
     if (trimmedNative.length >= MIN_NATIVE_PDF_TEXT_CHARS) {
+      if (trimmedNative.length > MAX_NATIVE_PDF_TEXT_CHARS) {
+        trimmedNative = trimmedNative.slice(0, MAX_NATIVE_PDF_TEXT_CHARS);
+        warnings.push('pdf_text_truncated');
+      }
       return {
         text: trimmedNative,
         confidence: 0.99,
         pageCount,
         pagesProcessed: 1,
-        truncatedPages: 0,
+        truncatedPages: pageCount > maxPages ? pageCount - maxPages : 0,
         source: 'pdf-native',
         pages: [
           {
@@ -417,7 +423,6 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
-    const maxPages = this.resolveMaxPages(input.maxPages);
     const ocrPages = await this.rasterizeAndOcrPdf(
       PDFParseCtor,
       input.buffer,

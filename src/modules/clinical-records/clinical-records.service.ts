@@ -71,6 +71,7 @@ export class ClinicalRecordsService {
       action: 'list',
       actorUserId: userId,
       tenantId: patient.ownerId,
+      patientId,
     });
 
     return this.clinicalRecordRepository.findByPatientId(
@@ -103,6 +104,7 @@ export class ClinicalRecordsService {
       action: 'read',
       actorUserId: userId,
       tenantId: record.ownerId,
+      patientId: record.patientId,
     });
 
     return record;

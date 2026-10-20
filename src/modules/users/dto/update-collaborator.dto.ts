@@ -7,9 +7,10 @@ import {
   IsString,
   ValidateIf,
 } from 'class-validator';
-import { PhoneTransform } from 'src/shared/pipes/phone-mask.pipe';
+import { UserPhone } from 'src/shared/pipes/phone-mask.pipe';
 import { Permission } from 'src/shared/permissions';
 import { ProfessionalCouncil } from 'src/database/entities/doctor-profile.entity';
+import { NormalizeEmail } from 'src/shared/validators/normalize-email.decorator';
 
 export class UpdateCollaboratorDto {
   @IsString()
@@ -19,11 +20,12 @@ export class UpdateCollaboratorDto {
   @IsString()
   @IsOptional()
   @IsEmail()
+  @NormalizeEmail()
   email?: string;
 
   @IsOptional()
   @IsString()
-  @PhoneTransform()
+  @UserPhone()
   phone?: string;
 
   @IsBoolean()

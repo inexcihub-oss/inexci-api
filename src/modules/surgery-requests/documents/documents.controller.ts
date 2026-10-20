@@ -25,7 +25,8 @@ import {
 import { SurgeryRequestOwnerGuard } from 'src/shared/guards/surgery-request-owner.guard';
 import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
 import { Permission } from 'src/shared/permissions';
-import { MAX_STORAGE_FILE_SIZE } from 'src/config/storage.config';
+import { limitesDeUpload } from 'src/shared/storage/limites-upload';
+import { MAX_DOCUMENTO_TAMANHO } from 'src/shared/storage/tipo-arquivo';
 
 @ApiTags('Documentos da Solicitação')
 @ApiBearerAuth()
@@ -39,9 +40,7 @@ export class DocumentsController {
   @ApiOperation({ summary: 'Enviar documento' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    FileInterceptor('document', {
-      limits: { fileSize: MAX_STORAGE_FILE_SIZE },
-    }),
+    FileInterceptor('document', limitesDeUpload(MAX_DOCUMENTO_TAMANHO)),
   )
   create(
     @Body() data: CreateDocumentDto,

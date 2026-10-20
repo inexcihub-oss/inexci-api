@@ -1,5 +1,23 @@
 import * as Joi from 'joi';
 
+export const MARCADOR_VALOR_DE_DEV = 'dev-only';
+
+function segredoQueNaoPodeSerDeDev(nome: string) {
+  return Joi.string()
+    .min(32)
+    .required()
+    .when('NODE_ENV', {
+      is: 'production',
+      then: Joi.string()
+        .min(32)
+        .required()
+        .pattern(new RegExp(MARCADOR_VALOR_DE_DEV, 'i'), { invert: true })
+        .messages({
+          'string.pattern.invert.base': `${nome} está com o valor de exemplo de desenvolvimento. Gere um segredo novo para produção.`,
+        }),
+    });
+}
+
 export const envValidationSchema = Joi.object({
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'test')
@@ -7,12 +25,19 @@ export const envValidationSchema = Joi.object({
   PORT: Joi.number().default(8088),
   DASHBOARD_URL: Joi.string().uri().required(),
 
-  JWT_SECRET: Joi.string().min(32).required(),
+  JWT_SECRET: segredoQueNaoPodeSerDeDev('JWT_SECRET'),
   JWT_ISSUER: Joi.string().required(),
   JWT_AUDIENCE: Joi.string().required(),
 
+  TURNSTILE_SECRET_KEY: Joi.string().allow('').default(''),
+
   DATABASE_URL: Joi.string().required(),
   DATABASE_POOL_MAX: Joi.number().default(10),
+  DB_SSL: Joi.string().valid('true', 'false', '').default('false'),
+  DB_SSL_REJECT_UNAUTHORIZED: Joi.string()
+    .valid('true', 'false', '')
+    .default('true'),
+  DB_SSL_CA: Joi.string().allow('').default(''),
 
   CORS_ORIGINS: Joi.string().required(),
 
@@ -43,7 +68,7 @@ export const envValidationSchema = Joi.object({
       then: Joi.string().min(1).required(),
     }),
   TWILIO_WHATSAPP_FROM: Joi.string().allow('').default('whatsapp:+14155238886'),
-  TWILIO_VALIDATE_SIGNATURE: Joi.string().allow('').default('false'),
+  TWILIO_VALIDATE_SIGNATURE: Joi.string().allow('').default('true'),
 
   DB_ENCRYPTION_KEY: Joi.string()
     .allow('')
@@ -52,7 +77,7 @@ export const envValidationSchema = Joi.object({
       is: 'production',
       then: Joi.string().hex().length(64).required(),
     }),
-  PHONE_HASH_SALT: Joi.string().min(32).required(),
+  PHONE_HASH_SALT: segredoQueNaoPodeSerDeDev('PHONE_HASH_SALT'),
 
   OPENAI_API_KEY: Joi.string().allow('').default(''),
   OPENAI_MODEL: Joi.string().allow('').default('gpt-4o'),
@@ -103,6 +128,7 @@ export const envValidationSchema = Joi.object({
   AI_STT_FASTER_WHISPER_URL: Joi.string()
     .uri()
     .default('http://stt-service:8000'),
+  AI_STT_SHARED_TOKEN: Joi.string().allow('').default(''),
   AI_STT_ENABLE_FALLBACK: Joi.string().allow('').default('false'),
   AI_STT_OPENAI_MODEL: Joi.string().allow('').default('whisper-1'),
   AI_STT_OPENAI_URL: Joi.string()
@@ -173,5 +199,6 @@ export const envValidationSchema = Joi.object({
   LOG_RETENTION_PII_DAYS: Joi.number().default(180),
   LOG_RETENTION_STALE_DAYS: Joi.number().default(60),
   LOG_RETENTION_READ_NOTIFICATION_DAYS: Joi.number().default(90),
+  LOG_RETENTION_CLINICAL_AUDIT_DAYS: Joi.number().default(1825),
   SLOW_REQUEST_THRESHOLD_MS: Joi.number().positive().default(1500),
 }).options({ allowUnknown: true });

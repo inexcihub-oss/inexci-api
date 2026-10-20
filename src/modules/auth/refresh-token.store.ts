@@ -11,8 +11,10 @@ import { v4 as uuidv4 } from 'uuid';
 import { hashRefreshToken } from 'src/shared/crypto/refresh-token-hash.util';
 
 export type ConsumeResult =
-  | { status: 'valid'; userId: string }
-  | { status: 'reused'; userId: string }
+  | { status: 'valid'; userId: string; familyId: string | null }
+  | { status: 'grace'; userId: string; familyId: string | null }
+  | { status: 'grace_exhausted'; userId: string; familyId: string | null }
+  | { status: 'reused'; userId: string; familyId: string | null }
   | { status: 'not_found' };
 
 const TOKEN_KEY_PREFIX = 'refresh:tok:';
@@ -20,9 +22,11 @@ const USER_KEY_PREFIX = 'refresh:user:';
 
 const REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60;
 
-const ROTATION_GRACE_SECONDS = 30;
+export const ROTATION_GRACE_SECONDS = 30;
 
-const CONSUME_LUA = `
+export const MAX_GRACE_EXCHANGES = 1;
+
+export const CONSUME_LUA = `
 local raw = redis.call('GET', KEYS[1])
 if not raw then
   return 'not_found'
@@ -30,29 +34,50 @@ end
 local data = cjson.decode(raw)
 local now = tonumber(redis.call('TIME')[1])
 local grace = tonumber(ARGV[1])
+local maxGrace = tonumber(ARGV[2])
+local family = data.familyId or ''
+local ttl = redis.call('PTTL', KEYS[1])
+local function persist()
+  if ttl and ttl > 0 then
+    redis.call('SET', KEYS[1], cjson.encode(data), 'PX', ttl)
+  else
+    redis.call('SET', KEYS[1], cjson.encode(data))
+  end
+end
 if data.revoked then
   if data.revokedAt and (now - tonumber(data.revokedAt)) <= grace then
-    return 'grace:' .. data.userId
+    local used = tonumber(data.graceUsed or 0)
+    if used < maxGrace then
+      data.graceUsed = used + 1
+      persist()
+      return 'grace:' .. data.userId .. ':' .. family
+    end
+    return 'grace_exhausted:' .. data.userId .. ':' .. family
   end
-  return 'reused:' .. data.userId
+  return 'reused:' .. data.userId .. ':' .. family
 end
 data.revoked = true
 data.revokedAt = now
-local ttl = redis.call('PTTL', KEYS[1])
-if ttl and ttl > 0 then
-  redis.call('SET', KEYS[1], cjson.encode(data), 'PX', ttl)
-else
-  redis.call('SET', KEYS[1], cjson.encode(data))
-end
-return 'valid:' .. data.userId
+data.graceUsed = 0
+persist()
+return 'valid:' .. data.userId .. ':' .. family
 `;
 
 interface RefreshTokenRecord {
   userId: string;
+  familyId: string;
   createdAt: number;
   revoked?: boolean;
   revokedAt?: number;
+  graceUsed?: number;
 }
+
+const STATUS_CONHECIDOS = new Set([
+  'valid',
+  'grace',
+  'grace_exhausted',
+  'reused',
+]);
 
 @Injectable()
 export class RefreshTokenStore implements OnModuleDestroy {
@@ -105,11 +130,15 @@ export class RefreshTokenStore implements OnModuleDestroy {
     return `${USER_KEY_PREFIX}${userId}`;
   }
 
-  async issue(userId: string): Promise<string> {
+  async issue(userId: string, familyId?: string | null): Promise<string> {
     const client = this.requireClient();
     const rawToken = uuidv4();
     const hash = hashRefreshToken(rawToken);
-    const record: RefreshTokenRecord = { userId, createdAt: Date.now() };
+    const record: RefreshTokenRecord = {
+      userId,
+      familyId: familyId || uuidv4(),
+      createdAt: Date.now(),
+    };
 
     await client
       .multi()
@@ -135,16 +164,18 @@ export class RefreshTokenStore implements OnModuleDestroy {
       1,
       this.tokenKey(hash),
       String(ROTATION_GRACE_SECONDS),
+      String(MAX_GRACE_EXCHANGES),
     )) as string;
 
-    if (result === 'not_found') {
+    const [status, userId, familyId] = result.split(':');
+    if (!STATUS_CONHECIDOS.has(status) || !userId) {
       return { status: 'not_found' };
     }
-    const [status, userId] = result.split(':');
-    if (status === 'reused') {
-      return { status: 'reused', userId };
-    }
-    return { status: 'valid', userId };
+    return {
+      status: status as 'valid' | 'grace' | 'grace_exhausted' | 'reused',
+      userId,
+      familyId: familyId || null,
+    };
   }
 
   async revokeAllForUser(userId: string): Promise<void> {

@@ -9,12 +9,14 @@ describe('WebhookController', () => {
 
   const aiOrchestratorMock = {
     enqueueInboundMessage: jest.fn(),
+    claimInboundMessage: jest.fn(),
   };
 
   let controller: WebhookController;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    aiOrchestratorMock.claimInboundMessage.mockResolvedValue(true);
     webhookServiceMock.tryHandleSchedulingSelection.mockResolvedValue(false);
     webhookServiceMock.tryHandleAppointmentConfirmation.mockResolvedValue(
       false,
@@ -318,5 +320,66 @@ describe('WebhookController', () => {
     );
 
     expect(aiOrchestratorMock.enqueueInboundMessage).toHaveBeenCalled();
+  });
+
+  describe('dedupe por MessageSid', () => {
+    const reqMock = {
+      get: (key: string) => (key === 'host' ? 'api.inexci.local' : undefined),
+      originalUrl: '/webhooks/twilio',
+      protocol: 'https',
+      body: {},
+    };
+    const payload = {
+      From: 'whatsapp:+5511999990000',
+      Body: 'confirmar',
+      MessageSid: 'SM-DUP',
+    };
+
+    it('ignora reentrega já processada sem chamar handlers nem a fila', async () => {
+      aiOrchestratorMock.claimInboundMessage.mockResolvedValue(false);
+
+      const response = await controller.handleTwilioWebhook(
+        payload,
+        'signature',
+        reqMock as any,
+      );
+
+      expect(response).toBe('<Response></Response>');
+      expect(aiOrchestratorMock.claimInboundMessage).toHaveBeenCalledWith(
+        'SM-DUP',
+      );
+      expect(
+        webhookServiceMock.tryHandleSchedulingSelection,
+      ).not.toHaveBeenCalled();
+      expect(
+        webhookServiceMock.tryHandleAppointmentConfirmation,
+      ).not.toHaveBeenCalled();
+      expect(aiOrchestratorMock.enqueueInboundMessage).not.toHaveBeenCalled();
+    });
+
+    it('segue o fluxo quando a checagem de dedupe falha (fail-open)', async () => {
+      aiOrchestratorMock.claimInboundMessage.mockRejectedValue(
+        new Error('redis down'),
+      );
+
+      await controller.handleTwilioWebhook(
+        payload,
+        'signature',
+        reqMock as any,
+      );
+
+      expect(aiOrchestratorMock.enqueueInboundMessage).toHaveBeenCalled();
+    });
+
+    it('não consulta o dedupe quando falta MessageSid', async () => {
+      await controller.handleTwilioWebhook(
+        { From: 'whatsapp:+5511999990000', Body: 'oi' },
+        'signature',
+        reqMock as any,
+      );
+
+      expect(aiOrchestratorMock.claimInboundMessage).not.toHaveBeenCalled();
+      expect(aiOrchestratorMock.enqueueInboundMessage).not.toHaveBeenCalled();
+    });
   });
 });

@@ -4,6 +4,7 @@ import {
 } from 'src/database/entities/doctor-profile.entity';
 import {
   BadRequestException,
+  ConflictException,
   HttpException,
   HttpStatus,
   Logger,
@@ -14,6 +15,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { HttpMessages } from 'src/common';
@@ -21,6 +23,7 @@ import { MailService } from 'src/shared/mail/mail.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
+import { RecoveryCodePurpose } from 'src/database/entities/recovery-code.entity';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { ConfigService } from '@nestjs/config';
 import { AuthDto } from './dto/auth.dto';
@@ -38,21 +41,48 @@ import { LogTrace } from 'src/shared/logging/trace.decorator';
 import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
 import { DEFAULT_PROCEDURE_NAMES } from '../procedures/default-procedures.constants';
 import { RefreshTokenStore } from './refresh-token.store';
-import { permissionsOf } from 'src/shared/permissions';
+import { SessionRevocationService } from './session-revocation.service';
+import { normalizarEmail } from 'src/shared/validators/normalize-email.decorator';
+import { canAdministrate, permissionsOf } from 'src/shared/permissions';
+import { MfaService } from './mfa/mfa.service';
+import { LoginMfaDto } from './mfa/dto/mfa.dto';
 import {
   assertCodigoUtilizavel,
+  codigoInvalido,
+  codigosIguais,
   consumirTentativa,
 } from './recovery-code-attempts.util';
+import { AuthAttemptLimiter } from './auth-attempt-limiter';
+import { TurnstileService } from './turnstile.service';
 import { violouIndice } from 'src/database/repositories/unique-violation.util';
 import { errorMessage } from 'src/shared/utils/error-message.util';
+import {
+  TELEFONE_INVALIDO_MENSAGEM,
+  canonicalizarTelefone,
+  variantesLegadasDoTelefone,
+} from 'src/shared/utils/phone.util';
 
 export const PHONE_ALREADY_IN_USE_MESSAGE =
   'Este telefone já está sendo utilizado por outra conta.';
 
 const PHONE_UNIQUE_INDEX = 'IDX_users_phone_unique';
 
+export const LOGIN_BLOQUEADO_MENSAGEM =
+  'Muitas tentativas de login. Aguarde alguns minutos e tente novamente.';
+
+export const RECOVERY_BLOQUEADO_MENSAGEM =
+  'Muitas tentativas com código inválido. Tente novamente mais tarde.';
+
 function normalizePhone(phone: string): string {
-  return phone.replace(/\D/g, '');
+  const canonico = canonicalizarTelefone(phone);
+  if (!canonico) {
+    throw new HttpException(TELEFONE_INVALIDO_MENSAGEM, HttpStatus.BAD_REQUEST);
+  }
+  return canonico;
+}
+
+function filtroPorTelefone(canonico: string): { phone: string }[] {
+  return variantesLegadasDoTelefone(canonico).map((phone) => ({ phone }));
 }
 
 function isPhoneUniqueViolation(err: unknown): boolean {
@@ -76,58 +106,96 @@ export class AuthService {
     private readonly subscriptionService: SubscriptionService,
     private readonly procedureRepository: ProcedureRepository,
     private readonly storageService: StorageService,
+    private readonly attemptLimiter: AuthAttemptLimiter,
+    private readonly turnstileService: TurnstileService,
+    private readonly sessionRevocation: SessionRevocationService,
+    private readonly mfaService: MfaService,
   ) {}
+
+  private hashFicticio: Promise<string> | null = null;
+
+  private obterHashFicticio(): Promise<string> {
+    if (!this.hashFicticio) {
+      this.hashFicticio = bcrypt.hash(randomUUID(), BCRYPT_ROUNDS);
+    }
+    return this.hashFicticio;
+  }
+
+  private async falhaDeLogin(email: string): Promise<never> {
+    await this.attemptLimiter.registerLoginFailure(email);
+    throw new HttpException(HttpMessages.loginFailed, HttpStatus.BAD_REQUEST);
+  }
 
   private readonly EMAIL_VERIFICATION_EXPIRY_MS = 24 * 60 * 60 * 1000;
   private readonly RECOVERY_CODE_EXPIRY_MS = 15 * 60 * 1000;
 
-  private async createRefreshToken(userId: string): Promise<string> {
-    return this.refreshTokenStore.issue(userId);
+  private async createRefreshToken(
+    userId: string,
+    familyId?: string | null,
+  ): Promise<string> {
+    return this.refreshTokenStore.issue(userId, familyId);
   }
 
-  async validateUser(email: string, password: string): Promise<User | null> {
+  private signAccessToken(user: Pick<User, 'id' | 'tokenVersion'>): string {
+    return this.jwtService.sign({
+      userId: user.id,
+      tv: user.tokenVersion ?? 0,
+    });
+  }
+
+  async validateUser(rawEmail: string, password: string): Promise<User | null> {
+    const email = normalizarEmail(rawEmail);
+    if (await this.attemptLimiter.isLoginLocked(email)) {
+      throw new HttpException(
+        LOGIN_BLOQUEADO_MENSAGEM,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
     const user = await this.userRepository.findOne(
       { email, status: UserStatus.ACTIVE },
       true,
     );
 
-    if (user && password) {
-      if (!user.password) {
-        throw new UnauthorizedException(
-          'Conta sem senha definida. Acesse pelo link de primeiro acesso.',
-        );
-      }
-      const isValid = await bcrypt.compare(password, user.password);
-
-      if (!isValid) {
-        throw new HttpException(
-          HttpMessages.loginFailed,
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      if (!user.emailVerified) {
-        throw new HttpException(
-          'Confirme seu e-mail antes de fazer login. Verifique sua caixa de entrada.',
-          HttpStatus.FORBIDDEN,
-        );
-      }
-
-      if (precisaRehash(user.password)) {
-        const novoHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-        await this.userRepository.update(user.id, { password: novoHash });
-      }
-
-      return user;
-    } else {
-      throw new HttpException(HttpMessages.loginFailed, HttpStatus.BAD_REQUEST);
+    if (!user || !password) {
+      await bcrypt.compare(password ?? '', await this.obterHashFicticio());
+      return this.falhaDeLogin(email);
     }
+
+    if (!user.password) {
+      throw new UnauthorizedException(
+        'Conta sem senha definida. Acesse pelo link de primeiro acesso.',
+      );
+    }
+
+    const isValid = await bcrypt.compare(password, user.password);
+    if (!isValid) {
+      return this.falhaDeLogin(email);
+    }
+
+    await this.attemptLimiter.clearLoginFailures(email);
+
+    if (!user.emailVerified) {
+      throw new HttpException(
+        'Confirme seu e-mail antes de fazer login. Verifique sua caixa de entrada.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    if (precisaRehash(user.password)) {
+      const novoHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+      await this.userRepository.update(user.id, { password: novoHash });
+    }
+
+    return user;
   }
 
   async checkEmailAvailability(
     email: string,
   ): Promise<{ status: 'available' | 'pending_invite' | 'registered' }> {
-    const existingUser = await this.userRepository.findOne({ email });
+    const existingUser = await this.userRepository.findOne({
+      email: normalizarEmail(email),
+    });
 
     if (!existingUser) return { status: 'available' };
     if (existingUser.status === UserStatus.PENDING) {
@@ -139,14 +207,16 @@ export class AuthService {
   async checkPhoneAvailability(
     phone: string,
   ): Promise<{ status: 'available' | 'registered' }> {
-    const existingUser = await this.userRepository.findOne({
-      phone: normalizePhone(phone),
-    });
+    const existingUser = await this.userRepository.findOne(
+      filtroPorTelefone(normalizePhone(phone)),
+    );
 
     return { status: existingUser ? 'registered' : 'available' };
   }
 
-  async register(data: RegisterDto) {
+  async register(data: RegisterDto, remoteIp?: string) {
+    await this.turnstileService.assertHuman(data.captchaToken, remoteIp);
+
     const phoneDigits = await this.assertCadastroDisponivel(
       data.email,
       data.phone,
@@ -164,7 +234,7 @@ export class AuthService {
         })
       : null;
 
-    this.enviarBoasVindas(user);
+    void this.dispatchEmailVerification(user.id, user.name, user.email);
 
     return {
       user: {
@@ -207,7 +277,9 @@ export class AuthService {
     email: string,
     phone: string,
   ): Promise<string> {
-    const existingUser = await this.userRepository.findOne({ email });
+    const existingUser = await this.userRepository.findOne({
+      email: normalizarEmail(email),
+    });
     if (existingUser) {
       if (existingUser.status === UserStatus.PENDING) {
         throw new HttpException(
@@ -222,9 +294,9 @@ export class AuthService {
     }
 
     const phoneDigits = normalizePhone(phone);
-    const phoneOwner = await this.userRepository.findOne({
-      phone: phoneDigits,
-    });
+    const phoneOwner = await this.userRepository.findOne(
+      filtroPorTelefone(phoneDigits),
+    );
     if (phoneOwner) {
       throw new HttpException(
         PHONE_ALREADY_IN_USE_MESSAGE,
@@ -245,7 +317,7 @@ export class AuthService {
       .create({
         id: userId,
         name: data.name,
-        email: data.email,
+        email: normalizarEmail(data.email),
         password: hashedPassword,
         role: UserRole.ADMIN,
         status: UserStatus.ACTIVE,
@@ -285,87 +357,123 @@ export class AuthService {
     }
   }
 
-  private enviarBoasVindas(user: User): void {
-    void this.dispatchEmailVerification(user.id, user.name, user.email);
-
-    if (user.phone) {
-      void this.whatsappService
-        .sendUserWelcome(user.phone, user.name)
-        .catch((err: unknown) => {
-          this.logger.warn(
-            `Falha ao enfileirar WhatsApp de boas-vindas para userId=${user.id}: ${errorMessage(err)}`,
-          );
-        });
-    }
+  private enviarWhatsappDeBoasVindas(user: User): void {
+    if (!user.phone) return;
+    void this.whatsappService
+      .sendUserWelcome(user.phone, user.name)
+      .catch((err: unknown) => {
+        this.logger.warn(
+          `Falha ao enfileirar WhatsApp de boas-vindas para userId=${user.id}: ${errorMessage(err)}`,
+        );
+      });
   }
 
   async login(user: AuthDto) {
     const result = await this.validateUser(user.email, user.password);
+    if (!result) return null;
 
-    if (result) {
-      const fullUser = await this.userRepository.findOneWithProfile({
-        id: result.id,
-      });
-      const doctorProfile = fullUser?.doctorProfile ?? null;
-      const account = await this.buildAccountInfo(result.id, fullUser?.ownerId);
-
-      const refreshToken = await this.createRefreshToken(result.id);
-
-      let pendingConsents: string[] = [];
-      try {
-        const status = await this.consentService.getStatus(result.id);
-        pendingConsents = status.pendingRequired;
-      } catch (err) {
-        this.logger.error(
-          `Falha ao verificar consentimentos no login do usuário ${result.id}`,
-          err instanceof Error ? err.stack : String(err),
-        );
-      }
-
+    if (await this.mfaService.isEnabled(result.id)) {
       return {
-        user: {
-          id: result.id.toString(),
-          role: result.role,
-          name: result.name,
-          phone: result.phone,
-          email: result.email,
-          cpf: result.cpf,
-          status: result.status,
-          ownerId: fullUser?.ownerId,
-          accountId: fullUser?.ownerId,
-          account,
-          isDoctor: !!doctorProfile,
-          isPhysician: isPhysicianProfile(doctorProfile),
-          canIssueClinicalDocuments:
-            isClinicalDocumentIssuerProfile(doctorProfile),
-          emailVerified: fullUser?.emailVerified ?? false,
-          permissions: permissionsOf({
-            role: result.role,
-            permissions: fullUser?.permissions,
-            doctorProfile,
-          }),
-          doctorProfile: doctorProfile
-            ? {
-                id: doctorProfile.id,
-                crm: doctorProfile.crm,
-                crmState: doctorProfile.crmState,
-                council: doctorProfile.council,
-                specialty: doctorProfile.specialty,
-                signatureUrl: doctorProfile.signatureUrl,
-                clinicName: doctorProfile.clinicName,
-              }
-            : null,
-          createdAt:
-            result.createdAt?.toISOString() || new Date().toISOString(),
-          updatedAt:
-            result.updatedAt?.toISOString() || new Date().toISOString(),
-        },
-        access_token: this.jwtService.sign({ userId: result.id }),
-        refresh_token: refreshToken,
-        pending_consents: pendingConsents,
+        mfaRequired: true as const,
+        mfaToken: this.mfaService.createLoginToken(result),
       };
     }
-    return null;
+
+    return this.emitirSessao(result);
+  }
+
+  async loginWithMfa(data: LoginMfaDto) {
+    const { userId, tv } = this.mfaService.verifyLoginToken(data.mfaToken);
+
+    const user = await this.userRepository.findOne({
+      id: userId,
+      status: UserStatus.ACTIVE,
+    });
+    if (!user || !user.emailVerified || (user.tokenVersion ?? 0) !== tv) {
+      throw new UnauthorizedException(
+        'Sua verificação expirou. Entre com e-mail e senha novamente.',
+      );
+    }
+
+    await this.mfaService.verifySecondFactor(userId, data.code, {
+      allowRecovery: true,
+    });
+
+    return this.emitirSessao(user);
+  }
+
+  async issueSessionTokens(userId: string) {
+    const user = await this.userRepository.findOne({
+      id: userId,
+      status: UserStatus.ACTIVE,
+    });
+    if (!user) throw new UnauthorizedException('Sessão inválida');
+    return {
+      access_token: this.signAccessToken(user),
+      refresh_token: await this.createRefreshToken(user.id),
+    };
+  }
+
+  private async emitirSessao(result: User) {
+    const fullUser = await this.userRepository.findOneWithProfile({
+      id: result.id,
+    });
+    const doctorProfile = fullUser?.doctorProfile ?? null;
+    const account = await this.buildAccountInfo(result.id, fullUser?.ownerId);
+
+    const refreshToken = await this.createRefreshToken(result.id);
+
+    let pendingConsents: string[] = [];
+    try {
+      const status = await this.consentService.getStatus(result.id);
+      pendingConsents = status.pendingRequired;
+    } catch (err) {
+      this.logger.error(
+        `Falha ao verificar consentimentos no login do usuário ${result.id}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+    }
+
+    return {
+      user: {
+        id: result.id.toString(),
+        role: result.role,
+        name: result.name,
+        phone: result.phone,
+        email: result.email,
+        cpf: result.cpf,
+        status: result.status,
+        ownerId: fullUser?.ownerId,
+        accountId: fullUser?.ownerId,
+        account,
+        isDoctor: !!doctorProfile,
+        isPhysician: isPhysicianProfile(doctorProfile),
+        canIssueClinicalDocuments:
+          isClinicalDocumentIssuerProfile(doctorProfile),
+        emailVerified: fullUser?.emailVerified ?? false,
+        permissions: permissionsOf({
+          role: result.role,
+          permissions: fullUser?.permissions,
+          doctorProfile,
+        }),
+        doctorProfile: doctorProfile
+          ? {
+              id: doctorProfile.id,
+              crm: doctorProfile.crm,
+              crmState: doctorProfile.crmState,
+              council: doctorProfile.council,
+              specialty: doctorProfile.specialty,
+              signatureUrl: doctorProfile.signatureUrl,
+              clinicName: doctorProfile.clinicName,
+            }
+          : null,
+        createdAt: result.createdAt?.toISOString() || new Date().toISOString(),
+        updatedAt: result.updatedAt?.toISOString() || new Date().toISOString(),
+      },
+      access_token: this.signAccessToken(result),
+      refresh_token: refreshToken,
+      pending_consents: pendingConsents,
+    };
   }
 
   async me(userId: string) {
@@ -373,10 +481,11 @@ export class AuthService {
     if (!user) throw new NotFoundException('Usuário não encontrado');
     const doctorProfile = user.doctorProfile ?? null;
 
-    const [avatarUrl, signatureUrl, account] = await Promise.all([
+    const [avatarUrl, signatureUrl, account, mfaEnabled] = await Promise.all([
       this.resolveStorageUrl(user.avatarUrl),
       this.resolveStorageUrl(doctorProfile?.signatureUrl),
       this.buildAccountInfo(user.id, user.ownerId),
+      this.mfaService.isEnabled(user.id),
     ]);
 
     return {
@@ -411,6 +520,8 @@ export class AuthService {
         : null,
       consents: this.consentService.buildStatusFromUser(user),
       onboardingState: normalizeOnboardingState(user.onboardingState),
+      mfaEnabled,
+      mfaRecommended: !mfaEnabled && canAdministrate(user),
     };
   }
 
@@ -440,16 +551,34 @@ export class AuthService {
     'Se o e-mail existir, enviaremos um código de recuperação.';
 
   async sendRecoveryPasswordEmail(email: string) {
-    const normalizedEmail = email.trim();
+    const normalizedEmail = normalizarEmail(email);
     const user = await this.userRepository.findOne({ email: normalizedEmail });
 
     if (!user) {
       return { message: this.GENERIC_RECOVERY_MESSAGE };
     }
 
+    if (user.status === UserStatus.PENDING) {
+      this.logger.log(
+        `[AUTH_RECOVERY] Recuperação ignorada para convite pendente userId=${user.id}`,
+      );
+      return { message: this.GENERIC_RECOVERY_MESSAGE };
+    }
+
+    if (
+      (await this.attemptLimiter.isRecoveryValidationLocked(normalizedEmail)) ||
+      !(await this.attemptLimiter.tryConsumeRecoveryIssue(user.id))
+    ) {
+      this.logger.warn(
+        `[AUTH_RECOVERY] Limite de códigos por conta atingido para userId=${user.id}`,
+      );
+      return { message: this.GENERIC_RECOVERY_MESSAGE };
+    }
+
     await this.recoveryCodeRepository.deleteMany({
       userId: user.id,
       used: false,
+      purpose: RecoveryCodePurpose.PASSWORD_RESET,
     });
 
     const validationCode = generateValidationCode();
@@ -457,6 +586,7 @@ export class AuthService {
     await this.recoveryCodeRepository.create({
       userId: user.id,
       used: false,
+      purpose: RecoveryCodePurpose.PASSWORD_RESET,
       code: validationCode,
       expiresAt: new Date(Date.now() + this.RECOVERY_CODE_EXPIRY_MS),
     });
@@ -472,37 +602,57 @@ export class AuthService {
   private readonly RESET_TOKEN_EXPIRY_MS = 10 * 60 * 1000;
 
   async validateRecoveryPasswordCode(data: validationCodeDto) {
-    const normalizedEmail = data.email.trim();
+    const normalizedEmail = normalizarEmail(data.email);
     const normalizedCode = data.code.trim().replace(/\s+/g, '');
 
-    const user = await this.userRepository.findOne({ email: normalizedEmail });
-    if (!user) throw new BadRequestException('Código inválido ou expirado');
-
-    const registro = await this.recoveryCodeRepository.findOne({
-      userId: user.id,
-      used: false,
-    });
-
-    assertCodigoUtilizavel(registro);
-
-    if (registro!.code !== normalizedCode) {
-      await consumirTentativa(this.recoveryCodeRepository, registro!);
-      throw new BadRequestException('Código inválido ou expirado');
+    if (await this.attemptLimiter.isRecoveryValidationLocked(normalizedEmail)) {
+      throw new HttpException(
+        RECOVERY_BLOQUEADO_MENSAGEM,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
 
-    const validationCode = registro!;
+    const user = await this.userRepository.findOne({ email: normalizedEmail });
+    if (!user) return this.falhaDeCodigo(normalizedEmail);
 
-    const resetToken = uuidv4();
-    await this.recoveryCodeRepository.updateByWhere(
-      { id: validationCode.id },
-      {
-        used: true,
-        resetToken,
-        resetTokenExpiresAt: new Date(Date.now() + this.RESET_TOKEN_EXPIRY_MS),
-      },
+    const purpose =
+      user.status === UserStatus.PENDING
+        ? RecoveryCodePurpose.INVITE
+        : RecoveryCodePurpose.PASSWORD_RESET;
+
+    const registro = await this.recoveryCodeRepository.findActive(
+      user.id,
+      purpose,
     );
 
+    try {
+      assertCodigoUtilizavel(registro);
+    } catch {
+      return this.falhaDeCodigo(normalizedEmail);
+    }
+
+    const tentativaRegistrada = await consumirTentativa(
+      this.recoveryCodeRepository,
+      registro,
+    );
+    if (!tentativaRegistrada || !codigosIguais(registro.code, normalizedCode)) {
+      return this.falhaDeCodigo(normalizedEmail);
+    }
+
+    const resetToken = uuidv4();
+    const emitido = await this.recoveryCodeRepository.issueResetToken(
+      registro.id,
+      resetToken,
+      new Date(Date.now() + this.RESET_TOKEN_EXPIRY_MS),
+    );
+    if (!emitido) throw codigoInvalido();
+
     return { message: 'Código validado com sucesso', resetToken };
+  }
+
+  private async falhaDeCodigo(email: string): Promise<never> {
+    await this.attemptLimiter.registerRecoveryFailure(email);
+    throw codigoInvalido();
   }
 
   private invalidResetTokenError(): BadRequestException {
@@ -512,7 +662,7 @@ export class AuthService {
   }
 
   async changePassword(data: changePasswordDto) {
-    const normalizedEmail = data.email.trim();
+    const normalizedEmail = normalizarEmail(data.email);
     const normalizedResetToken = data.resetToken.trim();
 
     const user = await this.userRepository.findOne({ email: normalizedEmail });
@@ -552,7 +702,7 @@ export class AuthService {
 
     await this.recoveryCodeRepository.deleteMany({ userId: user.id });
 
-    await this.revokeRefreshTokens(user.id);
+    await this.sessionRevocation.revokeAllSessions(user.id, 'password_reset');
 
     return { message: 'Senha alterada com sucesso' };
   }
@@ -583,6 +733,8 @@ export class AuthService {
 
     await this.userRepository.update(user.id, { password: newPasswordHash });
 
+    await this.sessionRevocation.revokeAllSessions(user.id, 'password_changed');
+
     return { message: 'Senha alterada com sucesso' };
   }
 
@@ -591,15 +743,27 @@ export class AuthService {
 
     if (consumed.status === 'reused') {
       this.logger.error(
-        `[AUTH_REUSE_DETECTED] Reuso de refresh token detectado para userId=${consumed.userId}. Revogando todos os tokens da família.`,
+        `[AUTH_REUSE_DETECTED] Reuso de refresh token detectado para userId=${consumed.userId} familyId=${consumed.familyId ?? 'legado'}. Revogando todas as sessões do usuário.`,
       );
-      await this.revokeRefreshTokens(consumed.userId);
+      await this.sessionRevocation.revokeAllSessions(
+        consumed.userId,
+        'refresh_reuse',
+      );
       throw new UnauthorizedException(
         'Sessão revogada por segurança. Faça login novamente.',
       );
     }
 
-    if (consumed.status !== 'valid') {
+    if (consumed.status === 'grace_exhausted') {
+      this.logger.warn(
+        `[AUTH_REFRESH_GRACE_EXHAUSTED] Token já renovado reapresentado na janela de graça userId=${consumed.userId} familyId=${consumed.familyId ?? 'legado'}`,
+      );
+      throw new ConflictException(
+        'Sessão já renovada em outra aba. Tente novamente.',
+      );
+    }
+
+    if (consumed.status !== 'valid' && consumed.status !== 'grace') {
       throw new BadRequestException('Refresh token inválido');
     }
 
@@ -611,16 +775,23 @@ export class AuthService {
       );
     }
 
-    const newRefreshToken = await this.createRefreshToken(consumed.userId);
+    const newRefreshToken = await this.createRefreshToken(
+      consumed.userId,
+      consumed.familyId,
+    );
 
     return {
-      access_token: this.jwtService.sign({ userId: consumed.userId }),
+      access_token: this.signAccessToken(user),
       refresh_token: newRefreshToken,
     };
   }
 
   async revokeRefreshTokens(userId: string) {
     await this.refreshTokenStore.revokeAllForUser(userId);
+  }
+
+  async logout(userId: string) {
+    await this.sessionRevocation.revokeRefreshTokens(userId, 'logout');
   }
 
   private async dispatchEmailVerification(
@@ -641,7 +812,7 @@ export class AuthService {
 
       const dashboardUrl =
         this.configService.get<string>('DASHBOARD_URL') || '';
-      const verificationUrl = `${dashboardUrl}/confirmar-email?token=${token}`;
+      const verificationUrl = `${dashboardUrl}/confirmar-email#token=${token}`;
 
       await this.mailService.sendEmailVerification(email, {
         userName,
@@ -691,6 +862,8 @@ export class AuthService {
       emailVerificationToken: null,
       emailVerificationExpiresAt: null,
     });
+
+    this.enviarWhatsappDeBoasVindas(user);
 
     return {
       message: 'E-mail confirmado com sucesso',

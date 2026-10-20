@@ -19,6 +19,7 @@ import {
 import { getStatusLabel } from '../../utils/status';
 import {
   resolveRequestByIdentifierOrPatientName,
+  SC_INACESSIVEL_MSG,
   sanitizeIdentifier,
 } from './helpers/surgery-request-access';
 import { recommendActionForPendency } from './helpers/pendency-actions';
@@ -159,9 +160,8 @@ export function buildPendencyTools({
         );
       }
 
-      if (!request) return 'Solicitação não encontrada.';
-      if (!context.accessibleDoctorIds.includes(request.doctorId)) {
-        return 'Você não tem permissão para acessar essa solicitação.';
+      if (!request || !context.accessibleDoctorIds.includes(request.doctorId)) {
+        return SC_INACESSIVEL_MSG;
       }
 
       const result = await pendencyValidator.validateForStatus(request.id);
@@ -422,9 +422,8 @@ export function buildPendencyTools({
         identifier,
         context,
       );
-      if (!request) return 'Solicitação não encontrada.';
-      if (!context.accessibleDoctorIds.includes(request.doctorId)) {
-        return 'Você não tem permissão para acessar essa solicitação.';
+      if (!request || !context.accessibleDoctorIds.includes(request.doctorId)) {
+        return SC_INACESSIVEL_MSG;
       }
 
       const TOOL = 'list_post_surgery_required_docs';

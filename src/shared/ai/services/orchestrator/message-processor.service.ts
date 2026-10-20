@@ -15,6 +15,7 @@ import { PROMPT_VERSION, SYSTEM_PROMPT } from '../../prompts/system-prompt';
 import { User, UserStatus } from '../../../../database/entities/user.entity';
 import { SimpleCache } from '../../utils/simple-cache';
 
+const INBOUND_DEDUPE_TTL_SECONDS = 24 * 60 * 60;
 const AI_CONSENT_NOTICE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const AI_CONSENT_PORTAL_PATH = '/configuracoes/privacidade';
 const AI_CONSENT_DEFAULT_PORTAL_URL = `https://app.inexci.com${AI_CONSENT_PORTAL_PATH}`;
@@ -78,6 +79,22 @@ export class MessageProcessorService {
     private readonly responseNormalizer: ResponseNormalizerService,
   ) {}
 
+  async claimInboundMessage(messageSid: string): Promise<boolean> {
+    const sid = messageSid?.trim();
+    if (!sid) return true;
+    try {
+      return await this.aiRedis.claimOnce(
+        `inbound:sid:${sid}`,
+        INBOUND_DEDUPE_TTL_SECONDS,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Falha ao registrar dedupe do inbound ${sid}: ${(err as Error)?.message}`,
+      );
+      return true;
+    }
+  }
+
   async enqueueInboundMessage(data: InboundMessageData): Promise<void> {
     const carrier: Record<string, string> = {};
     propagation.inject(context.active(), carrier);
@@ -85,6 +102,9 @@ export class MessageProcessorService {
       'process-message',
       { ...data, _otelCarrier: carrier },
       {
+        ...(data.messageSid?.trim()
+          ? { jobId: `inbound:${data.messageSid.trim()}` }
+          : {}),
         attempts: 2,
         backoff: { type: 'exponential', delay: 3000 },
         removeOnComplete: true,

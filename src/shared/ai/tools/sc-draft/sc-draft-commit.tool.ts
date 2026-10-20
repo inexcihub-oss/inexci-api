@@ -1,4 +1,5 @@
 import { AiTool, ToolContext } from '../tool.interface';
+import { draftConfirmationFingerprint } from '../helpers/draft-fingerprint';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../tool-result';
 import { formatScProtocolForDisplay } from '../protocol.helpers';
@@ -20,6 +21,8 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
     name: 'sc_draft_commit',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
+    confirmationFingerprint: draftConfirmationFingerprint(deps.draftService),
     definition: {
       type: 'function',
       function: {

@@ -1,3 +1,16 @@
+jest.mock(
+  'file-type',
+  () => ({
+    fileTypeFromBuffer: (buf: Buffer) =>
+      Promise.resolve(
+        buf.subarray(0, 8).toString('hex') === '89504e470d0a1a0a'
+          ? { ext: 'png', mime: 'image/png' }
+          : undefined,
+      ),
+  }),
+  { virtual: true },
+);
+
 import { buildCadastroDraftTools } from './cadastro-draft.tools';
 import { buildScDraftTools } from './sc-draft.tools';
 import { buildDoctorProfileTools } from './doctor-profile.tools';
@@ -469,7 +482,9 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
         ok: true,
         status: 200,
         headers: { get: () => 'image/png' },
-        arrayBuffer: async () => new Uint8Array([1]).buffer,
+        arrayBuffer: async () =>
+          new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+            .buffer,
       } as any);
       const success = await tool.execute(
         { confirm: true },

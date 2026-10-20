@@ -14,6 +14,12 @@ import { downloadTwilioInboundMedia } from './helpers/twilio-media-download';
 import { buildToolResult } from './tool-result';
 import { Permission } from 'src/shared/permissions';
 import { errorMessage } from '../../utils/error-message.util';
+import { maskPhone } from '../../utils/mask.util';
+import {
+  ArquivoRecebidoInvalidoError,
+  MIME_IMAGENS_RECEBIDAS,
+  tiparArquivoRecebido,
+} from '../utils/arquivo-recebido';
 
 const logger = new Logger('DoctorProfileTools');
 
@@ -66,6 +72,7 @@ export function buildDoctorProfileTools(deps: DoctorProfileToolDeps): AiTool[] {
       Permission.ATENDIMENTO,
     ],
     mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {
@@ -243,15 +250,15 @@ export function buildDoctorProfileTools(deps: DoctorProfileToolDeps): AiTool[] {
             resolvedMedia.url,
             configService,
           );
+          const tipo = await tiparArquivoRecebido(
+            downloaded.buffer,
+            `signature-${doctorProfile.id}`,
+            MIME_IMAGENS_RECEBIDAS,
+          );
           newPath = await storageService.create(
             {
-              originalname: `signature-${doctorProfile.id}.${
-                mime.includes('png') ? 'png' : 'jpg'
-              }`,
-              mimetype:
-                resolvedMedia.contentType ||
-                downloaded.contentType ||
-                'image/png',
+              originalname: tipo.nome,
+              mimetype: tipo.mime,
               buffer: downloaded.buffer,
             },
             STORAGE_FOLDERS.SIGNATURES,
@@ -297,7 +304,7 @@ export function buildDoctorProfileTools(deps: DoctorProfileToolDeps): AiTool[] {
             await documentDispatcher.clearPending(context.phone);
           } catch (err) {
             logger.warn(
-              `[SIGNATURE] falha ao limpar staging phone=${context.phone}: ${(err as Error)?.message}`,
+              `[SIGNATURE] falha ao limpar staging phone=${maskPhone(context.phone)}: ${(err as Error)?.message}`,
             );
           }
         }
@@ -313,6 +320,21 @@ export function buildDoctorProfileTools(deps: DoctorProfileToolDeps): AiTool[] {
           data: { signatureUrl: newPath },
         });
       } catch (err) {
+        if (err instanceof ArquivoRecebidoInvalidoError) {
+          return buildToolResult({
+            status: 'blocked',
+            message: 'O arquivo enviado não é uma imagem válida.',
+            displayText:
+              'O arquivo enviado não é uma imagem válida. Envie uma foto (JPG, PNG ou WEBP) da sua assinatura.',
+            errors: [
+              {
+                field: 'inboundMedia',
+                code: 'INVALID_MEDIA_TYPE',
+                message: err.message,
+              },
+            ],
+          });
+        }
         const reason = errorMessage(err) || 'erro desconhecido';
         return buildToolResult({
           status: 'error',

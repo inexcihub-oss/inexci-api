@@ -130,6 +130,81 @@ describe('SurgeryRequestMutationService', () => {
     });
   });
 
+  describe('update — mass assignment', () => {
+    it('grava só os campos editáveis, mesmo recebendo campos extras', async () => {
+      const payload = {
+        id: 'sc-1',
+        priority: 3,
+        healthPlanRegistration: '123',
+        healthPlanType: 'Apto',
+        status: 9,
+        ownerId: 'outra-clinica',
+        doctorId: 'outro-medico',
+        patientId: 'patient-x',
+        createdById: 'intruso',
+        protocol: 'SC-FAKE',
+        isIndication: true,
+      };
+
+      await service.update(payload, userId);
+
+      const [id, patch] = mockSurgeryRequestRepo.update.mock.calls[0];
+      expect(id).toBe('sc-1');
+      expect(patch).toEqual({
+        priority: 3,
+        healthPlanRegistration: '123',
+        healthPlanType: 'Apto',
+      });
+    });
+
+    it('converte cid em cidCode e permite limpar', async () => {
+      await service.update({ id: 'sc-1', cid: { code: 'M17' } }, userId);
+      expect(mockSurgeryRequestRepo.update.mock.calls[0][1]).toEqual({
+        cidCode: 'M17',
+      });
+
+      await service.update({ id: 'sc-1', cid: null as never }, userId);
+      expect(mockSurgeryRequestRepo.update.mock.calls[1][1]).toEqual({
+        cidCode: null,
+      });
+    });
+
+    it('limpa hospital e convênio quando recebem null', async () => {
+      await service.update(
+        { id: 'sc-1', hospital: null as never, healthPlan: null as never },
+        userId,
+      );
+      expect(mockSurgeryRequestRepo.update.mock.calls[0][1]).toEqual({
+        hospitalId: null,
+        healthPlanId: null,
+      });
+    });
+
+    it('valida no tenant o hospital resolvido por nome', async () => {
+      mockHospitalRepo.findOne.mockResolvedValue({
+        id: 'hosp-x',
+        name: 'Outro',
+      });
+
+      await expect(
+        service.update(
+          { id: 'sc-1', hospital: { name: 'Outro' } as never },
+          userId,
+        ),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockSurgeryRequestRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('não grava nada fora do recorte do usuário', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(null);
+
+      await expect(
+        service.update({ id: 'sc-1', priority: 2 }, userId),
+      ).rejects.toThrow();
+      expect(mockSurgeryRequestRepo.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe('createSurgeryRequest — isolamento de tenant (B1)', () => {
     const base = {
       patientId: 'patient-1',

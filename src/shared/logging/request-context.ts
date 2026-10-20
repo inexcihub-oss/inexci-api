@@ -5,6 +5,7 @@ export interface RequestContext {
   userId?: string | null;
   tenantId?: string | null;
   traceId?: string | null;
+  ip?: string | null;
 }
 
 export const requestContextStorage = new AsyncLocalStorage<RequestContext>();

@@ -25,6 +25,7 @@ export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
     name: 'manage_tuss_items',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {

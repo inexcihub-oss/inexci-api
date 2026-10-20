@@ -8,12 +8,16 @@ import {
 } from '../../../database/entities/surgery-request.entity';
 import { FindOptionsWhere, In } from 'typeorm';
 import { getStatusLabel } from '../../utils/status';
-import { resolveRequestByIdentifierOrPatientName } from './helpers/surgery-request-access';
+import {
+  resolveRequestByIdentifierOrPatientName,
+  SC_INACESSIVEL_MSG,
+} from './helpers/surgery-request-access';
 import { Logger } from '@nestjs/common';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 import { tokenizePii } from '../pii/tool-pii-helpers';
 import { stripScPrefix } from './protocol.helpers';
 import { argToString } from './helpers/arg-parsers';
+import { auditProntuarioAccess } from 'src/shared/logging/audit';
 
 const logger = new Logger('SurgeryRequestTools');
 
@@ -110,13 +114,22 @@ export function buildSurgeryRequestTools({
           if (fullRequest) request = fullRequest;
         }
 
-        if (!request) {
-          return 'Não encontrei essa solicitação. Verifique o número do protocolo ou o nome do paciente e tente novamente.';
+        if (
+          !request ||
+          !context.accessibleDoctorIds.includes(request.doctorId)
+        ) {
+          return `${SC_INACESSIVEL_MSG} Verifique o número do protocolo ou o nome do paciente e tente novamente.`;
         }
 
-        if (!context.accessibleDoctorIds.includes(request.doctorId)) {
-          return 'Você não tem permissão para acessar essa solicitação.';
-        }
+        auditProntuarioAccess({
+          resource: 'surgery_request',
+          resourceId: request.id,
+          action: 'read',
+          actorUserId: context.userId,
+          tenantId: request.ownerId,
+          patientId: request.patientId,
+          origin: 'ai',
+        });
 
         const statusLabel = getStatusLabel(request.status);
         const priority =

@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ENTITIES } from '../entities';
 import * as repositories from '../repositories';
 import { CompactTypeOrmLogger } from '../../shared/logging/typeorm.logger';
+import { resolvePostgresSsl } from './postgres-ssl';
 
 @Global()
 @Module({
@@ -16,6 +17,13 @@ import { CompactTypeOrmLogger } from '../../shared/logging/typeorm.logger';
         return {
           type: 'postgres',
           url: configService.get('DATABASE_URL'),
+          ssl: resolvePostgresSsl({
+            DB_SSL: configService.get<string>('DB_SSL'),
+            DB_SSL_REJECT_UNAUTHORIZED: configService.get<string>(
+              'DB_SSL_REJECT_UNAUTHORIZED',
+            ),
+            DB_SSL_CA: configService.get<string>('DB_SSL_CA'),
+          }),
           entities: ENTITIES,
           synchronize: false,
           logging: isDev

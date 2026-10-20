@@ -1,15 +1,21 @@
 import { AiTool, ANY_AUTHENTICATED, ToolContext } from './tool.interface';
 import { ProcedureRepository } from '../../../database/repositories/procedure.repository';
-import { normalizeNameForCompare } from './catalog.helpers';
+import {
+  normalizeNameForCompare,
+  resolveOwnerIdFromContext,
+} from './catalog.helpers';
 import { EntityResolverService } from '../services/entity-resolver.service';
+import { UserRepository } from '../../../database/repositories/user.repository';
 
 export interface CatalogToolDeps {
   procedureRepo: ProcedureRepository;
+  userRepo?: UserRepository;
   entityResolver?: EntityResolverService;
 }
 
 export function buildCatalogTools({
   procedureRepo,
+  userRepo,
   entityResolver: resolver,
 }: CatalogToolDeps): AiTool[] {
   const entityResolver = resolver ?? new EntityResolverService();
@@ -53,7 +59,10 @@ export function buildCatalogTools({
         50,
       );
 
-      const all = await procedureRepo.findMany({}, 0, 500);
+      const ownerId = await resolveOwnerIdFromContext(context, userRepo);
+      if (!ownerId) return 'Acesso negado.';
+
+      const all = await procedureRepo.findMany({ ownerId }, 0, 500);
       let candidates = all;
       let usedFuzzy = false;
       if (queryRaw) {

@@ -171,6 +171,19 @@ export class WebhookController {
       return '<Response></Response>';
     }
 
+    let firstDelivery = true;
+    try {
+      firstDelivery = await this.aiOrchestrator.claimInboundMessage(messageSid);
+    } catch (error) {
+      this.logger.warn(
+        `Falha ao checar duplicidade do webhook (${messageSid}): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (!firstDelivery) {
+      this.logger.log(`Webhook Twilio duplicado ignorado (${messageSid})`);
+      return '<Response></Response>';
+    }
+
     try {
       const schedulingHandled =
         await this.webhookService.tryHandleSchedulingSelection({

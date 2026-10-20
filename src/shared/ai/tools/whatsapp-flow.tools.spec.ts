@@ -507,7 +507,7 @@ describe('WhatsappFlowTools', () => {
       const tool = getTool('list_sc_creation_catalog');
       const result = await tool.execute(
         { category: 'patients', limit: 5 },
-        { ...baseContext, piiVault },
+        { ...baseContext, ownerId: 'owner-1', piiVault },
       );
 
       expect(result).toContain('Maria do Carmo');
@@ -557,13 +557,21 @@ describe('WhatsappFlowTools', () => {
 
       const summary = await tool.execute(
         {},
-        { ...baseContext, permissions: [Permission.SOLICITACOES] },
+        {
+          ...baseContext,
+          ownerId: 'owner-1',
+          permissions: [Permission.SOLICITACOES],
+        },
       );
       expect(summary).toContain('Modelo padrão');
 
       const explicit = await tool.execute(
         { category: 'templates' },
-        { ...baseContext, permissions: [Permission.SOLICITACOES] },
+        {
+          ...baseContext,
+          ownerId: 'owner-1',
+          permissions: [Permission.SOLICITACOES],
+        },
       );
       expect(explicit).toContain('Modelo padrão');
     });
@@ -573,6 +581,45 @@ describe('WhatsappFlowTools', () => {
       const result = await tool.execute({ category: 'templates' }, baseContext);
 
       expect(result).toContain('não tem acesso');
+    });
+  });
+
+  describe('list_sc_creation_catalog — isolamento de tenant', () => {
+    beforeEach(() => {
+      mockPatientRepo.findMany = jest.fn().mockResolvedValue([]);
+      (mockHospitalRepo as any).findMany = jest.fn().mockResolvedValue([]);
+      (mockHealthPlanRepo as any).findMany = jest.fn().mockResolvedValue([]);
+      mockUserRepo.findMany.mockResolvedValue([]);
+      mockProcedureRepo.findMany.mockResolvedValue([]);
+      (mockSurgeryRequestsService as any).getTemplates = jest
+        .fn()
+        .mockResolvedValue([]);
+    });
+
+    it('filtra procedimentos, hospitais e convênios pelo ownerId', async () => {
+      const tool = getTool('list_sc_creation_catalog');
+      await tool.execute({}, { ...baseContext, ownerId: 'owner-1' });
+
+      expect(mockProcedureRepo.findMany).toHaveBeenCalledWith(
+        { ownerId: 'owner-1' },
+        0,
+        20,
+      );
+      expect((mockHospitalRepo as any).findMany).toHaveBeenCalledWith(
+        { ownerId: 'owner-1' },
+        0,
+        20,
+      );
+    });
+
+    it('recusa quando o ownerId não pode ser resolvido (fail-closed)', async () => {
+      (mockUserRepo as any).findOne = jest.fn().mockResolvedValue(null);
+      const tool = getTool('list_sc_creation_catalog');
+      const result = await tool.execute({}, { ...baseContext, ownerId: null });
+
+      expect(result).toBe('Acesso negado.');
+      expect(mockProcedureRepo.findMany).not.toHaveBeenCalled();
+      expect((mockHospitalRepo as any).findMany).not.toHaveBeenCalled();
     });
   });
 

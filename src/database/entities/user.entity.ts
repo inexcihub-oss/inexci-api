@@ -12,6 +12,7 @@ import {
   Index,
 } from 'typeorm';
 import { Exclude } from 'class-transformer';
+import { encryptedTransformer } from '../../shared/crypto/encryption.util';
 import { Permission } from 'src/shared/permissions';
 import { OnboardingState } from '../../modules/onboarding/onboarding.types';
 import { PatientNotificationSettings } from '../../common/patient-notification-settings';
@@ -33,8 +34,11 @@ export enum UserStatus {
   INACTIVE = 'inactive',
 }
 
+export const USER_EMAIL_UNICO = 'uq_users_email_lower';
+
 @Entity('users')
 @Index('idx_users_owner_id', ['ownerId'])
+@Index(USER_EMAIL_UNICO, { synchronize: false })
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -53,7 +57,7 @@ export class User {
   })
   status: UserStatus;
 
-  @Column({ type: 'varchar', length: 160, unique: true })
+  @Column({ type: 'varchar', length: 160 })
   email: string;
 
   @Exclude()
@@ -134,6 +138,58 @@ export class User {
 
   @Column({ name: 'is_platform_admin', type: 'boolean', default: false })
   isPlatformAdmin: boolean;
+
+  @Exclude()
+  @Column({ name: 'token_version', type: 'integer', default: 0 })
+  tokenVersion: number;
+
+  @Exclude()
+  @Column({
+    name: 'mfa_secret',
+    type: 'text',
+    nullable: true,
+    select: false,
+    transformer: encryptedTransformer,
+  })
+  mfaSecret: string | null;
+
+  @Exclude()
+  @Column({
+    name: 'mfa_pending_secret',
+    type: 'text',
+    nullable: true,
+    select: false,
+    transformer: encryptedTransformer,
+  })
+  mfaPendingSecret: string | null;
+
+  @Exclude()
+  @Column({
+    name: 'mfa_enabled_at',
+    type: 'timestamptz',
+    nullable: true,
+    select: false,
+  })
+  mfaEnabledAt: Date | null;
+
+  @Exclude()
+  @Column({
+    name: 'mfa_recovery_codes',
+    type: 'text',
+    array: true,
+    nullable: true,
+    select: false,
+  })
+  mfaRecoveryCodes: string[] | null;
+
+  @Exclude()
+  @Column({
+    name: 'mfa_last_used_step',
+    type: 'integer',
+    nullable: true,
+    select: false,
+  })
+  mfaLastUsedStep: number | null;
 
   @Column({
     name: 'permissions',

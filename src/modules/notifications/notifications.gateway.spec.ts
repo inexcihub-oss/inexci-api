@@ -7,8 +7,8 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { NotificationType } from 'src/database/entities/notification.entity';
 import { UserStatus } from 'src/database/entities/user.entity';
 
-const makeSocket = (token?: string): any => ({
-  handshake: { auth: { token } },
+const makeSocket = (token?: string, origin?: string): any => ({
+  handshake: { auth: { token }, headers: origin ? { origin } : {} },
   data: {},
   join: jest.fn(),
   disconnect: jest.fn(),
@@ -189,6 +189,123 @@ describe('NotificationsGateway', () => {
       expect(mockEmit).toHaveBeenCalledWith('notification:unread-count', {
         count: 4,
       });
+    });
+  });
+
+  describe('endurecimento da sessão no socket', () => {
+    const corsOriginal = process.env.CORS_ORIGINS;
+
+    beforeEach(() => {
+      process.env.CORS_ORIGINS = 'https://app.inexci.com.br';
+    });
+
+    afterEach(() => {
+      process.env.CORS_ORIGINS = corsOriginal;
+      jest.useRealTimers();
+      gateway.onModuleDestroy();
+    });
+
+    it('recusa handshake de origem fora de CORS_ORIGINS antes de verificar o token', async () => {
+      const client = makeSocket('valid-token', 'https://evil.example');
+
+      await gateway.handleConnection(client);
+
+      expect(client.disconnect).toHaveBeenCalledWith(true);
+      expect(jwtService.verify).not.toHaveBeenCalled();
+      expect(client.join).not.toHaveBeenCalled();
+    });
+
+    it('aceita a origem do frontend', async () => {
+      const client = makeSocket('valid-token', 'https://app.inexci.com.br');
+      jwtService.verify.mockReturnValue({ userId: 'user-123' });
+
+      await gateway.handleConnection(client);
+
+      expect(client.join).toHaveBeenCalledWith('user:user-123');
+    });
+
+    it('recusa token emitido antes da revogação das sessões (tokenVersion)', async () => {
+      const client = makeSocket('valid-token');
+      jwtService.verify.mockReturnValue({ userId: 'user-123', tv: 1 });
+      userRepository.findOne.mockResolvedValue({
+        status: UserStatus.ACTIVE,
+        tokenVersion: 2,
+      });
+
+      await gateway.handleConnection(client);
+
+      expect(client.disconnect).toHaveBeenCalledWith(true);
+      expect(client.join).not.toHaveBeenCalled();
+    });
+
+    it('desconecta o socket quando o access token expira', async () => {
+      jest.useFakeTimers();
+      const agora = Date.now();
+      jest.setSystemTime(agora);
+      const client = makeSocket('valid-token');
+      jwtService.verify.mockReturnValue({
+        userId: 'user-123',
+        exp: Math.floor(agora / 1000) + 60,
+      });
+
+      await gateway.handleConnection(client);
+      expect(client.disconnect).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(59_000);
+      expect(client.disconnect).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(2_000);
+      expect(client.emit).toHaveBeenCalledWith('session:expired');
+      expect(client.disconnect).toHaveBeenCalledWith(true);
+    });
+
+    it('cancela o timer de expiração quando o cliente sai antes', async () => {
+      jest.useFakeTimers();
+      const client = makeSocket('valid-token');
+      jwtService.verify.mockReturnValue({
+        userId: 'user-123',
+        exp: Math.floor(Date.now() / 1000) + 60,
+      });
+
+      await gateway.handleConnection(client);
+      gateway.handleDisconnect(client);
+      jest.advanceTimersByTime(120_000);
+
+      expect(client.disconnect).not.toHaveBeenCalled();
+    });
+
+    it('derruba todos os sockets do usuário quando as sessões são revogadas', () => {
+      const disconnectSockets = jest.fn();
+      const mockIn = jest.fn().mockReturnValue({ disconnectSockets });
+      (gateway as any).server = { in: mockIn };
+
+      gateway.onSessionsRevoked({
+        userId: 'user-9',
+        reason: 'password_changed',
+        accessTokensRevoked: true,
+      });
+
+      expect(mockIn).toHaveBeenCalledWith('user:user-9');
+      expect(disconnectSockets).toHaveBeenCalledWith(true);
+    });
+
+    it('user.access_changed só derruba os sockets se a conta deixou de estar ativa', async () => {
+      const disconnectSockets = jest.fn();
+      (gateway as any).server = {
+        in: jest.fn().mockReturnValue({ disconnectSockets }),
+      };
+
+      userRepository.findOne.mockResolvedValueOnce({
+        status: UserStatus.ACTIVE,
+      });
+      await gateway.onAccessChanged({ userId: 'user-9' });
+      expect(disconnectSockets).not.toHaveBeenCalled();
+
+      userRepository.findOne.mockResolvedValueOnce({
+        status: UserStatus.INACTIVE,
+      });
+      await gateway.onAccessChanged({ userId: 'user-9' });
+      expect(disconnectSockets).toHaveBeenCalledWith(true);
     });
   });
 });

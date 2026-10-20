@@ -10,6 +10,16 @@ import { detokenizeArg } from '../../pii/tool-pii-helpers';
 import { ToolContext } from '../tool.interface';
 import { buildProtocolCandidates } from '../protocol.helpers';
 import { In } from 'typeorm';
+import { Logger } from '@nestjs/common';
+
+const logger = new Logger('SurgeryRequestAccess');
+
+export const SC_INACESSIVEL_MSG =
+  'Solicitação não encontrada ou você não tem permissão para acessá-la.';
+
+function podeAcessar(request: SurgeryRequest, context: ToolContext): boolean {
+  return context.accessibleDoctorIds.includes(request.doctorId);
+}
 
 const UUID_REGEX = /^[0-9a-f-]{36}$/i;
 
@@ -50,7 +60,13 @@ export async function resolveRequestByIdentifierOrPatientName(
   if (!identifier) return null;
 
   const direct = await resolveSurgeryRequest(surgeryRequestRepo, identifier);
-  if (direct) return direct;
+  if (direct) {
+    if (podeAcessar(direct, context)) return direct;
+    logger.warn(
+      `[SC_ACCESS] negado user=${context.userId ?? '-'} sc=${direct.id}`,
+    );
+    return null;
+  }
 
   const accessible = await surgeryRequestRepo.findMany(
     { doctorId: In(context.accessibleDoctorIds) },
@@ -86,14 +102,14 @@ export async function resolveAuthorizedRequest(
   const request = await resolveSurgeryRequest(surgeryRequestRepo, identifier);
 
   if (!request) {
-    return { request: null, error: 'Solicitação não encontrada.' };
+    return { request: null, error: SC_INACESSIVEL_MSG };
   }
 
-  if (!context.accessibleDoctorIds.includes(request.doctorId)) {
-    return {
-      request: null,
-      error: 'Você não tem permissão para acessar essa solicitação.',
-    };
+  if (!podeAcessar(request, context)) {
+    logger.warn(
+      `[SC_ACCESS] negado user=${context.userId ?? '-'} sc=${request.id}`,
+    );
+    return { request: null, error: SC_INACESSIVEL_MSG };
   }
 
   return { request, error: null };

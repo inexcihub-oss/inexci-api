@@ -3,6 +3,7 @@ import { AuthController } from './auth.controller';
 const THROTTLERS_CONFIGURADOS = ['short', 'medium', 'long'];
 
 const ROTAS_COM_LIMITE = [
+  'register',
   'checkEmail',
   'checkPhone',
   'login',
@@ -12,6 +13,11 @@ const ROTAS_COM_LIMITE = [
   'refresh',
   'verifyEmail',
   'resendEmailVerification',
+  'loginMfa',
+  'mfaSetup',
+  'mfaEnable',
+  'mfaDisable',
+  'mfaRecoveryCodes',
 ];
 
 describe('AuthController — rate limiting', () => {
@@ -35,6 +41,25 @@ describe('AuthController — rate limiting', () => {
     },
   );
 
+  const limiteNomeado = (metodo: string, nome: string) => {
+    const handler = (AuthController.prototype as any)[metodo];
+    return Reflect.getMetadata(`THROTTLER:LIMIT${nome}`, handler) as
+      | number
+      | undefined;
+  };
+
+  it('cadastro tem limite por hora mais restrito que as checagens do wizard', () => {
+    expect(limiteNomeado('register', 'long')).toBeLessThanOrEqual(5);
+    expect(limiteNomeado('register', 'long')).toBeLessThan(
+      limiteNomeado('checkEmail', 'long') as number,
+    );
+  });
+
+  it('check-email e check-phone ficam em no máximo 10 por hora', () => {
+    expect(limiteNomeado('checkEmail', 'long')).toBeLessThanOrEqual(10);
+    expect(limiteNomeado('checkPhone', 'long')).toBeLessThanOrEqual(10);
+  });
+
   it('refresh tolera uso normal de várias abas (limite bem acima do de login)', () => {
     const limite = (metodo: string) => {
       const handler = (AuthController.prototype as any)[metodo];
@@ -46,5 +71,18 @@ describe('AuthController — rate limiting', () => {
 
     expect(limite('refresh')).toBeGreaterThanOrEqual(30);
     expect(limite('refresh')).toBeGreaterThan(limite('login'));
+  });
+
+  it('rotas de MFA ficam no mesmo patamar curto do login', () => {
+    for (const metodo of [
+      'loginMfa',
+      'mfaSetup',
+      'mfaEnable',
+      'mfaDisable',
+      'mfaRecoveryCodes',
+    ]) {
+      expect(limiteNomeado(metodo, 'short')).toBeLessThanOrEqual(5);
+      expect(limiteNomeado(metodo, 'long')).toBeLessThanOrEqual(20);
+    }
   });
 });

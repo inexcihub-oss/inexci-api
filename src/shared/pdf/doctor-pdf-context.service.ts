@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
+import { caminhoDoLogoDoCabecalho } from 'src/shared/storage/logo-do-cabecalho';
 import { CustomHeaderData } from './pdf.service';
 import { User } from 'src/database/entities/user.entity';
 import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
@@ -49,7 +50,10 @@ export class DoctorPdfContextService {
     const doctorCrm = formatarRegistroProfissional(profile);
 
     const doctorSignatureUrl = await this.resolveSignatureUrl(profile);
-    const customHeader = await this.resolveCustomHeader(profile);
+    const customHeader = await this.resolveCustomHeader(
+      profile,
+      doctor?.ownerId,
+    );
 
     return { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader };
   }
@@ -69,6 +73,7 @@ export class DoctorPdfContextService {
 
   async resolveCustomHeader(
     profile: DoctorProfile | null | undefined,
+    ownerId?: string | null,
   ): Promise<CustomHeaderData | null> {
     if (!profile?.id) return null;
 
@@ -78,15 +83,15 @@ export class DoctorPdfContextService {
     if (!header) return null;
 
     let logoUrl: string | null = null;
-    if (header.logoUrl) {
-      if (header.logoUrl.startsWith('http')) {
-        logoUrl = header.logoUrl;
-      } else {
-        try {
-          logoUrl = await this.storageService.getSignedUrl(header.logoUrl);
-        } catch {
-          logoUrl = null;
-        }
+    const caminhoDoLogo = caminhoDoLogoDoCabecalho(header.logoUrl, {
+      bucket: this.storageService.nomeDoBucket,
+      ownerId,
+    });
+    if (caminhoDoLogo) {
+      try {
+        logoUrl = await this.storageService.getSignedUrl(caminhoDoLogo);
+      } catch {
+        logoUrl = null;
       }
     }
 

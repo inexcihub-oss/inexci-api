@@ -1,16 +1,23 @@
 import { AiTool } from '../../tool.interface';
+import { draftConfirmationFingerprint } from '../../helpers/draft-fingerprint';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { FlowDraftDeps } from '../_types';
-import { recordAiActivity } from '../../helpers/surgery-request-access';
+import {
+  getAuthorizedRequest,
+  recordAiActivity,
+} from '../../helpers/surgery-request-access';
 import { errorMessage } from '../../../../utils/error-message.util';
 
 export function buildInvoiceDraftCommitTool(deps: FlowDraftDeps): AiTool {
-  const { draftService, workflowService, activityRepo } = deps;
+  const { draftService, workflowService, activityRepo, surgeryRequestRepo } =
+    deps;
   return {
     name: 'invoice_draft_commit',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
+    confirmationFingerprint: draftConfirmationFingerprint(deps.draftService),
     definition: {
       type: 'function',
       function: {
@@ -46,6 +53,14 @@ export function buildInvoiceDraftCommitTool(deps: FlowDraftDeps): AiTool {
         });
       }
       const fields = v.draft.fields;
+      const acesso = await getAuthorizedRequest(
+        surgeryRequestRepo,
+        fields.surgeryRequestId,
+        context,
+      );
+      if (!acesso.ok) {
+        return buildToolResult({ status: 'error', message: acesso.message });
+      }
       try {
         await workflowService.invoiceRequest(
           fields.surgeryRequestId!,

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -16,7 +17,9 @@ import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { Document } from 'src/database/entities/document.entity';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 import { STORAGE_FOLDER_SIZE_LIMITS } from 'src/config/storage.config';
+import { prepararDocumentoParaUpload } from 'src/shared/storage/tipo-arquivo';
 import { CreateClinicalDocumentDto } from './dto/create-clinical-document.dto';
+import { isDocumentoEmitido } from './clinical-documents.constants';
 import { DeleteClinicalDocumentDto } from './dto/delete-clinical-document.dto';
 
 @Injectable()
@@ -57,8 +60,10 @@ export class ClinicalDocumentsService {
       );
     }
 
+    const arquivo = await prepararDocumentoParaUpload(file);
+
     const storagePath = await this.storageService.create(
-      file,
+      arquivo,
       data.folder,
       patient.ownerId,
     );
@@ -79,6 +84,7 @@ export class ClinicalDocumentsService {
       action: 'create',
       actorUserId: userId,
       tenantId: patient.ownerId,
+      patientId: data.patientId,
     });
 
     return {
@@ -97,9 +103,15 @@ export class ClinicalDocumentsService {
       action: 'list',
       actorUserId: userId,
       tenantId: patient.ownerId,
+      patientId,
     });
 
-    const documents = await this.documentRepository.findByPatientId(patientId);
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
+    const documents = await this.documentRepository.findByPatientIdForDoctors(
+      patientId,
+      doctorIds,
+    );
     return transformDocumentUrls(documents, this.storageService);
   }
 
@@ -111,6 +123,23 @@ export class ClinicalDocumentsService {
       throw new NotFoundException(ERROR_MESSAGES.DOCUMENT_NOT_FOUND);
     }
     const patient = await this.assertPatientAccess(document.patientId, userId);
+
+    if (document.clinicalRecordId) {
+      await this.assertRecordAccess(
+        document.clinicalRecordId,
+        document.patientId,
+        userId,
+      );
+    }
+
+    if (isDocumentoEmitido(document)) {
+      await this.accessControlService.assertIsDoctor(userId);
+      if (document.createdById !== userId) {
+        throw new ForbiddenException(
+          'Só o médico que emitiu este documento pode excluí-lo.',
+        );
+      }
+    }
 
     await executeInTransaction(
       this.dataSource,
@@ -142,6 +171,7 @@ export class ClinicalDocumentsService {
       action: 'delete',
       actorUserId: userId,
       tenantId: patient.ownerId,
+      patientId: document.patientId,
     });
   }
 

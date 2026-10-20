@@ -1,4 +1,5 @@
 import { ProfessionalCouncil } from 'src/database/entities/doctor-profile.entity';
+import { RecoveryCodePurpose } from 'src/database/entities/recovery-code.entity';
 import {
   ForbiddenException,
   NotFoundException,
@@ -71,8 +72,8 @@ describe('UsersService — Colaboradores e Permissões', () => {
     upsert: jest.fn(),
     removeByDoctorProfileId: jest.fn(),
   };
-  const mockRefreshTokenStore = {
-    revokeAllForUser: jest.fn(),
+  const mockSessionRevocation = {
+    revokeAllSessions: jest.fn(),
   };
   const mockEventEmitter = { emit: jest.fn() };
 
@@ -94,7 +95,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockWhatsappService as any,
       mockConfigService as any,
       mockDoctorHeaderRepository as any,
-      mockRefreshTokenStore as any,
+      mockSessionRevocation as any,
       mockEventEmitter as any,
     );
   });
@@ -1711,7 +1712,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue(adminUser);
     });
 
-    it('deve gerar novo token, invalidar TODOS os anteriores e enviar e-mail', async () => {
+    it('deve gerar novo token, invalidar os convites anteriores e enviar e-mail', async () => {
       mockUserRepository.findOne.mockResolvedValueOnce({
         id: 'collab-1',
         name: 'Colaborador Pendente',
@@ -1729,6 +1730,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
       expect(mockRecoveryCodeRepository.deleteMany).toHaveBeenCalledWith({
         userId: 'collab-1',
+        purpose: RecoveryCodePurpose.INVITE,
       });
       expect(mockRecoveryCodeRepository.deleteMany).not.toHaveBeenCalledWith(
         expect.objectContaining({ used: expect.anything() }),
@@ -1737,6 +1739,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
         expect.objectContaining({
           userId: 'collab-1',
           used: false,
+          purpose: RecoveryCodePurpose.INVITE,
           code: expect.any(String),
           expiresAt: expect.any(Date),
         }),
@@ -1749,7 +1752,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
           collaboratorName: 'Colaborador Pendente',
           inviterName: 'Admin',
           email: 'pending@example.com',
-          setupLink: expect.stringContaining('/primeiro-acesso?email='),
+          setupLink: expect.stringContaining('/primeiro-acesso#email='),
         }),
       );
       expect(result).toEqual({
@@ -1949,8 +1952,9 @@ describe('UsersService — Colaboradores e Permissões', () => {
           'dono-1',
         ),
       ).resolves.toEqual({ message: 'Senha redefinida com sucesso' });
-      expect(mockRefreshTokenStore.revokeAllForUser).toHaveBeenCalledWith(
+      expect(mockSessionRevocation.revokeAllSessions).toHaveBeenCalledWith(
         'collab-do-delegado',
+        'password_reset',
       );
     });
   });
@@ -1980,6 +1984,10 @@ describe('UsersService — Colaboradores e Permissões', () => {
         'user.access_changed',
         { userId: 'collab-1', phone: '+5511999998888' },
       );
+      expect(mockSessionRevocation.revokeAllSessions).toHaveBeenCalledWith(
+        'collab-1',
+        'deactivated',
+      );
     });
 
     it('emite o evento também ao reativar um colaborador inativo', async () => {
@@ -2006,6 +2014,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
         'user.access_changed',
         { userId: 'collab-1', phone: '+5511999998888' },
       );
+      expect(mockSessionRevocation.revokeAllSessions).not.toHaveBeenCalled();
     });
   });
 
@@ -2668,6 +2677,105 @@ describe('UsersService — Colaboradores e Permissões', () => {
       expect(result).toEqual({ id: 'header-1' });
     });
 
+    it.each([
+      [
+        'ler',
+        (svc: UsersService) =>
+          svc.getDoctorHeaderByUserId('dono-1', 'delegado-1'),
+      ],
+      [
+        'alterar',
+        (svc: UsersService) =>
+          svc.upsertDoctorHeaderByUserId(
+            'dono-1',
+            { contentHtml: '<p>x</p>' },
+            'delegado-1',
+          ),
+      ],
+      [
+        'remover',
+        (svc: UsersService) =>
+          svc.deleteDoctorHeaderByUserId('dono-1', 'delegado-1'),
+      ],
+    ])(
+      'impede o admin delegado de %s o cabeçalho do dono',
+      async (_, chamar) => {
+        mockUserRepository.findOneWithProfile.mockResolvedValueOnce({
+          id: 'delegado-1',
+          role: UserRole.COLLABORATOR,
+          ownerId: 'dono-1',
+          permissions: [Permission.ADMINISTRACAO],
+          doctorProfile: null,
+        });
+        mockUserRepository.findOne.mockResolvedValueOnce({
+          id: 'dono-1',
+          ownerId: 'dono-1',
+        });
+        mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+          id: 'profile-dono',
+        });
+
+        await expect(chamar(service)).rejects.toThrow(ForbiddenException);
+        expect(mockDoctorHeaderRepository.upsert).not.toHaveBeenCalled();
+        expect(
+          mockDoctorHeaderRepository.removeByDoctorProfileId,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
+    it('o dono continua editando o próprio cabeçalho pela rota por id', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValueOnce({
+        id: 'dono-1',
+        role: UserRole.ADMIN,
+        ownerId: 'dono-1',
+      });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'dono-1',
+        ownerId: 'dono-1',
+      });
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+        id: 'profile-dono',
+      });
+      mockDoctorHeaderRepository.findByDoctorProfileId.mockResolvedValue(null);
+
+      await service.upsertDoctorHeaderByUserId(
+        'dono-1',
+        { logoUrl: 'headers/dono-1/logo.png' },
+        'dono-1',
+      );
+
+      expect(mockDoctorHeaderRepository.upsert).toHaveBeenCalledWith(
+        'profile-dono',
+        expect.objectContaining({ logoUrl: 'headers/dono-1/logo.png' }),
+      );
+    });
+
+    it('recusa logo de outra conta na rota por id', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValueOnce({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'doctor-1',
+        ownerId: 'dono-1',
+      });
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+        id: 'profile-1',
+      });
+      mockDoctorHeaderRepository.findByDoctorProfileId.mockResolvedValue(null);
+
+      await expect(
+        service.upsertDoctorHeaderByUserId(
+          'doctor-1',
+          { logoUrl: 'headers/outra-conta/logo.png' },
+          'delegado-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
     it('bloqueia colaborador sem Administração de configurar o cabeçalho de outro médico', async () => {
       mockUserRepository.findOneWithProfile.mockResolvedValueOnce({
         id: 'comum-1',
@@ -2713,6 +2821,81 @@ describe('UsersService — Colaboradores e Permissões', () => {
   });
 
   describe('upsertMyHeader', () => {
+    beforeEach(() => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        ownerId: 'owner-1',
+      });
+    });
+
+    it('aceita logo enviado na pasta de cabeçalhos da própria conta', async () => {
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+        id: 'profile-1',
+      });
+      mockDoctorHeaderRepository.findByDoctorProfileId.mockResolvedValue(null);
+
+      await service.upsertMyHeader('user-1', {
+        logoUrl: 'headers/owner-1/logo.png',
+      });
+
+      expect(mockDoctorHeaderRepository.upsert).toHaveBeenCalledWith(
+        'profile-1',
+        expect.objectContaining({ logoUrl: 'headers/owner-1/logo.png' }),
+      );
+    });
+
+    it.each([
+      ['de outra conta', 'headers/owner-2/logo.png'],
+      ['com travessia de diretório', 'headers/owner-1/../owner-2/logo.png'],
+      ['de outra pasta', 'documents/owner-1/laudo.pdf'],
+      [
+        'como URL do R2',
+        'https://conta.r2.cloudflarestorage.com/bucket/headers/owner-2/x.png',
+      ],
+    ])('recusa logo %s', async (_, logoUrl) => {
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+        id: 'profile-1',
+      });
+      mockDoctorHeaderRepository.findByDoctorProfileId.mockResolvedValue(null);
+
+      await expect(
+        service.upsertMyHeader('user-1', { logoUrl }),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockDoctorHeaderRepository.upsert).not.toHaveBeenCalled();
+    });
+
+    it('mantém o logo legado quando ele volta sem alteração', async () => {
+      const legado =
+        'https://conta.r2.cloudflarestorage.com/bucket/headers/owner-1/x.png';
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+        id: 'profile-1',
+      });
+      mockDoctorHeaderRepository.findByDoctorProfileId.mockResolvedValue({
+        id: 'header-1',
+        logoUrl: legado,
+      });
+
+      await service.upsertMyHeader('user-1', { logoUrl: legado });
+
+      expect(mockDoctorHeaderRepository.upsert).toHaveBeenCalledWith(
+        'profile-1',
+        expect.objectContaining({ logoUrl: legado }),
+      );
+    });
+
+    it('remove o logo quando vem nulo', async () => {
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+        id: 'profile-1',
+      });
+
+      await service.upsertMyHeader('user-1', { logoUrl: null });
+
+      expect(mockDoctorHeaderRepository.upsert).toHaveBeenCalledWith(
+        'profile-1',
+        expect.objectContaining({ logoUrl: null }),
+      );
+    });
+
     it('deve lançar ForbiddenException se usuário não é médico', async () => {
       mockDoctorProfileRepository.findByUserId.mockResolvedValue(null);
       await expect(
@@ -3151,6 +3334,224 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
         expect(mockDoctorProfileRepository.update).toHaveBeenCalled();
       });
+    });
+  });
+
+  describe('telefone canônico (anti-sequestro do WhatsApp)', () => {
+    const vitima = {
+      id: 'vitima',
+      ownerId: 'outra-conta',
+      phone: '11987654321',
+    };
+
+    function findOnePorTelefone(
+      usuario: Record<string, unknown>,
+      donoDoTelefone: Record<string, unknown> | null,
+    ) {
+      mockUserRepository.findOne.mockImplementation((where: unknown) =>
+        Promise.resolve(Array.isArray(where) ? donoDoTelefone : usuario),
+      );
+    }
+
+    function telefonesConsultados(): string[] {
+      const chamada = mockUserRepository.findOne.mock.calls.find(([where]) =>
+        Array.isArray(where),
+      );
+      return (chamada?.[0] as Array<{ phone: string }>).map((w) => w.phone);
+    }
+
+    describe('updateProfile', () => {
+      const atacante = {
+        id: 'atacante',
+        ownerId: 'atacante',
+        phone: '21911112222',
+        avatarUrl: null,
+      };
+
+      beforeEach(() => {
+        mockUserRepository.update.mockResolvedValue(atacante);
+        mockUserRepository.findOneWithProfile.mockResolvedValue({
+          ...atacante,
+          role: UserRole.ADMIN,
+          permissions: [],
+          doctorProfile: null,
+        });
+      });
+
+      it('recusa o número de outra conta escrito com DDI', async () => {
+        findOnePorTelefone(atacante, vitima);
+
+        await expect(
+          service.updateProfile({ phone: '5511987654321' }, 'atacante'),
+        ).rejects.toThrow('Telefone já está em uso');
+        expect(telefonesConsultados()).toEqual(
+          expect.arrayContaining([
+            '11987654321',
+            '5511987654321',
+            '1187654321',
+          ]),
+        );
+        expect(mockUserRepository.update).not.toHaveBeenCalled();
+      });
+
+      it('recusa telefone que não é brasileiro válido', async () => {
+        findOnePorTelefone(atacante, null);
+
+        await expect(
+          service.updateProfile({ phone: '12345' }, 'atacante'),
+        ).rejects.toThrow(BadRequestException);
+        expect(mockUserRepository.update).not.toHaveBeenCalled();
+      });
+
+      it('grava o canônico e avisa o orquestrador com o número antigo e o novo', async () => {
+        findOnePorTelefone(atacante, null);
+
+        await service.updateProfile({ phone: '+55 21 3333-4444' }, 'atacante');
+
+        expect(mockUserRepository.update).toHaveBeenCalledWith(
+          'atacante',
+          expect.objectContaining({ phone: '2133334444' }),
+        );
+        expect(mockEventEmitter.emit).toHaveBeenCalledWith(
+          'user.access_changed',
+          {
+            userId: 'atacante',
+            phone: '2133334444',
+            previousPhone: '21911112222',
+          },
+        );
+      });
+
+      it('não emite evento quando o telefone não muda', async () => {
+        findOnePorTelefone(atacante, null);
+
+        await service.updateProfile({ phone: '(21) 91111-2222' }, 'atacante');
+
+        expect(mockEventEmitter.emit).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('updateProfileById', () => {
+      it('grava o canônico e emite user.access_changed com o número antigo', async () => {
+        const proprio = {
+          id: 'user-1',
+          ownerId: 'dono-1',
+          phone: '11911112222',
+        };
+        findOnePorTelefone(proprio, null);
+        mockUserRepository.update.mockResolvedValue(proprio);
+
+        await service.updateProfileById(
+          'user-1',
+          { phone: '5511922223333' },
+          'user-1',
+        );
+
+        expect(mockUserRepository.update).toHaveBeenCalledWith(
+          'user-1',
+          expect.objectContaining({ phone: '11922223333' }),
+        );
+        expect(mockEventEmitter.emit).toHaveBeenCalledWith(
+          'user.access_changed',
+          {
+            userId: 'user-1',
+            phone: '11922223333',
+            previousPhone: '11911112222',
+          },
+        );
+      });
+    });
+
+    describe('updateCollaborator', () => {
+      beforeEach(() => {
+        mockUserRepository.findOneWithProfile
+          .mockResolvedValueOnce({
+            id: 'dono-1',
+            role: UserRole.ADMIN,
+            ownerId: 'dono-1',
+          })
+          .mockResolvedValueOnce({
+            id: 'collab-1',
+            role: UserRole.COLLABORATOR,
+            ownerId: 'dono-1',
+            phone: '11911112222',
+            permissions: [],
+            doctorProfile: null,
+          });
+        mockUserRepository.update.mockResolvedValue({ id: 'collab-1' });
+      });
+
+      it('troca de telefone emite o evento com o número antigo e o novo', async () => {
+        mockUserRepository.findOne.mockResolvedValue(null);
+
+        await service.updateCollaborator(
+          'collab-1',
+          { phone: '(11) 9333-4444' },
+          'dono-1',
+        );
+
+        expect(mockUserRepository.update).toHaveBeenCalledWith(
+          'collab-1',
+          expect.objectContaining({ phone: '11993334444' }),
+        );
+        expect(mockEventEmitter.emit).toHaveBeenCalledWith(
+          'user.access_changed',
+          {
+            userId: 'collab-1',
+            phone: '11993334444',
+            previousPhone: '11911112222',
+          },
+        );
+      });
+
+      it('recusa o número que já pertence a outra conta em grafia legada', async () => {
+        mockUserRepository.findOne.mockImplementation((where: unknown) =>
+          Promise.resolve(
+            Array.isArray(where) &&
+              where.some((w: { phone: string }) => w.phone === '+5511987654321')
+              ? { id: 'vitima' }
+              : null,
+          ),
+        );
+
+        await expect(
+          service.updateCollaborator(
+            'collab-1',
+            { phone: '11987654321' },
+            'dono-1',
+          ),
+        ).rejects.toThrow('Telefone já está em uso');
+        expect(mockUserRepository.update).not.toHaveBeenCalled();
+      });
+    });
+
+    it('createCollaborator grava o telefone canônico', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'dono-1',
+        role: UserRole.ADMIN,
+        ownerId: 'dono-1',
+        doctorProfile: null,
+      });
+      mockUserRepository.findOneWithDeleted.mockResolvedValue(null);
+      mockUserRepository.findOne.mockResolvedValue(null);
+      mockUserRepository.create.mockResolvedValue({
+        id: 'novo',
+        email: 'novo@x.com',
+        name: 'Novo',
+        phone: '11987654321',
+        ownerId: 'dono-1',
+      });
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue(null);
+      mockRecoveryCodeRepository.create.mockResolvedValue({});
+
+      await service.createCollaborator(
+        { name: 'Novo', email: 'novo@x.com', phone: '+5511987654321' },
+        'dono-1',
+      );
+
+      expect(mockUserRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ phone: '11987654321' }),
+      );
     });
   });
 });

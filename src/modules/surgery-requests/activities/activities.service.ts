@@ -9,6 +9,7 @@ import { StorageService } from 'src/shared/storage/storage.service';
 import { SurgeryRequestActivityMentionRepository } from 'src/database/repositories/surgery-request-activity-mention.repository';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { ActivityMentionsService } from './mentions/activity-mentions.service';
+import { lerAtividadePdf } from 'src/shared/storage/system-pdf-activity';
 
 @Injectable()
 export class ActivitiesService {
@@ -25,7 +26,7 @@ export class ActivitiesService {
   ) {}
 
   async findAll(surgeryRequestId: string, userId: string) {
-    await this.loadRequest(surgeryRequestId, userId);
+    const request = await this.loadRequest(surgeryRequestId, userId);
 
     const activities =
       await this.activityRepository.findBySurgeryRequest(surgeryRequestId);
@@ -52,16 +53,20 @@ export class ActivitiesService {
         let pdfUrl: string | undefined;
 
         if (a.type === ActivityType.PDF_GENERATED) {
-          try {
-            const parsed = JSON.parse(a.content);
-            content = parsed.description ?? a.content;
-            if (parsed.pdf_path) {
-              pdfUrl = await this.storageService.getSignedUrl(parsed.pdf_path);
-            }
-          } catch {
+          const lida = lerAtividadePdf(a, request.ownerId);
+          if (!lida) {
             this.logger.warn(
               `Atividade ${a.id}: conteúdo não é JSON válido, usando texto bruto`,
             );
+          } else {
+            content = lida.description ?? a.content;
+            if (lida.motivoRejeicao) {
+              this.logger.warn(
+                `Atividade ${a.id}: pdf_path recusado (${lida.motivoRejeicao}) na solicitação ${surgeryRequestId}`,
+              );
+            } else if (lida.pdfPath) {
+              pdfUrl = await this.storageService.getSignedUrl(lida.pdfPath);
+            }
           }
         }
 
@@ -111,7 +116,7 @@ export class ActivitiesService {
     const activity = await this.activityRepository.create({
       surgeryRequestId: surgeryRequestId,
       userId: userId,
-      type: dto.type ?? ActivityType.COMMENT,
+      type: ActivityType.COMMENT,
       content: dto.content,
     });
 

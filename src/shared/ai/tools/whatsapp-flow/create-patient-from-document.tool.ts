@@ -24,6 +24,7 @@ export function buildCreatePatientFromDocumentTool(
     name: 'create_patient_from_document',
     requiredPermission: ALL_PERMISSIONS,
     mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {

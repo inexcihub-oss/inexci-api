@@ -18,6 +18,11 @@ import {
 } from '../helpers/surgery-request-access';
 import { errorMessage } from '../../../utils/error-message.util';
 import { Document } from '../../../../database/entities/document.entity';
+import {
+  ArquivoRecebidoInvalidoError,
+  MIME_IMAGENS_RECEBIDAS,
+  tiparArquivoRecebido,
+} from '../../utils/arquivo-recebido';
 
 export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
   const {
@@ -32,6 +37,7 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
     name: 'manage_report_images',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {
@@ -187,11 +193,27 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
             media.url,
             configService,
           );
+          let tipo: { mime: string; nome: string };
+          try {
+            tipo = await tiparArquivoRecebido(
+              downloaded.buffer,
+              computedName,
+              MIME_IMAGENS_RECEBIDAS,
+            );
+          } catch (err) {
+            if (err instanceof ArquivoRecebidoInvalidoError) {
+              return buildToolResult({
+                status: 'blocked',
+                message:
+                  'O arquivo enviado não é uma imagem válida (JPG, PNG ou WEBP). Envie a foto novamente.',
+              });
+            }
+            throw err;
+          }
           const path = await storageService.create(
             {
-              originalname: computedName,
-              mimetype:
-                media.contentType || downloaded.contentType || 'image/jpeg',
+              originalname: tipo.nome,
+              mimetype: tipo.mime,
               buffer: downloaded.buffer,
             },
             STORAGE_FOLDERS.DOCUMENTS,
@@ -206,8 +228,7 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
               type: REPORT_IMAGE_TYPE,
               name: computedName,
               key: REPORT_IMAGE_KEY,
-              contentType:
-                media.contentType || downloaded.contentType || 'image/jpeg',
+              contentType: tipo.mime,
               createdById: context.userId as string,
             });
           } catch (err) {

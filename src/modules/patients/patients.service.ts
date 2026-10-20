@@ -17,16 +17,41 @@ import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { MailService } from 'src/shared/mail/mail.service';
 import { auditProntuarioAccess } from 'src/shared/logging/audit';
+import type { ClinicalAccessOrigin } from 'src/database/entities/clinical-access-audit.entity';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { STORAGE_FOLDERS } from 'src/config/storage.config';
 import { violacaoDeUnicidade } from 'src/database/repositories/unique-violation.util';
 import { bulkDeleteOwned } from 'src/shared/catalog/owned-catalog.helpers';
+import { Permission } from 'src/shared/permissions';
 
 export const UQ_PATIENTS_PHOTO_PATH = 'UQ_patients_photo_path';
 
 export const FOTO_EXPIRADA = 'A foto enviada expirou; envie novamente.';
 
 export type PatientWithPhoto = Patient & { photoUrl: string | null };
+
+export type PatientResponse = Omit<PatientWithPhoto, 'medicalNotes'> & {
+  medicalNotes?: string | null;
+};
+
+export function podeVerDadoClinicoDoPaciente(
+  permissions: readonly Permission[] | null | undefined,
+): boolean {
+  return (
+    !!permissions &&
+    (permissions.includes(Permission.ATENDIMENTO) ||
+      permissions.includes(Permission.SOLICITACOES))
+  );
+}
+
+function projetarPorPermissao(
+  paciente: PatientWithPhoto,
+  permissions: readonly Permission[],
+): PatientResponse {
+  if (podeVerDadoClinicoDoPaciente(permissions)) return paciente;
+  const { medicalNotes: _omitido, ...semDadoClinico } = paciente;
+  return semDadoClinico;
+}
 
 export interface CreatePatientOptions {
   manager?: EntityManager;
@@ -92,7 +117,11 @@ export class PatientsService {
     );
   }
 
-  async findOne(id: string, userId: string): Promise<Patient> {
+  async findOne(
+    id: string,
+    userId: string,
+    opcoes: { origin?: ClinicalAccessOrigin } = {},
+  ): Promise<Patient> {
     const patient = await this.patientRepository.findOne({ id });
     if (!patient) throw new NotFoundException('Paciente não encontrado');
     await this.accessControlService.assertSameOwner(userId, patient.ownerId);
@@ -102,6 +131,8 @@ export class PatientsService {
       action: 'read',
       actorUserId: userId,
       tenantId: patient.ownerId,
+      patientId: patient.id,
+      origin: opcoes.origin,
     });
     return patient;
   }
@@ -109,15 +140,23 @@ export class PatientsService {
   async findOneWithPhoto(
     id: string,
     userId: string,
-  ): Promise<PatientWithPhoto> {
-    return this.comFoto(await this.findOne(id, userId));
+    permissions: readonly Permission[] = [],
+  ): Promise<PatientResponse> {
+    return projetarPorPermissao(
+      await this.comFoto(await this.findOne(id, userId)),
+      permissions,
+    );
   }
 
   async createWithPhoto(
     data: CreatePatientDto,
     userId: string,
-  ): Promise<PatientWithPhoto> {
-    return this.comFoto(await this.create(data, userId));
+    permissions: readonly Permission[] = [],
+  ): Promise<PatientResponse> {
+    return projetarPorPermissao(
+      await this.comFoto(await this.create(data, userId)),
+      permissions,
+    );
   }
 
   async create(
@@ -245,8 +284,15 @@ export class PatientsService {
     id: string,
     data: UpdatePatientDto,
     userId: string,
-  ): Promise<PatientWithPhoto> {
-    return this.comFoto(await this.update(id, data, userId));
+    permissions: readonly Permission[] = [],
+  ): Promise<PatientResponse> {
+    const permitido = podeVerDadoClinicoDoPaciente(permissions)
+      ? data
+      : { ...data, medicalNotes: undefined };
+    return projetarPorPermissao(
+      await this.comFoto(await this.update(id, permitido, userId)),
+      permissions,
+    );
   }
 
   async delete(id: string, userId: string): Promise<void> {

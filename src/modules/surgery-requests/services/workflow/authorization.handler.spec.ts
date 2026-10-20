@@ -79,8 +79,14 @@ function criarHandler() {
   };
 }
 
-function atividadePdf(contestationId: string, pdfPath: string) {
+function atividadePdf(
+  contestationId: string,
+  pdfPath: string,
+  userId: string | null = null,
+) {
   return {
+    id: `act-${contestationId}`,
+    userId,
     content: JSON.stringify({
       description: 'PDF de contestação de autorização gerado',
       pdf_path: pdfPath,
@@ -251,6 +257,46 @@ describe('AuthorizationHandler — PDF de contestação', () => {
         ctx.handler.generateContestAuthorizationPdf('req-1', 'user-1'),
       ).resolves.toBe(PDF);
       expect(ctx.storageService.create).not.toHaveBeenCalled();
+    });
+
+    it('não baixa PDF salvo fora da pasta de PDFs do tenant e gera em memória', async () => {
+      const ctx = criarHandler();
+      ctx.contestationRepository.findLatestBySurgeryRequest.mockResolvedValue({
+        id: 'contest-2',
+        createdAt: DATA_CONTESTACAO,
+      });
+      ctx.activityRepository.findByTypeSince.mockResolvedValue([
+        atividadePdf('contest-2', 'pdfs/owner-2/alheio.pdf'),
+        atividadePdf('contest-2', 'documents/owner-1/laudo.pdf'),
+        atividadePdf('contest-2', 'pdfs/owner-1/../owner-2/x.pdf'),
+      ]);
+
+      const buffer = await ctx.handler.generateContestAuthorizationPdf(
+        'req-1',
+        'user-1',
+      );
+
+      expect(buffer).toBe(PDF);
+      expect(ctx.storageService.download).not.toHaveBeenCalled();
+    });
+
+    it('não baixa PDF de atividade gravada por um usuário', async () => {
+      const ctx = criarHandler();
+      ctx.contestationRepository.findLatestBySurgeryRequest.mockResolvedValue({
+        id: 'contest-2',
+        createdAt: DATA_CONTESTACAO,
+      });
+      ctx.activityRepository.findByTypeSince.mockResolvedValue([
+        atividadePdf('contest-2', 'pdfs/owner-1/forjado.pdf', 'user-9'),
+      ]);
+
+      const buffer = await ctx.handler.generateContestAuthorizationPdf(
+        'req-1',
+        'user-1',
+      );
+
+      expect(buffer).toBe(PDF);
+      expect(ctx.storageService.download).not.toHaveBeenCalled();
     });
 
     it('lança 404 quando a solicitação não existe', async () => {

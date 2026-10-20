@@ -100,13 +100,37 @@ describe('UpdateReportSectionDto', () => {
 });
 
 describe('ReorderReportSectionsDto', () => {
-  it('deve validar com array de IDs (strings)', async () => {
+  it('deve validar com array de UUIDs', async () => {
     const dto = plainToInstance(ReorderReportSectionsDto, {
-      ids: ['uuid-1', 'uuid-2', 'uuid-3'],
+      ids: [
+        '3f1c2a4e-5b6d-4e7f-8a9b-0c1d2e3f4a5b',
+        '7d8e9f0a-1b2c-4d3e-9f4a-5b6c7d8e9f0a',
+      ],
     });
 
     const errors = await validate(dto);
     expect(errors).toHaveLength(0);
+  });
+
+  it('deve falhar com id que não é UUID', async () => {
+    const dto = plainToInstance(ReorderReportSectionsDto, {
+      ids: ['uuid-1'],
+    });
+
+    const errors = await validate(dto);
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
+  it('deve falhar com mais de 100 ids', async () => {
+    const dto = plainToInstance(ReorderReportSectionsDto, {
+      ids: Array.from(
+        { length: 101 },
+        (_, i) => `3f1c2a4e-5b6d-4e7f-8a9b-${String(i).padStart(12, '0')}`,
+      ),
+    });
+
+    const errors = await validate(dto);
+    expect(errors.length).toBeGreaterThan(0);
   });
 
   it('deve falhar sem ids', async () => {

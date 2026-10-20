@@ -146,4 +146,31 @@ describe('AiRedisService', () => {
       await expect(service.cacheDelete('k')).resolves.toBeUndefined();
     });
   });
+
+  describe('claimOnce', () => {
+    it('usa SET NX com TTL quando o Redis está pronto', async () => {
+      mockRedisInstance.set = jest
+        .fn()
+        .mockResolvedValueOnce('OK')
+        .mockResolvedValueOnce(null);
+
+      expect(await service.claimOnce('inbound:sid:SM-1', 60)).toBe(true);
+      expect(await service.claimOnce('inbound:sid:SM-1', 60)).toBe(false);
+      expect(mockRedisInstance.set).toHaveBeenCalledWith(
+        'ai:inbound:sid:SM-1',
+        '1',
+        'EX',
+        60,
+        'NX',
+      );
+    });
+
+    it('cai para memória local quando o Redis está indisponível', async () => {
+      (service as any).redis = null;
+
+      expect(await service.claimOnce('k', 60)).toBe(true);
+      expect(await service.claimOnce('k', 60)).toBe(false);
+      expect(await service.claimOnce('outra', 60)).toBe(true);
+    });
+  });
 });

@@ -13,6 +13,7 @@ import {
 import { User } from './user.entity';
 import { HealthPlan } from './health-plan.entity';
 import { SurgeryRequest } from './surgery-request.entity';
+import { encryptedTransformer } from '../../shared/crypto/encryption.util';
 
 @Entity('patients')
 @Index('idx_patients_doctor_id', ['doctorId'])
@@ -110,7 +111,12 @@ export class Patient {
   @Column({ type: 'char', length: 2, nullable: true })
   state: string | null;
 
-  @Column({ name: 'medical_notes', type: 'text', nullable: true })
+  @Column({
+    name: 'medical_notes',
+    type: 'text',
+    nullable: true,
+    transformer: encryptedTransformer,
+  })
   medicalNotes: string | null;
 
   @Column({ type: 'boolean', default: true })

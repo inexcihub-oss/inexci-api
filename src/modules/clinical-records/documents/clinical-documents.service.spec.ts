@@ -4,6 +4,19 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ClinicalDocumentsService } from './clinical-documents.service';
+
+jest.mock(
+  'file-type',
+  () => ({
+    fileTypeFromBuffer: (buf: Buffer) =>
+      Promise.resolve(
+        buf.subarray(0, 4).toString() === '%PDF'
+          ? { ext: 'pdf', mime: 'application/pdf' }
+          : undefined,
+      ),
+  }),
+  { virtual: true },
+);
 import { STORAGE_FOLDERS } from 'src/config/storage.config';
 
 const PATIENT = { id: 'pat-1', ownerId: 'owner-1' };
@@ -24,13 +37,15 @@ describe('ClinicalDocumentsService', () => {
   let documentRepository: {
     create: jest.Mock;
     findOneSimple: jest.Mock;
-    findByPatientId: jest.Mock;
+    findByPatientIdForDoctors: jest.Mock;
   };
   let patientRepository: { findOne: jest.Mock };
   let clinicalRecordRepository: { findOne: jest.Mock };
   let accessControlService: {
     assertSameOwner: jest.Mock;
     assertCanAccessDoctorResource: jest.Mock;
+    assertIsDoctor: jest.Mock;
+    getAccessibleDoctorIds: jest.Mock;
   };
   let documentTypeormRepo: { delete: jest.Mock };
   let dataSource: { transaction: jest.Mock };
@@ -44,7 +59,7 @@ describe('ClinicalDocumentsService', () => {
     documentRepository = {
       create: jest.fn().mockResolvedValue({ id: 'doc-1' }),
       findOneSimple: jest.fn(),
-      findByPatientId: jest.fn().mockResolvedValue([]),
+      findByPatientIdForDoctors: jest.fn().mockResolvedValue([]),
     };
     patientRepository = { findOne: jest.fn().mockResolvedValue(PATIENT) };
     clinicalRecordRepository = {
@@ -53,6 +68,8 @@ describe('ClinicalDocumentsService', () => {
     accessControlService = {
       assertSameOwner: jest.fn().mockResolvedValue(undefined),
       assertCanAccessDoctorResource: jest.fn().mockResolvedValue(undefined),
+      assertIsDoctor: jest.fn().mockResolvedValue(undefined),
+      getAccessibleDoctorIds: jest.fn().mockResolvedValue(['doctor-1']),
     };
 
     documentTypeormRepo = {
@@ -74,13 +91,18 @@ describe('ClinicalDocumentsService', () => {
     );
   });
 
-  const file = { originalname: 'exame.pdf' } as Express.Multer.File;
+  const file = {
+    originalname: 'exame.pdf',
+    mimetype: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.7'),
+  } as Express.Multer.File;
 
   describe('create — limite de tamanho por pasta', () => {
     const arquivo = (bytes: number): Express.Multer.File =>
       ({
         originalname: 'exame.pdf',
-        buffer: Buffer.alloc(bytes),
+        mimetype: 'application/pdf',
+        buffer: Buffer.concat([Buffer.from('%PDF-'), Buffer.alloc(bytes - 5)]),
         size: bytes,
       }) as Express.Multer.File;
 
@@ -133,7 +155,10 @@ describe('ClinicalDocumentsService', () => {
       );
 
       expect(storageService.create).toHaveBeenCalledWith(
-        file,
+        expect.objectContaining({
+          originalname: 'exame.pdf',
+          mimetype: 'application/pdf',
+        }),
         'documents',
         'owner-1',
       );
@@ -234,13 +259,156 @@ describe('ClinicalDocumentsService', () => {
 
   describe('listByPatient', () => {
     it('retorna documentos com URLs assinadas', async () => {
-      documentRepository.findByPatientId.mockResolvedValue([
+      documentRepository.findByPatientIdForDoctors.mockResolvedValue([
         { id: 'doc-1', uri: 'documents/owner-1/exame.pdf' },
       ]);
 
       const result = await service.listByPatient('pat-1', 'user-1');
 
       expect(result[0].uri).toBe('https://signed/exame.pdf');
+    });
+
+    it('filtra pelos médicos que o usuário acessa', async () => {
+      accessControlService.getAccessibleDoctorIds.mockResolvedValue([
+        'doctor-1',
+        'doctor-2',
+      ]);
+
+      await service.listByPatient('pat-1', 'colaborador');
+
+      expect(accessControlService.getAccessibleDoctorIds).toHaveBeenCalledWith(
+        'colaborador',
+      );
+      expect(documentRepository.findByPatientIdForDoctors).toHaveBeenCalledWith(
+        'pat-1',
+        ['doctor-1', 'doctor-2'],
+      );
+    });
+  });
+
+  describe('create — tipo do arquivo', () => {
+    it('recusa HTML sem gravar nada', async () => {
+      await expect(
+        service.create(
+          { patientId: 'pat-1', key: 'k', name: 'n', folder: 'documents' },
+          'user-1',
+          {
+            originalname: 'x.html',
+            mimetype: 'text/html',
+            buffer: Buffer.from('<script>'),
+          } as Express.Multer.File,
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(storageService.create).not.toHaveBeenCalled();
+      expect(documentRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('recusa SVG disfarçado de PDF', async () => {
+      await expect(
+        service.create(
+          { patientId: 'pat-1', key: 'k', name: 'n', folder: 'documents' },
+          'user-1',
+          {
+            originalname: 'x.pdf',
+            mimetype: 'application/pdf',
+            buffer: Buffer.from('<svg onload=alert(1)/>'),
+          } as Express.Multer.File,
+        ),
+      ).rejects.toThrow('Tipo de arquivo inválido');
+      expect(storageService.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('delete — recorte por médico e documentos emitidos', () => {
+    const anexoDaFicha = {
+      id: 'doc-1',
+      patientId: 'pat-1',
+      clinicalRecordId: 'rec-1',
+      createdById: 'secretaria',
+      key: 'exam',
+      uri: 'documents/owner-1/exame.pdf',
+    };
+    const receita = {
+      ...anexoDaFicha,
+      key: 'prescription',
+      type: 'prescription',
+      createdById: 'doctor-1',
+      uri: 'documents/owner-1/receita.pdf',
+    };
+
+    it('recusa excluir anexo de ficha de médico que o usuário não acessa', async () => {
+      documentRepository.findOneSimple.mockResolvedValue(anexoDaFicha);
+      accessControlService.assertCanAccessDoctorResource.mockRejectedValue(
+        new ForbiddenException(),
+      );
+
+      await expect(
+        service.delete({ id: 'doc-1', key: 'exam' }, 'colaborador'),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(
+        accessControlService.assertCanAccessDoctorResource,
+      ).toHaveBeenCalledWith('colaborador', 'owner-1', 'doctor-1');
+      expect(documentTypeormRepo.delete).not.toHaveBeenCalled();
+      expect(storageService.delete).not.toHaveBeenCalled();
+    });
+
+    it('anexo comum da ficha pode ser excluído por quem acessa o médico', async () => {
+      documentRepository.findOneSimple.mockResolvedValue(anexoDaFicha);
+
+      await service.delete({ id: 'doc-1', key: 'exam' }, 'secretaria');
+
+      expect(accessControlService.assertIsDoctor).not.toHaveBeenCalled();
+      expect(documentTypeormRepo.delete).toHaveBeenCalled();
+    });
+
+    it('documento emitido não pode ser excluído por quem não é médico', async () => {
+      documentRepository.findOneSimple.mockResolvedValue(receita);
+      accessControlService.assertIsDoctor.mockRejectedValue(
+        new ForbiddenException(),
+      );
+
+      await expect(
+        service.delete({ id: 'doc-1', key: 'prescription' }, 'secretaria'),
+      ).rejects.toThrow(ForbiddenException);
+      expect(documentTypeormRepo.delete).not.toHaveBeenCalled();
+    });
+
+    it('documento emitido não pode ser excluído por outro médico', async () => {
+      documentRepository.findOneSimple.mockResolvedValue(receita);
+
+      await expect(
+        service.delete({ id: 'doc-1', key: 'prescription' }, 'doctor-2'),
+      ).rejects.toThrow(
+        'Só o médico que emitiu este documento pode excluí-lo.',
+      );
+      expect(documentTypeormRepo.delete).not.toHaveBeenCalled();
+      expect(storageService.delete).not.toHaveBeenCalled();
+    });
+
+    it('o médico que emitiu pode excluir', async () => {
+      documentRepository.findOneSimple.mockResolvedValue(receita);
+
+      await service.delete({ id: 'doc-1', key: 'prescription' }, 'doctor-1');
+
+      expect(accessControlService.assertIsDoctor).toHaveBeenCalledWith(
+        'doctor-1',
+      );
+      expect(storageService.delete).toHaveBeenCalledWith(
+        'documents/owner-1/receita.pdf',
+      );
+    });
+
+    it('anexo só do paciente (sem ficha) não consulta a ficha', async () => {
+      documentRepository.findOneSimple.mockResolvedValue({
+        ...anexoDaFicha,
+        clinicalRecordId: null,
+      });
+
+      await service.delete({ id: 'doc-1', key: 'exam' }, 'secretaria');
+
+      expect(clinicalRecordRepository.findOne).not.toHaveBeenCalled();
+      expect(documentTypeormRepo.delete).toHaveBeenCalled();
     });
   });
 

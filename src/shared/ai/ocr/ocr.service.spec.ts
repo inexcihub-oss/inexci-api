@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { PiiVaultService } from '../services/pii-vault.service';
-import { OcrService } from './ocr.service';
+import { MAX_NATIVE_PDF_TEXT_CHARS, OcrService } from './ocr.service';
 import { OcrUnsupportedMimeError } from './ocr.types';
 
 const recognizeMock = jest.fn();
@@ -199,6 +199,22 @@ describe('OcrService', () => {
     expect(result.confidence).toBeCloseTo(0.99, 2);
     expect(result.text).toContain('Relatório de cirurgia');
     expect(result.pages[0].source).toBe('text-layer');
+  });
+
+  it('limita o text-layer às primeiras maxPages páginas e trunca texto gigante', async () => {
+    const gigante = 'x'.repeat(MAX_NATIVE_PDF_TEXT_CHARS + 5000);
+    getTextMock.mockResolvedValueOnce({ text: gigante, total: 40 });
+
+    const result = await service.extract({
+      buffer: Buffer.from('%PDF-1.4 fake'),
+      mimeType: 'application/pdf',
+      maxPages: 3,
+    });
+
+    expect(getTextMock).toHaveBeenCalledWith({ first: 3 });
+    expect(result.text.length).toBe(MAX_NATIVE_PDF_TEXT_CHARS);
+    expect(result.warnings).toContain('pdf_text_truncated');
+    expect(result.truncatedPages).toBe(37);
   });
 
   it('cai para rasterização + Tesseract quando text-layer é insuficiente', async () => {

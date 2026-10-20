@@ -4,6 +4,7 @@ import { ALL_PERMISSIONS, Permission } from 'src/shared/permissions';
 import { resolveOwnerIdFromContext } from '../catalog.helpers';
 import { WhatsappFlowToolDeps } from './_types';
 import { asNonEmptyString } from '../helpers/arg-parsers';
+import { auditProntuarioAccess } from 'src/shared/logging/audit';
 
 interface CatalogItem {
   id?: string;
@@ -80,14 +81,15 @@ export function buildListScCreationCatalogTool(
         context,
         userRepo,
       );
-      const ownerWhere = ownerIdForLookup ? { ownerId: ownerIdForLookup } : {};
+      if (!ownerIdForLookup) return 'Acesso negado.';
+      const ownerWhere = { ownerId: ownerIdForLookup };
 
       const [patients, hospitals, healthPlans, procedures, doctors, templates] =
         await Promise.all([
           patientRepo.findMany(doctorWhere, 0, limit),
           hospitalRepo.findMany(ownerWhere, 0, limit),
           healthPlanRepo.findMany(ownerWhere, 0, limit),
-          procedureRepo.findMany({}, 0, limit),
+          procedureRepo.findMany(ownerWhere, 0, limit),
           context.accessibleDoctorIds.length
             ? userRepo.findMany(
                 { id: In(context.accessibleDoctorIds) },
@@ -103,6 +105,19 @@ export function buildListScCreationCatalogTool(
             : Promise.resolve([]),
         ]);
       const tussCatalog = tussService.search(undefined, limit);
+
+      if (
+        (!normalizedCategory || normalizedCategory === 'patients') &&
+        patients.length > 0
+      ) {
+        auditProntuarioAccess({
+          resource: 'patient',
+          action: 'list',
+          actorUserId: context.userId,
+          tenantId: ownerIdForLookup,
+          origin: 'ai',
+        });
+      }
 
       const categoryMap: Record<
         string,

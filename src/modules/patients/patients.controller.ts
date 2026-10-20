@@ -55,7 +55,11 @@ export class PatientsController {
   @Get(':id')
   @ApiOperation({ summary: 'Buscar paciente por ID' })
   findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.patientsService.findOneWithPhoto(id, user.userId);
+    return this.patientsService.findOneWithPhoto(
+      id,
+      user.userId,
+      user.permissions,
+    );
   }
 
   @Post()
@@ -64,7 +68,11 @@ export class PatientsController {
     @Body() data: CreatePatientDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.patientsService.createWithPhoto(data, user.userId);
+    return this.patientsService.createWithPhoto(
+      data,
+      user.userId,
+      user.permissions,
+    );
   }
 
   @Patch(':id')
@@ -74,7 +82,12 @@ export class PatientsController {
     @Body() data: UpdatePatientDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.patientsService.updateWithPhoto(id, data, user.userId);
+    return this.patientsService.updateWithPhoto(
+      id,
+      data,
+      user.userId,
+      user.permissions,
+    );
   }
 
   @Delete(':id')

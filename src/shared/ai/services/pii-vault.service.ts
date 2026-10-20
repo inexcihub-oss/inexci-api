@@ -6,6 +6,8 @@ export type PiiCategory =
   | 'hospital_name'
   | 'health_plan_name'
   | 'cpf'
+  | 'cns'
+  | 'health_plan_card'
   | 'rg'
   | 'phone'
   | 'email'
@@ -25,6 +27,8 @@ export const ALL_PII_CATEGORIES: PiiCategory[] = [
   'hospital_name',
   'health_plan_name',
   'cpf',
+  'cns',
+  'health_plan_card',
   'rg',
   'phone',
   'email',
@@ -40,6 +44,39 @@ export const ALL_PII_CATEGORIES: PiiCategory[] = [
 ];
 
 const RG_REGEX = /\b\d{1,2}\.\d{3}\.\d{3}-[\dXx]\b/g;
+
+const CPF_SEPARADO_REGEX =
+  /(?<!\d)\d{3}(?:\s*[.-]\s*|\s+)\d{3}(?:\s*[.-]\s*|\s+)\d{3}(?:\s*[.-]\s*|\s+)\d{2}(?!\d)/g;
+
+const CNS_REGEX =
+  /(?<!\d)[12789]\d{2}[\s.-]?\d{4}[\s.-]?\d{4}[\s.-]?\d{4}(?!\d)/g;
+
+const CARTEIRINHA_ROTULADA_REGEX =
+  /(\b(?:carteirinha|carteira\s+do\s+(?:conv[êe]nio|plano)|matr[íi]cula|n[úu]mero\s+d[aeo]\s+(?:carteirinha|conv[êe]nio|plano)|n[º°o]\.?\s*d[aeo]\s+(?:carteirinha|conv[êe]nio|plano)|c[óo]digo\s+do\s+benefici[áa]rio)(?:\s+do\s+(?:conv[êe]nio|plano))?\s*(?:[:#=-]|[ée]|n[º°o]\.?)?\s*)(\d(?:\d|[.\-/ ](?=\d)){4,30})/gi;
+
+function somenteDigitos(valor: string): string {
+  return valor.replace(/\D/g, '');
+}
+
+export function cpfValido(valor: string): boolean {
+  const d = somenteDigitos(valor);
+  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+  const digito = (len: number): number => {
+    let soma = 0;
+    for (let i = 0; i < len; i++) soma += Number(d[i]) * (len + 1 - i);
+    const resto = (soma * 10) % 11;
+    return resto === 10 ? 0 : resto;
+  };
+  return digito(9) === Number(d[9]) && digito(10) === Number(d[10]);
+}
+
+export function cnsValido(valor: string): boolean {
+  const d = somenteDigitos(valor);
+  if (d.length !== 15 || !/^[12789]/.test(d)) return false;
+  let soma = 0;
+  for (let i = 0; i < 15; i++) soma += Number(d[i]) * (15 - i);
+  return soma % 11 === 0;
+}
 
 export interface PiiBinding {
   token: string;
@@ -176,8 +213,22 @@ export class PiiVaultService {
     if (!rawInput) return '';
     let out = rawInput;
 
+    out = out.replace(
+      CARTEIRINHA_ROTULADA_REGEX,
+      (_match, rotulo: string, numero: string) =>
+        `${rotulo}${this.tokenize(sessionId, numero, 'health_plan_card')}`,
+    );
+
+    out = out.replace(CNS_REGEX, (match) =>
+      cnsValido(match) ? this.tokenize(sessionId, match, 'cns') : match,
+    );
+
     out = out.replace(/\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b/g, (match) =>
       this.tokenize(sessionId, match, 'cpf'),
+    );
+
+    out = out.replace(CPF_SEPARADO_REGEX, (match) =>
+      cpfValido(match) ? this.tokenize(sessionId, match, 'cpf') : match,
     );
 
     out = out.replace(RG_REGEX, (match) =>
@@ -204,8 +255,13 @@ export class PiiVaultService {
     const findings: ResidualPiiFinding[] = [];
     if (!text) return findings;
 
-    const cpf = text.match(/\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b/);
-    if (cpf) findings.push({ category: 'cpf', sample: cpf[0] });
+    const cpf =
+      text.match(/\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b/)?.[0] ??
+      [...text.matchAll(CPF_SEPARADO_REGEX)].map((m) => m[0]).find(cpfValido);
+    if (cpf) findings.push({ category: 'cpf', sample: cpf });
+
+    const cns = [...text.matchAll(CNS_REGEX)].map((m) => m[0]).find(cnsValido);
+    if (cns) findings.push({ category: 'cns', sample: cns });
 
     const rg = text.match(/\b\d{1,2}\.\d{3}\.\d{3}-[\dXx]\b/);
     if (rg) findings.push({ category: 'rg', sample: rg[0] });
@@ -252,10 +308,12 @@ export class PiiVaultService {
       regex: RegExp,
       category: PiiCategory,
       mask: string,
+      valida?: (valor: string) => boolean,
     ): void => {
       const localRegex = new RegExp(regex.source, regex.flags);
       let match: RegExpExecArray | null;
       while ((match = localRegex.exec(text)) !== null) {
+        if (valida && !valida(match[0])) continue;
         const start = match.index;
         const end = start + match[0].length;
         if (overlapsPlaceholder(start, end)) continue;
@@ -267,11 +325,13 @@ export class PiiVaultService {
       }
     };
 
+    collect(CNS_REGEX, 'cns', 'NNN NNNN NNNN NNNN', cnsValido);
     collect(
       /\b(?:\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})\b/g,
       'cpf',
       'XXX.XXX.XXX-XX',
     );
+    collect(CPF_SEPARADO_REGEX, 'cpf', 'XXX.XXX.XXX-XX', cpfValido);
     collect(/\b\d{1,2}\.\d{3}\.\d{3}-[\dXx]\b/g, 'rg', 'XX.XXX.XXX-X');
     collect(
       /(?:\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}-?\d{4}/g,

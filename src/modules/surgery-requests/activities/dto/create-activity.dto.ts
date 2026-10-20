@@ -1,7 +1,7 @@
 import {
   ArrayMaxSize,
   IsArray,
-  IsEnum,
+  IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -10,9 +10,9 @@ import {
 import { ActivityType } from 'src/database/entities/surgery-request-activity.entity';
 
 export class CreateActivityDto {
-  @IsEnum(ActivityType)
+  @IsIn([ActivityType.COMMENT])
   @IsOptional()
-  type?: ActivityType;
+  type?: ActivityType.COMMENT;
 
   @IsString()
   @IsNotEmpty()

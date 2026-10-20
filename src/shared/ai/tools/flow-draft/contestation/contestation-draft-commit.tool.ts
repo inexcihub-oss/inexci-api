@@ -1,17 +1,24 @@
 import { AiTool } from '../../tool.interface';
+import { draftConfirmationFingerprint } from '../../helpers/draft-fingerprint';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { FlowDraftDeps } from '../_types';
-import { recordAiActivity } from '../../helpers/surgery-request-access';
+import {
+  getAuthorizedRequest,
+  recordAiActivity,
+} from '../../helpers/surgery-request-access';
 import { errorMessage } from '../../../../utils/error-message.util';
 import { SendMethod } from '../../../../constants/send-method';
 
 export function buildContestationDraftCommitTool(deps: FlowDraftDeps): AiTool {
-  const { draftService, workflowService, activityRepo } = deps;
+  const { draftService, workflowService, activityRepo, surgeryRequestRepo } =
+    deps;
   return {
     name: 'contestation_draft_commit',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
+    confirmationFingerprint: draftConfirmationFingerprint(deps.draftService),
     definition: {
       type: 'function',
       function: {
@@ -50,6 +57,14 @@ export function buildContestationDraftCommitTool(deps: FlowDraftDeps): AiTool {
         });
       }
       const f = v.draft.fields;
+      const acesso = await getAuthorizedRequest(
+        surgeryRequestRepo,
+        f.surgeryRequestId,
+        context,
+      );
+      if (!acesso.ok) {
+        return buildToolResult({ status: 'error', message: acesso.message });
+      }
       try {
         if (f.contestationType === 'AUTHORIZATION') {
           await workflowService.contestAuthorization(

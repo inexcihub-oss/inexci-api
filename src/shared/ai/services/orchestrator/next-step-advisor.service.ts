@@ -46,7 +46,7 @@ export class NextStepAdvisorService {
       );
 
       if (!pending.length) {
-        return `${toolOutput}\n\nPróximo passo recomendado:\nA solicitação está sem pendências bloqueantes. Posso executar advance_surgery_request com confirm=true.`;
+        return `${toolOutput}\n\nPróximo passo recomendado:\nA solicitação está sem pendências bloqueantes. Posso avançar: chame advance_surgery_request sem confirm para a prévia e peça o "sim" do usuário.`;
       }
 
       const next = pending[0];

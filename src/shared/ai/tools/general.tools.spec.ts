@@ -152,6 +152,7 @@ describe('GeneralTools — query_patients', () => {
     expect(mockPatientsService.findOne).toHaveBeenCalledWith(
       '123e4567-e89b-12d3-a456-426614174000',
       'user-1',
+      { origin: 'ai' },
     );
     expect(result).toContain('Carlos Silva');
     expect(result).not.toContain('12345678900');

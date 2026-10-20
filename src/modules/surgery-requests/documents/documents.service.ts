@@ -14,6 +14,7 @@ import { Document } from 'src/database/entities/document.entity';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 import { STORAGE_FOLDER_SIZE_LIMITS } from 'src/config/storage.config';
 import { SurgeryRequestAccessValidator } from 'src/shared/services/surgery-request-access.validator';
+import { prepararDocumentoParaUpload } from 'src/shared/storage/tipo-arquivo';
 
 @Injectable()
 export class DocumentsService {
@@ -44,8 +45,10 @@ export class DocumentsService {
 
     await this.accessValidator.validateAndFetch(data.surgeryRequestId, userId);
 
+    const arquivo = await prepararDocumentoParaUpload(file);
+
     const storagePath = await this.storageService.create(
-      file,
+      arquivo,
       data.folder,
       ownerId,
     );

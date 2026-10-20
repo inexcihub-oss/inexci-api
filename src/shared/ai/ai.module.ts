@@ -33,6 +33,7 @@ import { ConversationService } from './services/conversation.service';
 import { ConversationContextService } from './services/conversation-context.service';
 import { ConversationCleanupService } from './services/conversation-cleanup.service';
 import { ToolRegistryService } from './services/tool-registry.service';
+import { ToolConfirmationGateService } from './services/tool-confirmation-gate.service';
 import { ToolExecutorService } from './services/tool-executor.service';
 import { UserAnonymizationService } from './services/user-anonymization.service';
 import { AiRedisService } from './services/ai-redis.service';
@@ -97,6 +98,7 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
     ConversationCleanupService,
     ToolRegistryService,
     ToolExecutorService,
+    ToolConfirmationGateService,
     TranscriptionService,
     FasterWhisperProvider,
     OpenaiWhisperProvider,

@@ -9,6 +9,7 @@ const KEY_PREFIX = 'ai:';
 export class AiRedisService implements OnModuleDestroy {
   private readonly logger = new Logger(AiRedisService.name);
   private redis: IORedis | null = null;
+  private readonly localClaims = new Map<string, number>();
 
   constructor(private readonly configService: ConfigService) {
     try {
@@ -96,5 +97,21 @@ export class AiRedisService implements OnModuleDestroy {
     const client = this.getClient();
     if (!client) return;
     await client.del(`${KEY_PREFIX}${key}`);
+  }
+
+  async claimOnce(key: string, ttlSeconds: number): Promise<boolean> {
+    const fullKey = `${KEY_PREFIX}${key}`;
+    const client = this.getClient();
+    if (client) {
+      const result = await client.set(fullKey, '1', 'EX', ttlSeconds, 'NX');
+      return result === 'OK';
+    }
+    const now = Date.now();
+    for (const [k, expiresAt] of this.localClaims) {
+      if (expiresAt <= now) this.localClaims.delete(k);
+    }
+    if (this.localClaims.has(fullKey)) return false;
+    this.localClaims.set(fullKey, now + ttlSeconds * 1000);
+    return true;
   }
 }

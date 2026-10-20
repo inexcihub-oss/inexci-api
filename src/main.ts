@@ -17,6 +17,10 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as customParse from 'dayjs/plugin/customParseFormat';
 import { applyGlobalAppConfig } from './shared/bootstrap/global-app-config';
+import {
+  isAllowedOrigin,
+  parseAllowedOrigins,
+} from './shared/bootstrap/allowed-origins';
 import { setupSwagger } from './shared/bootstrap/swagger-config';
 import { InexciLogger } from './shared/logging/inexci-logger.service';
 import { requestContextMiddleware } from './shared/logging/request-context.middleware';
@@ -76,14 +80,9 @@ async function bootstrap() {
     setupSwagger(app);
   }
 
-  const corsOrigins = configService.get<string>('CORS_ORIGINS');
-  const normalizeOrigin = (value: string): string =>
-    value.trim().replace(/\/$/, '');
-
-  const allowedOrigins = (corsOrigins ?? '')
-    .split(',')
-    .map((o) => normalizeOrigin(o))
-    .filter(Boolean);
+  const allowedOrigins = parseAllowedOrigins(
+    configService.get<string>('CORS_ORIGINS'),
+  );
 
   if (allowedOrigins.length === 0) {
     throw new Error(
@@ -97,9 +96,7 @@ async function bootstrap() {
         return callback(null, true);
       }
 
-      const normalizedOrigin = normalizeOrigin(origin);
-
-      if (allowedOrigins.includes(normalizedOrigin)) {
+      if (isAllowedOrigin(origin, allowedOrigins)) {
         return callback(null, true);
       }
 

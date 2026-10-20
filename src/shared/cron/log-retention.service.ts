@@ -8,6 +8,7 @@ import { AiTokenUsageLog } from 'src/database/entities/ai-token-usage-log.entity
 import { AiPiiRedactionLog } from 'src/database/entities/ai-pii-redaction-log.entity';
 import { StaleNotificationLog } from 'src/database/entities/stale-notification-log.entity';
 import { NotificationRepository } from 'src/database/repositories/notification.repository';
+import { ClinicalAccessAuditRepository } from 'src/database/repositories/clinical-access-audit.repository';
 import { errorMessage } from 'src/shared/utils/error-message.util';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -27,6 +28,7 @@ export class LogRetentionService {
     private readonly staleNotificationLogRepo: Repository<StaleNotificationLog>,
     private readonly notificationRepository: NotificationRepository,
     private readonly config: ConfigService,
+    private readonly clinicalAccessAuditRepository: ClinicalAccessAuditRepository,
   ) {}
 
   @Cron('0 4 * * *', { timeZone: 'America/Sao_Paulo' })
@@ -39,6 +41,7 @@ export class LogRetentionService {
       aiPiiRedactionLogs: 0,
       staleNotificationLogs: 0,
       readNotifications: 0,
+      clinicalAccessAudit: 0,
     };
 
     summary.notificationSendLogs = await this.purge(
@@ -73,6 +76,10 @@ export class LogRetentionService {
       this.config.get<number>('LOG_RETENTION_READ_NOTIFICATION_DAYS', 90),
     );
 
+    summary.clinicalAccessAudit = await this.purgeClinicalAccessAudit(
+      this.config.get<number>('LOG_RETENTION_CLINICAL_AUDIT_DAYS', 1825),
+    );
+
     this.logger.log(`[LogRetention] concluído ${JSON.stringify(summary)}`);
   }
 
@@ -91,6 +98,26 @@ export class LogRetentionService {
     } catch (err: unknown) {
       this.logger.warn(
         `[LogRetention] falha ao limpar notifications lidas: ${errorMessage(err)}`,
+      );
+      return 0;
+    }
+  }
+
+  private async purgeClinicalAccessAudit(days: number): Promise<number> {
+    const cutoff = this.cutoffFor(days);
+    if (!cutoff) return 0;
+    try {
+      const affected =
+        await this.clinicalAccessAuditRepository.deleteOlderThan(cutoff);
+      if (affected > 0) {
+        this.logger.log(
+          `[LogRetention] clinical_access_audit: removidas ${affected} linhas (cutoff=${cutoff.toISOString()})`,
+        );
+      }
+      return affected;
+    } catch (err: unknown) {
+      this.logger.warn(
+        `[LogRetention] falha ao limpar clinical_access_audit: ${errorMessage(err)}`,
       );
       return 0;
     }

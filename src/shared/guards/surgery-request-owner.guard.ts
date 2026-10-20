@@ -16,6 +16,17 @@ export const SKIP_SURGERY_OWNER = 'skipSurgeryOwner';
 
 export const SkipSurgeryOwner = () => SetMetadata(SKIP_SURGERY_OWNER, true);
 
+function ehMultipart(req: {
+  headers?: Record<string, string | string[] | undefined>;
+}): boolean {
+  const tipo = req.headers?.['content-type'];
+  const valor = Array.isArray(tipo) ? tipo[0] : tipo;
+  return (
+    typeof valor === 'string' &&
+    valor.toLowerCase().startsWith('multipart/form-data')
+  );
+}
+
 @Injectable()
 export class SurgeryRequestOwnerGuard implements CanActivate {
   constructor(
@@ -40,7 +51,12 @@ export class SurgeryRequestOwnerGuard implements CanActivate {
       req.body?.surgeryRequestId ??
       req.body?.id;
 
-    if (!id) return true;
+    if (!id) {
+      if (ehMultipart(req)) return true;
+      throw new ForbiddenException(
+        'Acesso negado: solicitação cirúrgica não informada.',
+      );
+    }
 
     if (!isUUID(String(id)))
       throw new NotFoundException('Solicitação cirúrgica não encontrada');
@@ -68,6 +84,7 @@ export class SurgeryRequestOwnerGuard implements CanActivate {
       action: req.method,
       actorUserId: req.user?.userId,
       tenantId: req.user?.ownerId,
+      patientId: sr.patientId ?? null,
     });
 
     return true;

@@ -1,7 +1,8 @@
+import { Logger } from '@nestjs/common';
 import { PhoneNormalizerService } from './phone-normalizer.service';
 
 describe('PhoneNormalizerService', () => {
-  const userRepoMock = { findOneByPhone: jest.fn() };
+  const userRepoMock = { findManyByPhones: jest.fn() };
   let service: PhoneNormalizerService;
 
   beforeEach(() => {
@@ -80,46 +81,80 @@ describe('PhoneNormalizerService', () => {
   });
 
   describe('findUserByPhoneCandidates', () => {
-    it('devolve o primeiro hit no lookup', async () => {
-      userRepoMock.findOneByPhone
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ id: 'u-1' });
+    it('consulta o canônico e as variantes legadas numa única ida ao banco', async () => {
+      userRepoMock.findManyByPhones.mockResolvedValue([{ id: 'u-1' }]);
 
-      const user = await service.findUserByPhoneCandidates('+5511999998888', [
-        'a',
-        'b',
-      ]);
+      const { canonicalPhone, lookupCandidates } =
+        service.normalizeInboundPhone('whatsapp:+5511999998888');
+      const user = await service.findUserByPhoneCandidates(
+        canonicalPhone,
+        lookupCandidates,
+      );
+
       expect(user).toEqual({ id: 'u-1' });
-      expect(userRepoMock.findOneByPhone).toHaveBeenNthCalledWith(1, 'a');
-      expect(userRepoMock.findOneByPhone).toHaveBeenNthCalledWith(2, 'b');
-    });
-
-    it('cai no primaryPhone quando nenhum candidato casa', async () => {
-      userRepoMock.findOneByPhone
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ id: 'u-2' });
-
-      const user = await service.findUserByPhoneCandidates('+5511999998888', [
-        'a',
-        'b',
-      ]);
-      expect(user).toEqual({ id: 'u-2' });
-      expect(userRepoMock.findOneByPhone).toHaveBeenNthCalledWith(
-        3,
-        '+5511999998888',
+      expect(userRepoMock.findManyByPhones).toHaveBeenCalledTimes(1);
+      const [telefones] = userRepoMock.findManyByPhones.mock.calls[0];
+      expect(telefones[0]).toBe('11999998888');
+      expect(telefones).toEqual(
+        expect.arrayContaining(['5511999998888', '+5511999998888']),
       );
     });
 
-    it('não duplica chamada quando primaryPhone já está nos candidates', async () => {
-      userRepoMock.findOneByPhone.mockResolvedValue(null);
+    it('acha pelo canônico quando o inbound vem sem o nono dígito', async () => {
+      userRepoMock.findManyByPhones.mockResolvedValue([{ id: 'u-1' }]);
+
+      await service.findUserByPhoneCandidates('+553189085791', [
+        '+553189085791',
+      ]);
+
+      const [telefones] = userRepoMock.findManyByPhones.mock.calls[0];
+      expect(telefones[0]).toBe('31989085791');
+    });
+
+    it('devolve null quando ninguém casa', async () => {
+      userRepoMock.findManyByPhones.mockResolvedValue([]);
 
       const user = await service.findUserByPhoneCandidates('+5511999998888', [
         '+5511999998888',
-        'b',
       ]);
+
       expect(user).toBeNull();
-      expect(userRepoMock.findOneByPhone).toHaveBeenCalledTimes(2);
+    });
+
+    it('recusa quando variantes casam usuários distintos, sem expor o número no log', async () => {
+      const warn = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+      userRepoMock.findManyByPhones.mockResolvedValue([
+        { id: 'vitima', phone: '11987654321' },
+        { id: 'atacante', phone: '5511987654321' },
+      ]);
+
+      const user = await service.findUserByPhoneCandidates('+5511987654321', [
+        '+5511987654321',
+        '5511987654321',
+        '11987654321',
+      ]);
+
+      expect(user).toBeNull();
+      expect(warn).toHaveBeenCalledTimes(1);
+      const mensagem = String(warn.mock.calls[0][0]);
+      expect(mensagem).toContain('AI_PHONE_AMBIGUOUS');
+      expect(mensagem).not.toContain('87654321');
+      warn.mockRestore();
+    });
+
+    it('não confunde o mesmo usuário repetido com ambiguidade', async () => {
+      userRepoMock.findManyByPhones.mockResolvedValue([
+        { id: 'u-1' },
+        { id: 'u-1' },
+      ]);
+
+      const user = await service.findUserByPhoneCandidates('+5511999998888', [
+        '+5511999998888',
+      ]);
+
+      expect(user).toEqual({ id: 'u-1' });
     });
   });
 

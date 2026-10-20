@@ -1,4 +1,5 @@
 import { AiTool } from '../../tool.interface';
+import { draftConfirmationFingerprint } from '../../helpers/draft-fingerprint';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { SurgeryRequestStatus } from '../../../../../database/entities/surgery-request.entity';
@@ -26,6 +27,8 @@ export function buildSendScDraftCommitTool(
     name: 'send_sc_draft_commit',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
+    confirmationFingerprint: draftConfirmationFingerprint(deps.draftService),
     definition: {
       type: 'function',
       function: {

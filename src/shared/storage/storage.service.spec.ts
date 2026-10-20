@@ -90,6 +90,76 @@ describe('StorageService — cache das fotos de paciente', () => {
     expect(doc.CacheControl).toBeUndefined();
   });
 
+  describe('tipo seguro no upload e na URL assinada', () => {
+    it('create nunca grava text/html ou SVG vindo do cliente', async () => {
+      await service.create(
+        {
+          originalname: 'x.html',
+          mimetype: 'text/html',
+          buffer: Buffer.from('<script>'),
+        },
+        'documents',
+        'owner-a',
+      );
+      await service.uploadBuffer(
+        Buffer.from('<svg/>'),
+        'whatsapp-tmp',
+        'x.svg',
+        'image/svg+xml',
+      );
+      const [html, svg] = s3.send.mock.calls.map(
+        (c) => (c[0] as PutObjectCommand).input,
+      );
+      expect(html.ContentType).toBe('application/octet-stream');
+      expect(svg.ContentType).toBe('application/octet-stream');
+    });
+
+    it('create mantém o tipo de um PDF', async () => {
+      await service.create(
+        {
+          originalname: 'l.pdf',
+          mimetype: 'application/pdf',
+          buffer: Buffer.from('%PDF'),
+        },
+        'documents',
+        'owner-a',
+      );
+      expect(
+        (s3.send.mock.calls[0][0] as PutObjectCommand).input.ContentType,
+      ).toBe('application/pdf');
+    });
+
+    it('PDF e imagem: URL inline com o tipo fixado', async () => {
+      await service.getSignedUrl('documents/owner-a/u-laudo.pdf');
+      await service.getSignedUrl('patient-photos/owner-a/foto.webp');
+      const [pdf, foto] = presign.mock.calls.map(
+        (c) => (c[1] as GetObjectCommand).input,
+      );
+      expect(pdf.ResponseContentType).toBe('application/pdf');
+      expect(pdf.ResponseContentDisposition).toBeUndefined();
+      expect(foto.ResponseContentType).toBe('image/webp');
+      expect(foto.ResponseContentDisposition).toBeUndefined();
+    });
+
+    it('DOCX e arquivo legado perigoso: URL força download', async () => {
+      await service.getSignedUrl('documents/owner-a/u-receita.docx');
+      await service.getSignedUrl('documents/owner-a/u-x.html');
+      const [docx, html] = presign.mock.calls.map(
+        (c) => (c[1] as GetObjectCommand).input,
+      );
+      expect(docx.ResponseContentDisposition).toBe(
+        'attachment; filename="u-receita.docx"',
+      );
+      expect(docx.ResponseContentType).toBe(
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      );
+      expect(html.ResponseContentDisposition).toBe(
+        'attachment; filename="u-x.html"',
+      );
+      expect(html.ResponseContentType).toBe('application/octet-stream');
+    });
+  });
+
   describe('deleteMany', () => {
     it('devolve as chaves que o R2 recusou uma a uma', async () => {
       s3.send.mockResolvedValueOnce({

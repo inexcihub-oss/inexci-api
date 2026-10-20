@@ -1,7 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { User } from '../../../../database/entities/user.entity';
 import { UserRepository } from '../../../../database/repositories/user.repository';
 import { maskPhone as maskPhoneUtil } from '../../../utils/mask.util';
+import {
+  canonicalizarTelefone,
+  variantesLegadasDoTelefone,
+} from '../../../utils/phone.util';
 
 export interface NormalizedInboundPhone {
   canonicalPhone: string;
@@ -10,6 +14,8 @@ export interface NormalizedInboundPhone {
 
 @Injectable()
 export class PhoneNormalizerService {
+  private readonly logger = new Logger(PhoneNormalizerService.name);
+
   constructor(private readonly userRepository: UserRepository) {}
 
   normalizeInboundPhone(rawFrom: string): NormalizedInboundPhone {
@@ -52,16 +58,25 @@ export class PhoneNormalizerService {
     primaryPhone: string,
     candidates: string[],
   ): Promise<User | null> {
-    for (const candidate of candidates) {
-      const user = await this.userRepository.findOneByPhone(candidate);
-      if (user) return user;
-    }
+    const canonico =
+      canonicalizarTelefone(primaryPhone) ??
+      candidates.map((c) => canonicalizarTelefone(c)).find(Boolean) ??
+      null;
+    const telefones = [
+      ...(canonico ? variantesLegadasDoTelefone(canonico) : []),
+      ...candidates,
+      primaryPhone,
+    ];
 
-    if (!candidates.includes(primaryPhone)) {
-      return this.userRepository.findOneByPhone(primaryPhone);
+    const usuarios = await this.userRepository.findManyByPhones(telefones);
+    const ids = new Set(usuarios.map((u) => u.id));
+    if (ids.size > 1) {
+      this.logger.warn(
+        `[AI_PHONE_AMBIGUOUS] phone=${this.maskPhone(primaryPhone)} usuarios=${ids.size} lookup recusado`,
+      );
+      return null;
     }
-
-    return null;
+    return usuarios[0] ?? null;
   }
 
   maskPhone(phone: string): string {

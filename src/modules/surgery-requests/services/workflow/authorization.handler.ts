@@ -22,6 +22,7 @@ import { SendMethod } from 'src/shared/constants/send-method';
 import { MailService } from 'src/shared/mail/mail.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { STORAGE_FOLDERS } from 'src/config/storage.config';
+import { lerAtividadePdf } from 'src/shared/storage/system-pdf-activity';
 import {
   SurgeryRequestStateMachine,
   assertTransitionApplied,
@@ -308,14 +309,17 @@ export class AuthorizationHandler {
     id: string,
     userId: string,
   ): Promise<Buffer> {
-    const saved = await this.findSavedContestAuthorizationPdf(id);
-    if (saved) return saved;
-
     const request = await this.surgeryRequestRepository.findOneWithAllRelations(
       { id },
     );
     if (!request)
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+
+    const saved = await this.findSavedContestAuthorizationPdf(
+      id,
+      request.ownerId,
+    );
+    if (saved) return saved;
 
     return this.pdfAssemblyService.generateContestAuthorizationPdf(
       request,
@@ -326,6 +330,7 @@ export class AuthorizationHandler {
 
   private async findSavedContestAuthorizationPdf(
     id: string,
+    ownerId: string,
   ): Promise<Buffer | null> {
     const contestation =
       await this.contestationRepository.findLatestBySurgeryRequest(
@@ -340,32 +345,17 @@ export class AuthorizationHandler {
       contestation.createdAt,
     );
     for (const activity of activities) {
-      const pdfPath = this.contestPdfPath(activity.content, contestation.id);
-      if (!pdfPath) continue;
-      const buffer = await this.storageService.download(pdfPath);
-      if (buffer) return buffer;
-    }
-    return null;
-  }
-
-  private contestPdfPath(
-    content: string,
-    contestationId: string,
-  ): string | null {
-    try {
-      const parsed = JSON.parse(content) as {
-        pdf_path?: unknown;
-        contestation_id?: unknown;
-      };
-      if (
-        parsed?.contestation_id === contestationId &&
-        typeof parsed.pdf_path === 'string' &&
-        parsed.pdf_path
-      ) {
-        return parsed.pdf_path;
+      const lida = lerAtividadePdf(activity, ownerId);
+      if (!lida || lida.contestationId !== contestation.id) continue;
+      if (lida.motivoRejeicao) {
+        this.logger.warn(
+          `[contestPDF] pdf_path recusado (${lida.motivoRejeicao}) na atividade ${activity.id} da solicitação ${id}`,
+        );
+        continue;
       }
-    } catch {
-      return null;
+      if (!lida.pdfPath) continue;
+      const buffer = await this.storageService.download(lida.pdfPath);
+      if (buffer) return buffer;
     }
     return null;
   }

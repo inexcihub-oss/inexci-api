@@ -67,6 +67,7 @@ import { WhatsappConversationMessage } from './whatsapp-conversation-message.ent
 import { AiKnowledgeChunk } from './ai-knowledge-chunk.entity';
 import { AiTokenUsageLog } from './ai-token-usage-log.entity';
 import { AiPiiRedactionLog } from './ai-pii-redaction-log.entity';
+import { ClinicalAccessAudit } from './clinical-access-audit.entity';
 
 export { User, UserRole, UserStatus };
 export { DoctorProfile };
@@ -129,6 +130,7 @@ export { WhatsappConversationMessage };
 export { AiKnowledgeChunk };
 export { AiTokenUsageLog };
 export { AiPiiRedactionLog };
+export { ClinicalAccessAudit };
 
 export const ENTITIES = [
   User,
@@ -177,4 +179,5 @@ export const ENTITIES = [
   AiKnowledgeChunk,
   AiTokenUsageLog,
   AiPiiRedactionLog,
+  ClinicalAccessAudit,
 ];

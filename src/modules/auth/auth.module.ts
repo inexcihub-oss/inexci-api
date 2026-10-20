@@ -15,6 +15,12 @@ import { BillingModule } from '../billing/billing.module';
 import { StorageModule } from 'src/shared/storage/storage.module';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { RefreshTokenStore } from './refresh-token.store';
+import { AuthAttemptLimiter } from './auth-attempt-limiter';
+import { TurnstileService } from './turnstile.service';
+import { SessionRevocationService } from './session-revocation.service';
+import { JsonOnlyGuard } from './json-only.guard';
+import { TrustedOriginGuard } from './trusted-origin.guard';
+import { MfaService } from './mfa/mfa.service';
 import {
   JWT_DEFAULT_AUDIENCE,
   JWT_DEFAULT_ISSUER,
@@ -52,8 +58,19 @@ import {
       inject: [ConfigService],
     }),
   ],
-  providers: [AuthService, JwtStrategy, StorageService, RefreshTokenStore],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    StorageService,
+    RefreshTokenStore,
+    AuthAttemptLimiter,
+    TurnstileService,
+    SessionRevocationService,
+    JsonOnlyGuard,
+    TrustedOriginGuard,
+    MfaService,
+  ],
   controllers: [AuthController],
-  exports: [AuthService, RefreshTokenStore],
+  exports: [AuthService, RefreshTokenStore, SessionRevocationService],
 })
 export class AuthModule {}

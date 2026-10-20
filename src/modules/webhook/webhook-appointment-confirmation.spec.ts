@@ -14,6 +14,7 @@ describe('WebhookService — confirmação de consulta', () => {
   };
   let notificationsService: { notifyAppointmentPatientResponse: jest.Mock };
   let service: WebhookService;
+  let conversationRepository: { findActiveByPhone: jest.Mock };
 
   const consulta = {
     id: 'appt-1',
@@ -42,6 +43,9 @@ describe('WebhookService — confirmação de consulta', () => {
       findAtivaPorTelefone: jest.fn().mockResolvedValue({ ...consulta }),
       update: jest.fn().mockResolvedValue({}),
     };
+    conversationRepository = {
+      findActiveByPhone: jest.fn().mockResolvedValue(null),
+    };
     notificationsService = {
       notifyAppointmentPatientResponse: jest.fn().mockResolvedValue(undefined),
     };
@@ -53,6 +57,7 @@ describe('WebhookService — confirmação de consulta', () => {
       appointmentRepository as any,
       notificationsService as any,
       appointmentActivityRepository as any,
+      conversationRepository as any,
     );
   });
 
@@ -306,5 +311,91 @@ describe('WebhookService — confirmação de consulta', () => {
 
     const [, texto] = whatsappService.sendMessage.mock.calls[0];
     expect(texto).not.toContain('Clínica Vida');
+  });
+
+  describe('colisão com a confirmação pendente da IA', () => {
+    const conversaComPendencia = (createdAt: Date) => ({
+      id: 'conv-1',
+      conversationMemory: {
+        pending_confirmation: {
+          tool: 'advance_surgery_request',
+          createdAt: createdAt.toISOString(),
+        },
+      },
+    });
+
+    it('payload próprio da consulta vence mesmo com confirmação da IA pendente', async () => {
+      conversationRepository.findActiveByPhone.mockResolvedValue(
+        conversaComPendencia(new Date()),
+      );
+
+      const tratou = await service.tryHandleAppointmentConfirmation(
+        evento('consulta_confirmar', 'Confirmar'),
+      );
+
+      expect(tratou).toBe(true);
+      expect(appointmentRepository.update).toHaveBeenCalledWith('appt-1', {
+        status: AppointmentStatus.CONFIRMED,
+      });
+    });
+
+    it('botão da IA (payload próprio) com texto "Confirmar" não confirma a consulta', async () => {
+      const tratou = await service.tryHandleAppointmentConfirmation(
+        evento('ai_confirm_yes', 'Confirmar'),
+      );
+
+      expect(tratou).toBe(false);
+      expect(appointmentRepository.findAtivaPorTelefone).not.toHaveBeenCalled();
+      expect(appointmentRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('texto sem payload vai para a IA quando a confirmação dela é mais recente que o lembrete', async () => {
+      appointmentRepository.findAtivaPorTelefone.mockResolvedValue({
+        ...consulta,
+        reminderSentAt: new Date(Date.now() - 60 * 60 * 1000),
+      });
+      conversationRepository.findActiveByPhone.mockResolvedValue(
+        conversaComPendencia(new Date(Date.now() - 60 * 1000)),
+      );
+
+      const tratou = await service.tryHandleAppointmentConfirmation(
+        evento('', 'Cancelar'),
+      );
+
+      expect(tratou).toBe(false);
+      expect(appointmentRepository.update).not.toHaveBeenCalled();
+      expect(conversationRepository.findActiveByPhone).toHaveBeenCalledWith(
+        '+5511998877665',
+      );
+    });
+
+    it('texto sem payload fica com a consulta quando o lembrete é mais recente que a pendência da IA', async () => {
+      appointmentRepository.findAtivaPorTelefone.mockResolvedValue({
+        ...consulta,
+        reminderSentAt: new Date(Date.now() - 60 * 1000),
+      });
+      conversationRepository.findActiveByPhone.mockResolvedValue(
+        conversaComPendencia(new Date(Date.now() - 5 * 60 * 1000)),
+      );
+
+      const tratou = await service.tryHandleAppointmentConfirmation(
+        evento('', 'Confirmo'),
+      );
+
+      expect(tratou).toBe(true);
+      expect(appointmentRepository.update).toHaveBeenCalled();
+    });
+
+    it('ignora pendência da IA expirada', async () => {
+      conversationRepository.findActiveByPhone.mockResolvedValue(
+        conversaComPendencia(new Date(Date.now() - 60 * 60 * 1000)),
+      );
+
+      const tratou = await service.tryHandleAppointmentConfirmation(
+        evento('', 'Confirmo'),
+      );
+
+      expect(tratou).toBe(true);
+    });
   });
 });

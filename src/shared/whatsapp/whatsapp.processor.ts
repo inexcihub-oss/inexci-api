@@ -99,7 +99,7 @@ export class WhatsappProcessor {
     try {
       if (!this.twilioClient) {
         this.logger.log(
-          `[DEV] WhatsApp (sem Twilio) → ${maskedTo}: ${truncateForLog(logBody, 120)}`,
+          `[DEV] WhatsApp (sem Twilio) → ${maskedTo}: ${isTemplate ? `template ${contentSid}` : `texto ${logBody.length} chars`}`,
         );
         sentAt = new Date();
       } else if (isTemplate) {

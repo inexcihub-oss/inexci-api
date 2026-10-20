@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { StorageService } from 'src/shared/storage/storage.service';
+import { caminhoDoLogoDoCabecalho } from 'src/shared/storage/logo-do-cabecalho';
 
 const logger = new Logger('SignedUrlTransformer');
 
@@ -10,6 +11,7 @@ interface DocumentoComUri {
 
 interface MedicoComAssinatura {
   id?: string;
+  ownerId?: string | null;
   signatureUrl?: string | null;
   doctorProfile?: {
     signatureUrl?: string | null;
@@ -82,12 +84,26 @@ async function resolveHeaderLogoUrl<T extends MedicoComAssinatura>(
   storageService: StorageService,
 ): Promise<T> {
   const header = doctor?.doctorProfile?.header;
-  if (!header?.logoUrl || header.logoUrl.startsWith('http')) {
+  if (!header?.logoUrl) {
     return doctor;
   }
 
+  const caminhoDoLogo = caminhoDoLogoDoCabecalho(header.logoUrl, {
+    bucket: storageService.nomeDoBucket,
+    ownerId: doctor.ownerId,
+  });
+  if (!caminhoDoLogo) {
+    return {
+      ...doctor,
+      doctorProfile: {
+        ...doctor.doctorProfile,
+        header: { ...header, logoUrl: null },
+      },
+    };
+  }
+
   try {
-    const signedLogoUrl = await storageService.getSignedUrl(header.logoUrl);
+    const signedLogoUrl = await storageService.getSignedUrl(caminhoDoLogo);
     return {
       ...doctor,
       doctorProfile: {

@@ -5,6 +5,7 @@ import { PatientsService } from '../../../modules/patients/patients.service';
 import { ALL_PERMISSIONS } from 'src/shared/permissions';
 import { Patient } from '../../../database/entities/patient.entity';
 import { asScalarArg } from './helpers/arg-parsers';
+import { auditProntuarioAccess } from 'src/shared/logging/audit';
 
 export interface GeneralToolDeps {
   patientsService: PatientsService;
@@ -80,7 +81,9 @@ export function buildGeneralTools({
       if (rawInput.match(/^[0-9a-f-]{36}$/i)) {
         let patient: Patient;
         try {
-          patient = await patientsService.findOne(rawInput, context.userId);
+          patient = await patientsService.findOne(rawInput, context.userId, {
+            origin: 'ai',
+          });
         } catch {
           return `Paciente com ID "${rawInput}" não encontrado.`;
         }
@@ -139,6 +142,15 @@ export function buildGeneralTools({
         });
         if (resolverResult.status === 'resolved' && resolverResult.resolved) {
           const p = resolverResult.resolved.data;
+          auditProntuarioAccess({
+            resource: 'patient',
+            resourceId: p.id,
+            action: 'read',
+            actorUserId: context.userId,
+            tenantId: p.ownerId,
+            patientId: p.id,
+            origin: 'ai',
+          });
           const cpfToken = p.cpf
             ? tokenizePii(context, TOOL, 'cpf', p.cpf)
             : 'Não informado';

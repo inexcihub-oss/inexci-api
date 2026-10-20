@@ -19,6 +19,7 @@ export function buildConfirmReceiptTool(deps: WhatsappFlowToolDeps): AiTool {
     name: 'confirm_receipt',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {

@@ -77,5 +77,29 @@ describe('CatalogTools', () => {
         5,
       );
     });
+
+    it('filtra o catálogo pelo ownerId do contexto', async () => {
+      const { map, procedureRepo } = createTools();
+      procedureRepo.findMany.mockResolvedValue([]);
+
+      await map.get('search_procedures')!.execute({}, baseContext());
+
+      expect(procedureRepo.findMany).toHaveBeenCalledWith(
+        { ownerId: 'owner-1' },
+        0,
+        500,
+      );
+    });
+
+    it('recusa quando não há ownerId resolvível (fail-closed)', async () => {
+      const { map, procedureRepo } = createTools();
+
+      const result = await map
+        .get('search_procedures')!
+        .execute({}, { ...baseContext(), ownerId: null });
+
+      expect(result).toBe('Acesso negado.');
+      expect(procedureRepo.findMany).not.toHaveBeenCalled();
+    });
   });
 });

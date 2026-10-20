@@ -109,6 +109,44 @@ describe('ConsentService', () => {
     });
   });
 
+  describe('invalidação do cache do assistente', () => {
+    const emitter = { emit: jest.fn() };
+    let comEventos: ConsentService;
+
+    beforeEach(() => {
+      comEventos = new ConsentService(userRepoMock as never, emitter as never);
+      userRepoMock.findOne.mockResolvedValue({
+        id: 'u1',
+        phone: '11987654321',
+        aiConsentAcceptedAt: null,
+      });
+    });
+
+    it('grantAi emite user.access_changed com o telefone do usuário', async () => {
+      await comEventos.grantAi('u1');
+
+      expect(emitter.emit).toHaveBeenCalledWith('user.access_changed', {
+        userId: 'u1',
+        phone: '11987654321',
+      });
+    });
+
+    it('revokeAi emite user.access_changed com o telefone do usuário', async () => {
+      await comEventos.revokeAi('u1');
+
+      expect(emitter.emit).toHaveBeenCalledWith('user.access_changed', {
+        userId: 'u1',
+        phone: '11987654321',
+      });
+    });
+
+    it('acceptTerms não mexe no cache do assistente', async () => {
+      await comEventos.acceptTerms('u1');
+
+      expect(emitter.emit).not.toHaveBeenCalled();
+    });
+  });
+
   describe('hasValidAiConsent', () => {
     it('retorna true quando o timestamp existe', () => {
       expect(

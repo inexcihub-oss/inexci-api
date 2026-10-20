@@ -7,6 +7,8 @@ export const PASTAS_DE_ASSINATURA: readonly string[] = [
   STORAGE_FOLDERS.STAMPS,
 ];
 
+export const PASTAS_DE_CABECALHO: readonly string[] = [STORAGE_FOLDERS.HEADERS];
+
 export function ehArquivoDaConta(
   caminho: string | null | undefined,
   pastas: readonly string[],

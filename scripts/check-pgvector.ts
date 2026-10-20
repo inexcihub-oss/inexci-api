@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { Client } from 'pg';
+import { resolvePostgresSsl } from '../src/database/typeorm/postgres-ssl';
 
 async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
@@ -10,7 +11,10 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const client = new Client({ connectionString: databaseUrl });
+  const client = new Client({
+    connectionString: databaseUrl,
+    ssl: resolvePostgresSsl(),
+  });
 
   try {
     await client.connect();
@@ -48,4 +52,4 @@ async function main(): Promise<void> {
   }
 }
 
-main();
+void main();

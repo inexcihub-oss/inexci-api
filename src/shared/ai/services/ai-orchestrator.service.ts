@@ -74,6 +74,7 @@ interface TurnModelContext {
   breakdown: BuildContextResult['breakdown'];
   strategy: BuildContextResult['strategy'];
   ragMetrics: RagQueryMetrics | null;
+  userMessage: string;
 }
 
 interface TurnLoopOutcome {
@@ -183,10 +184,16 @@ export class AiOrchestratorService {
   onUserAccessChanged(payload: {
     userId: string;
     phone?: string | null;
+    previousPhone?: string | null;
   }): void {
     this.doctorIdsCache.delete(payload.userId);
     this.accessControlService.invalidateAccessibleDoctors(payload.userId);
     this.invalidateUserCacheByPhone(payload.phone);
+    this.invalidateUserCacheByPhone(payload.previousPhone);
+  }
+
+  async claimInboundMessage(messageSid: string): Promise<boolean> {
+    return this.messageProcessor.claimInboundMessage(messageSid);
   }
 
   async enqueueInboundMessage(data: InboundMessageData): Promise<void> {
@@ -582,6 +589,12 @@ export class AiOrchestratorService {
     });
     const messages: OpenAI.ChatCompletionMessageParam[] = built.messages;
 
+    await this.confirmationManager.beginTurn(
+      conversation.id,
+      data.messageSid,
+      userInputForAi,
+    );
+
     const numericHint = await this.confirmationManager.buildNumericChoiceHint(
       conversation.id,
       effectiveBody || '',
@@ -632,6 +645,7 @@ export class AiOrchestratorService {
       breakdown: built.breakdown,
       strategy: built.strategy,
       ragMetrics,
+      userMessage: userInputForAi,
     };
   }
 
@@ -686,6 +700,8 @@ export class AiOrchestratorService {
       conversationId: conversation.id,
       inboundMedia: data.media || [],
       piiVault: this.piiVault,
+      turnId: data.messageSid,
+      userMessage: modelContext.userMessage,
     };
 
     const loopResult = await this.toolLoopRunner.run({

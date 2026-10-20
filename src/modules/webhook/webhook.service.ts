@@ -17,6 +17,7 @@ import { registrarNoHistorico } from 'src/modules/appointments/appointment-histo
 import { NotificationsService } from 'src/modules/notifications/notifications.service';
 import { formatAppointmentWhen, formatClinicAddress } from 'src/shared/utils';
 import { errorMessage } from 'src/shared/utils/error-message.util';
+import { WhatsappConversationRepository } from 'src/database/repositories/whatsapp-conversation.repository';
 
 @Injectable()
 export class WebhookService {
@@ -25,17 +26,20 @@ export class WebhookService {
   private static readonly SCHEDULING_PATIENT_SELECTED_STATUS_LABEL =
     'Em agendamento';
 
-  private static readonly APPOINTMENT_CONFIRM_TOKENS = [
-    'consulta_confirmar',
-    'confirmar',
-    'confirmo',
+  private static readonly APPOINTMENT_CONFIRM_PAYLOAD = 'consulta_confirmar';
+  private static readonly APPOINTMENT_CANCEL_PAYLOAD = 'consulta_cancelar';
+
+  private static readonly APPOINTMENT_CONFIRM_TEXTS = ['confirmar', 'confirmo'];
+
+  private static readonly APPOINTMENT_CANCEL_TEXTS = ['cancelar', 'cancela'];
+
+  private static readonly AMBIENTES_SEM_ASSINATURA = [
+    'development',
+    'test',
+    'local',
   ];
 
-  private static readonly APPOINTMENT_CANCEL_TOKENS = [
-    'consulta_cancelar',
-    'cancelar',
-    'cancela',
-  ];
+  private static readonly AI_PENDING_CONFIRMATION_MAX_AGE_MS = 15 * 60 * 1000;
 
   private static readonly MOTIVO_CANCELAMENTO_PELO_PACIENTE =
     'Cancelada pelo paciente pelo WhatsApp';
@@ -53,31 +57,64 @@ export class WebhookService {
     private readonly appointmentRepository: AppointmentRepository,
     private readonly notificationsService: NotificationsService,
     private readonly appointmentActivityRepository: AppointmentActivityRepository,
+    private readonly conversationRepository: WhatsappConversationRepository,
   ) {}
 
   private parseAppointmentAnswer(
     buttonPayload: string,
     buttonText: string,
-  ): 'confirmed' | 'cancelled' | null {
-    const candidatos = [buttonPayload, buttonText].map((v) =>
-      (v || '').trim().toLowerCase(),
-    );
-
-    if (
-      WebhookService.APPOINTMENT_CONFIRM_TOKENS.some((t) =>
-        candidatos.includes(t),
-      )
-    ) {
-      return 'confirmed';
+  ): { answer: 'confirmed' | 'cancelled'; viaPayload: boolean } | null {
+    const payload = (buttonPayload || '').trim().toLowerCase();
+    if (payload === WebhookService.APPOINTMENT_CONFIRM_PAYLOAD) {
+      return { answer: 'confirmed', viaPayload: true };
     }
-    if (
-      WebhookService.APPOINTMENT_CANCEL_TOKENS.some((t) =>
-        candidatos.includes(t),
-      )
-    ) {
-      return 'cancelled';
+    if (payload === WebhookService.APPOINTMENT_CANCEL_PAYLOAD) {
+      return { answer: 'cancelled', viaPayload: true };
+    }
+    if (payload) return null;
+
+    const text = (buttonText || '').trim().toLowerCase();
+    if (WebhookService.APPOINTMENT_CONFIRM_TEXTS.includes(text)) {
+      return { answer: 'confirmed', viaPayload: false };
+    }
+    if (WebhookService.APPOINTMENT_CANCEL_TEXTS.includes(text)) {
+      return { answer: 'cancelled', viaPayload: false };
     }
     return null;
+  }
+
+  private async aiConfirmationPendingSince(from: string): Promise<Date | null> {
+    try {
+      const { canonicalPhone } = this.phoneNormalizer.normalizeInboundPhone(
+        from ?? '',
+      );
+      if (!canonicalPhone) return null;
+      const conversation =
+        await this.conversationRepository.findActiveByPhone(canonicalPhone);
+      const memory = conversation?.conversationMemory as
+        | Record<string, unknown>
+        | null
+        | undefined;
+      const pending = memory?.pending_confirmation as
+        | { createdAt?: unknown }
+        | null
+        | undefined;
+      if (!pending || typeof pending.createdAt !== 'string') return null;
+      const createdAt = new Date(pending.createdAt);
+      if (Number.isNaN(createdAt.getTime())) return null;
+      if (
+        Date.now() - createdAt.getTime() >
+        WebhookService.AI_PENDING_CONFIRMATION_MAX_AGE_MS
+      ) {
+        return null;
+      }
+      return createdAt;
+    } catch (err) {
+      this.logger.warn(
+        `Falha ao checar confirmação pendente da IA: ${errorMessage(err)}`,
+      );
+      return null;
+    }
   }
 
   async tryHandleAppointmentConfirmation(params: {
@@ -86,11 +123,12 @@ export class WebhookService {
     buttonPayload: string;
     buttonText: string;
   }): Promise<boolean> {
-    const answer = this.parseAppointmentAnswer(
+    const parsed = this.parseAppointmentAnswer(
       params.buttonPayload,
       params.buttonText,
     );
-    if (!answer) return false;
+    if (!parsed) return false;
+    const { answer } = parsed;
 
     const phoneCandidates = this.phoneDigitCandidates(params.from);
     if (phoneCandidates.length === 0) return false;
@@ -108,6 +146,22 @@ export class WebhookService {
         `Resposta de lembrete de consulta sem consulta ativa na janela (sid=${params.messageSid})`,
       );
       return false;
+    }
+
+    if (!parsed.viaPayload) {
+      const aiPendingSince = await this.aiConfirmationPendingSince(params.from);
+      const reminderSentAt = appointment.reminderSentAt
+        ? new Date(appointment.reminderSentAt)
+        : null;
+      if (
+        aiPendingSince &&
+        (!reminderSentAt || aiPendingSince > reminderSentAt)
+      ) {
+        this.logger.log(
+          `Resposta "${answer}" sem payload de consulta encaminhada à IA: confirmação pendente da IA é mais recente (sid=${params.messageSid})`,
+        );
+        return false;
+      }
     }
 
     const patientName = appointment.patient?.name ?? 'Paciente';
@@ -329,10 +383,14 @@ export class WebhookService {
       .get<string>('TWILIO_AUTH_TOKEN', '')
       .trim();
 
-    if (explicitlyDisabled && nodeEnv !== 'production') return;
+    const ambienteLocal = WebhookService.AMBIENTES_SEM_ASSINATURA.includes(
+      nodeEnv.trim().toLowerCase(),
+    );
+
+    if (explicitlyDisabled && ambienteLocal) return;
 
     if (!authToken) {
-      if (nodeEnv === 'production') {
+      if (!ambienteLocal) {
         throw new UnauthorizedException(
           'Configuração de webhook inválida: TWILIO_AUTH_TOKEN ausente',
         );

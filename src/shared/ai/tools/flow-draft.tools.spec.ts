@@ -58,6 +58,7 @@ describe('flow-draft tools (preview + commit)', () => {
     };
     mockSurgeryRequestsService = {
       update: jest.fn().mockResolvedValue(undefined),
+      upsertReportSectionByTitle: jest.fn().mockResolvedValue(undefined),
     };
 
     tools = buildFlowDraftTools({
@@ -334,13 +335,28 @@ describe('flow-draft tools (preview + commit)', () => {
   });
 
   describe('update_sc', () => {
-    it('admin: aceita priority e commita via surgeryRequestsService.update', async () => {
+    const setUpdateSc = async (scope: string, changes: unknown) => {
       await draftService.start({ conversationId: 'conv-1', type: 'update_sc' });
       await draftService.setFields('conv-1', 'update_sc', {
         surgeryRequestId: 'sc-1',
         surgeryRequestLabel: 'SC-0001',
-        scope: 'admin',
-        changes: { priority: 3, healthPlanProtocol: 'XYZ-123' },
+        scope,
+        changes,
+      } as never);
+    };
+
+    const commitUpdateSc = async () =>
+      parseToolResult<any>(
+        await getTool('update_sc_draft_commit').execute(
+          { confirm: true },
+          context,
+        ),
+      );
+
+    it('admin: aceita priority e commita via surgeryRequestsService.update', async () => {
+      await setUpdateSc('admin', {
+        priority: 3,
+        healthPlanRegistration: '123',
       });
 
       const previewRaw = await getTool('update_sc_draft_preview').execute(
@@ -351,21 +367,163 @@ describe('flow-draft tools (preview + commit)', () => {
         'pending_confirmation',
       );
 
-      const commit = parseToolResult<any>(
-        await getTool('update_sc_draft_commit').execute(
-          { confirm: true },
-          context,
-        ),
-      );
+      const commit = await commitUpdateSc();
       expect(commit?.status).toBe('ok');
       expect(mockSurgeryRequestsService.update).toHaveBeenCalledWith(
         expect.objectContaining({
           id: 'sc-1',
           priority: 3,
-          healthPlanProtocol: 'XYZ-123',
+          healthPlanRegistration: '123',
         }),
         'user-1',
       );
+    });
+
+    it('admin: descarta chaves fora da allowlist e informa quais foram ignoradas', async () => {
+      await setUpdateSc('admin', {
+        priority: 'HIGH',
+        status: 9,
+        ownerId: 'outro-owner',
+        doctorId: 'outro-medico',
+        patientId: 'outro-paciente',
+        createdById: 'x',
+        protocol: 'SC-FAKE',
+        healthPlanProtocol: 'XYZ-123',
+      });
+
+      const commit = await commitUpdateSc();
+
+      expect(commit?.status).toBe('ok');
+      const [dto] = mockSurgeryRequestsService.update.mock.calls[0];
+      expect({ ...dto }).toEqual({ id: 'sc-1', priority: 3 });
+      expect(commit?.data.ignoredFields).toEqual([
+        'status',
+        'ownerId',
+        'doctorId',
+        'patientId',
+        'createdById',
+        'protocol',
+        'healthPlanProtocol',
+      ]);
+      expect(commit?.message).toContain('Campos ignorados');
+      expect(mockActivityRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.not.stringContaining('status'),
+        }),
+      );
+    });
+
+    it('admin: só chaves proibidas → erro sem chamar o service', async () => {
+      await setUpdateSc('admin', { status: 9, ownerId: 'x' });
+
+      const commit = await commitUpdateSc();
+
+      expect(commit?.status).toBe('error');
+      expect(commit?.data.ignoredFields).toEqual(['status', 'ownerId']);
+      expect(mockSurgeryRequestsService.update).not.toHaveBeenCalled();
+      expect(mockActivityRepo.create).not.toHaveBeenCalled();
+      expect(conv.operationDraft).not.toBeNull();
+    });
+
+    it('admin: chave de outro escopo (cidCode) é ignorada', async () => {
+      await setUpdateSc('admin', { cidCode: 'M17', healthPlanType: 'Apto' });
+
+      const commit = await commitUpdateSc();
+
+      expect(commit?.status).toBe('ok');
+      const [dto] = mockSurgeryRequestsService.update.mock.calls[0];
+      expect({ ...dto }).toEqual({ id: 'sc-1', healthPlanType: 'Apto' });
+      expect(commit?.data.ignoredFields).toEqual(['cidCode']);
+    });
+
+    it('admin: prioridade inválida devolve erro amigável', async () => {
+      await setUpdateSc('admin', { priority: 'altíssima' });
+
+      const commit = await commitUpdateSc();
+
+      expect(commit?.status).toBe('error');
+      expect(commit?.message).toContain('priority');
+      expect(mockSurgeryRequestsService.update).not.toHaveBeenCalled();
+    });
+
+    it('admin: tipo inválido é barrado pelo class-validator', async () => {
+      await setUpdateSc('admin', { healthPlanRegistration: { $ne: 1 } });
+
+      const commit = await commitUpdateSc();
+
+      expect(commit?.status).toBe('error');
+      expect(commit?.message).toContain('healthPlanRegistration inválido');
+      expect(mockSurgeryRequestsService.update).not.toHaveBeenCalled();
+    });
+
+    it('clinical: aplica cidCode e seções, ignora status/doctorId', async () => {
+      await setUpdateSc('clinical', {
+        cidCode: 'M17.1',
+        diagnosis: 'Gonartrose',
+        status: 6,
+        doctorId: 'outro-medico',
+      });
+
+      const commit = await commitUpdateSc();
+
+      expect(commit?.status).toBe('ok');
+      const [dto] = mockSurgeryRequestsService.update.mock.calls[0];
+      expect(dto).toMatchObject({ id: 'sc-1', cid: { code: 'M17.1' } });
+      expect(dto).not.toHaveProperty('status');
+      expect(dto).not.toHaveProperty('doctorId');
+      expect(
+        mockSurgeryRequestsService.upsertReportSectionByTitle,
+      ).toHaveBeenCalledWith('sc-1', 'Diagnóstico e Indicação', 'Gonartrose');
+      expect(commit?.data.ignoredFields).toEqual(['status', 'doctorId']);
+    });
+
+    it('clinical: cidCode não-string é recusado', async () => {
+      await setUpdateSc('clinical', { cidCode: { code: 'M17' } });
+
+      const commit = await commitUpdateSc();
+
+      expect(commit?.status).toBe('error');
+      expect(mockSurgeryRequestsService.update).not.toHaveBeenCalled();
+    });
+
+    it('patient: ignora healthPlanId, photoPath e ownerId', async () => {
+      await setUpdateSc('patient', {
+        name: 'Maria',
+        healthPlanId: 'hp-outra-clinica',
+        photoPath: 'outro/arquivo.png',
+        ownerId: 'x',
+      });
+
+      const commit = await commitUpdateSc();
+
+      expect(commit?.status).toBe('ok');
+      const [, dto] = mockPatientsService.update.mock.calls[0];
+      expect({ ...dto }).toEqual({ name: 'Maria' });
+      expect(commit?.data.ignoredFields).toEqual([
+        'healthPlanId',
+        'photoPath',
+        'ownerId',
+      ]);
+    });
+
+    it('patient: dado inválido não chega ao service', async () => {
+      await setUpdateSc('patient', { birthDate: 'ontem' });
+
+      const commit = await commitUpdateSc();
+
+      expect(commit?.status).toBe('error');
+      expect(commit?.message).toContain('birthDate inválido');
+      expect(mockPatientsService.update).not.toHaveBeenCalled();
+    });
+
+    it('scope desconhecido devolve erro', async () => {
+      await setUpdateSc('owner', { ownerId: 'x' });
+
+      const commit = await commitUpdateSc();
+
+      expect(commit?.status).toBe('error');
+      expect(mockSurgeryRequestsService.update).not.toHaveBeenCalled();
+      expect(mockPatientsService.update).not.toHaveBeenCalled();
     });
 
     it('patient: roteia para patientsService.update', async () => {
@@ -386,7 +544,7 @@ describe('flow-draft tools (preview + commit)', () => {
       expect(commit?.status).toBe('ok');
       expect(mockPatientsService.update).toHaveBeenCalledWith(
         'pat-1',
-        { phone: '11912345678' },
+        expect.objectContaining({ phone: '11912345678' }),
         'user-1',
       );
     });
@@ -420,5 +578,77 @@ describe('flow-draft tools (preview + commit)', () => {
       );
       expect(['error', 'blocked']).toContain(parseToolResult<any>(raw)?.status);
     });
+  });
+
+  describe('IDOR — commit revalida o acesso à SC do draft', () => {
+    const casos: Array<[string, string, Record<string, unknown>, string[]]> = [
+      [
+        'scheduling_draft_commit',
+        'scheduling',
+        { dateOptions: ['2026-02-01'], confirmedDateIndex: 0 },
+        ['updateDateOptions', 'confirmDate'],
+      ],
+      [
+        'invoice_draft_commit',
+        'invoice',
+        {
+          invoiceProtocol: 'FAT-1',
+          invoiceValue: 10,
+          invoiceSentAt: '2026-01-10',
+        },
+        ['invoiceRequest'],
+      ],
+      [
+        'contestation_draft_commit',
+        'contestation',
+        {
+          contestationType: 'AUTHORIZATION',
+          reason: 'motivo',
+          method: 'document',
+        },
+        ['contestAuthorization', 'contestPayment'],
+      ],
+      [
+        'update_sc_draft_commit',
+        'update_sc',
+        { scope: 'admin', changes: { priority: 'HIGH' } },
+        [],
+      ],
+    ];
+
+    it.each(casos)(
+      '%s recusa SC de médico fora do vínculo do usuário',
+      async (toolName, draftType, campos, metodos) => {
+        await draftService.start({
+          conversationId: 'conv-1',
+          type: draftType as any,
+        });
+        await draftService.setFields('conv-1', draftType as any, {
+          surgeryRequestId: 'sc-vitima',
+          surgeryRequestLabel: 'SC-9999',
+          ...campos,
+        });
+        mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+          id: 'sc-vitima',
+          protocol: 'SC-9999',
+          doctorId: 'medico-de-outra-clinica',
+          patientId: 'pat-x',
+          status: 4,
+        });
+
+        const result = parseToolResult<any>(
+          await getTool(toolName).execute({ confirm: true }, context),
+        );
+
+        expect(result?.status).toBe('error');
+        expect(result?.message).toMatch(/permissão/i);
+        for (const metodo of metodos) {
+          expect(mockWorkflowService[metodo]).not.toHaveBeenCalled();
+        }
+        expect(mockSurgeryRequestsService.update).not.toHaveBeenCalled();
+        expect(mockPatientsService.update).not.toHaveBeenCalled();
+        expect(mockActivityRepo.create).not.toHaveBeenCalled();
+      },
+    );
   });
 });

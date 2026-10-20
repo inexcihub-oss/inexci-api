@@ -176,48 +176,55 @@ export class SurgeryRequestMutationService {
   async update(data: UpdateSurgeryRequestDto, userId: string) {
     const surgeryRequest = await this.findWithAccess(data.id, userId);
 
-    let hospitalId: string | null = surgeryRequest.hospitalId;
+    const patch: Partial<SurgeryRequest> = {};
 
     if (data.hospital === null) {
-      hospitalId = null;
+      patch.hospitalId = null;
     } else if (data.hospital?.name) {
       const hospital = await this.findOrCreateHospitalByName(
         data.hospital,
         surgeryRequest.ownerId,
       );
-      hospitalId = hospital.id;
+      patch.hospitalId = hospital.id;
     }
 
     let healthPlanId: string | null = surgeryRequest.healthPlanId;
     if (data.healthPlan === null) {
       healthPlanId = null;
+      patch.healthPlanId = null;
     } else if (data.healthPlan?.name) {
       const healthPlan = await this.findOrCreateHealthPlanByName(
         data.healthPlan,
         surgeryRequest.ownerId,
       );
       healthPlanId = healthPlan.id;
+      patch.healthPlanId = healthPlan.id;
     }
 
     await this.assertBelongsToOwner(
-      { procedureId: data.procedureId },
+      {
+        hospitalId: patch.hospitalId,
+        healthPlanId: patch.healthPlanId,
+        procedureId: data.procedureId,
+      },
       surgeryRequest.ownerId,
     );
 
-    const { id: _id, hospital: _h, healthPlan: _hp, cid, ...validData } = data;
-    const cidData: { cidCode?: string | null } = {};
-    if (cid === null) {
-      cidData.cidCode = null;
-    } else if (cid?.code) {
-      cidData.cidCode = cid.code;
+    if (data.procedureId !== undefined) patch.procedureId = data.procedureId;
+    if (data.priority !== undefined) patch.priority = data.priority;
+    if (data.healthPlanRegistration !== undefined) {
+      patch.healthPlanRegistration = data.healthPlanRegistration;
+    }
+    if (data.healthPlanType !== undefined) {
+      patch.healthPlanType = data.healthPlanType;
+    }
+    if (data.cid === null) {
+      patch.cidCode = null;
+    } else if (data.cid?.code) {
+      patch.cidCode = data.cid.code;
     }
 
-    await this.surgeryRequestRepository.update(data.id, {
-      ...validData,
-      hospitalId,
-      healthPlanId,
-      ...cidData,
-    });
+    await this.surgeryRequestRepository.update(data.id, patch);
 
     const shouldSyncPatientInsurance =
       data.healthPlanRegistration !== undefined ||

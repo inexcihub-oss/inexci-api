@@ -1,4 +1,4 @@
-import { PiiVaultService } from './pii-vault.service';
+import { PiiVaultService, cnsValido, cpfValido } from './pii-vault.service';
 
 describe('PiiVaultService', () => {
   let service: PiiVaultService;
@@ -418,6 +418,99 @@ describe('PiiVaultService', () => {
 
     it('retorna string vazia para input vazio', () => {
       expect(service.hashValue('')).toBe('');
+    });
+  });
+
+  describe('padrões ampliados (CPF com espaços, CNS, carteirinha rotulada)', () => {
+    const tokenizados = (texto: string) =>
+      service.preprocessUserInput(sid, texto);
+
+    it.each([
+      ['529 982 247 25'],
+      ['529.982.247 25'],
+      ['529 . 982 . 247 - 25'],
+      ['529-982-247-25'],
+    ])('tokeniza CPF válido com separadores variados: %s', (cpf) => {
+      const out = tokenizados(`CPF do paciente ${cpf} ok`);
+      expect(out).toContain('{{cpf_1}}');
+      expect(out).not.toMatch(/529/);
+      expect(service.detokenize(sid, out)).toContain(cpf);
+    });
+
+    it('não tokeniza sequência 3-3-3-2 com dígito verificador inválido', () => {
+      const out = tokenizados('lote 123 456 789 00 recebido');
+      expect(out).toContain('123 456 789 00');
+      expect(out).not.toContain('{{cpf_');
+    });
+
+    it.each([['898 0012 3456 7891'], ['898001234567891'], ['700000000000005']])(
+      'tokeniza CNS válido: %s',
+      (cns) => {
+        const out = tokenizados(`Cartão SUS ${cns}`);
+        expect(out).toContain('{{cns_1}}');
+        expect(service.detokenize(sid, out)).toContain(cns);
+      },
+    );
+
+    it('não tokeniza número de 15 dígitos com CNS inválido nem iniciado por 3-6', () => {
+      expect(tokenizados('código 898 0012 3456 7890')).not.toContain('{{cns_');
+      expect(tokenizados('código 300000000000005')).not.toContain('{{cns_');
+    });
+
+    it.each([
+      ['carteirinha: 0 123 456789012 3', '0 123 456789012 3'],
+      ['Carteirinha do convênio é 987654321', '987654321'],
+      ['matrícula 00123456', '00123456'],
+      ['nº da carteirinha 12.345.678/9', '12.345.678/9'],
+      ['número do plano: 4455667788', '4455667788'],
+    ])('tokeniza carteirinha rotulada: %s', (texto, numero) => {
+      const out = tokenizados(texto);
+      expect(out).toContain('{{health_plan_card_1}}');
+      expect(out).not.toContain(numero);
+      expect(service.detokenize(sid, out)).toBe(texto);
+    });
+
+    it('carteirinha rotulada não engole palavras seguintes', () => {
+      const out = tokenizados('carteirinha 123456 vence em breve');
+      expect(out).toBe('carteirinha {{health_plan_card_1}} vence em breve');
+    });
+
+    it.each([
+      ['TUSS 30715016 (artroscopia)'],
+      ['cirurgia em 10/10/2026 às 14:00'],
+      ['CID M17.1 e S83.2'],
+      ['protocolo SC-123456'],
+      ['carteirinha vence 2027'],
+      ['data 2026-10-10'],
+    ])('não gera falso positivo: %s', (texto) => {
+      expect(tokenizados(texto)).toBe(texto);
+    });
+
+    it('detectResidualPii aponta CPF com espaços e CNS válidos', () => {
+      const findings = service.detectResidualPii(
+        'cpf 529 982 247 25 e cns 898 0012 3456 7891',
+      );
+      expect(findings.map((f) => f.category)).toEqual(
+        expect.arrayContaining(['cpf', 'cns']),
+      );
+    });
+
+    it('maskLiteralPii mascara CNS e CPF com espaços', () => {
+      const { text, masked } = service.maskLiteralPii(
+        'cns 898 0012 3456 7891 cpf 529 982 247 25',
+      );
+      expect(text).not.toContain('7891');
+      expect(text).not.toContain('529 982');
+      expect(masked.map((m) => m.category)).toEqual(
+        expect.arrayContaining(['cpf', 'cns']),
+      );
+    });
+
+    it('validadores', () => {
+      expect(cpfValido('529.982.247-25')).toBe(true);
+      expect(cpfValido('111.111.111-11')).toBe(false);
+      expect(cnsValido('898001234567891')).toBe(true);
+      expect(cnsValido('398001234567891')).toBe(false);
     });
   });
 });

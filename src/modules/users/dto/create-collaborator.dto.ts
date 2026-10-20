@@ -8,9 +8,10 @@ import {
   IsString,
   ValidateIf,
 } from 'class-validator';
-import { PhoneTransform } from 'src/shared/pipes/phone-mask.pipe';
+import { UserPhone } from 'src/shared/pipes/phone-mask.pipe';
 import { Permission } from 'src/shared/permissions';
 import { ProfessionalCouncil } from 'src/database/entities/doctor-profile.entity';
+import { NormalizeEmail } from 'src/shared/validators/normalize-email.decorator';
 
 const informado = (v: unknown) => v !== undefined && v !== null && v !== '';
 
@@ -26,11 +27,12 @@ export class CreateCollaboratorDto {
   @IsString()
   @IsNotEmpty()
   @IsEmail()
+  @NormalizeEmail()
   email: string;
 
   @IsString()
   @IsNotEmpty({ message: 'Telefone é obrigatório' })
-  @PhoneTransform()
+  @UserPhone()
   phone: string;
 
   @IsBoolean()

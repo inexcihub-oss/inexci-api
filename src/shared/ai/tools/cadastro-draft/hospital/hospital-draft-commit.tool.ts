@@ -1,4 +1,5 @@
 import { AiTool } from '../../tool.interface';
+import { draftConfirmationFingerprint } from '../../helpers/draft-fingerprint';
 import { ALL_PERMISSIONS } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { translateServiceError } from '../../helpers/service-error-translator';
@@ -10,6 +11,8 @@ export function buildHospitalDraftCommitTool(deps: CadastroDraftDeps): AiTool {
     name: 'hospital_draft_commit',
     requiredPermission: ALL_PERMISSIONS,
     mutates: true,
+    requiresConfirmation: true,
+    confirmationFingerprint: draftConfirmationFingerprint(deps.draftService),
     definition: {
       type: 'function',
       function: {

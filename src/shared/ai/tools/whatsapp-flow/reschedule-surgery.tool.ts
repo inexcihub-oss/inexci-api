@@ -15,6 +15,7 @@ export function buildRescheduleSurgeryTool(deps: WhatsappFlowToolDeps): AiTool {
     name: 'reschedule_surgery',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {

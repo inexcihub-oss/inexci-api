@@ -5,7 +5,10 @@ import {
   CurrentUser,
   AuthenticatedUser,
 } from 'src/shared/decorators/current-user.decorator';
-import { SurgeryRequestOwnerGuard } from 'src/shared/guards/surgery-request-owner.guard';
+import {
+  SkipSurgeryOwner,
+  SurgeryRequestOwnerGuard,
+} from 'src/shared/guards/surgery-request-owner.guard';
 import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
 import { Permission } from 'src/shared/permissions';
 import { PENDENCIES_CONFIG } from 'src/config/pendencies.config';
@@ -23,6 +26,7 @@ export class PendenciesController {
   ) {}
 
   @Get('requirements')
+  @SkipSurgeryOwner()
   @ApiOperation({ summary: 'Requisitos estáticos por status (onboarding).' })
   getRequirements() {
     return PENDENCIES_CONFIG.map((cfg) => ({
@@ -38,6 +42,7 @@ export class PendenciesController {
   }
 
   @Get('batch-summary')
+  @SkipSurgeryOwner()
   @ApiOperation({ summary: 'Resumo de pendências em lote (Kanban)' })
   async getBatchSummary(
     @Query('ids') ids: string,

@@ -37,6 +37,7 @@ export function buildNotificationTools({
     name: 'send_notification',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {

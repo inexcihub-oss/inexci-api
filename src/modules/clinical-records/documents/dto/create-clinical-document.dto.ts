@@ -1,11 +1,13 @@
 import {
   IsIn,
   IsNotEmpty,
+  IsNotIn,
   IsOptional,
   IsString,
   IsUUID,
 } from 'class-validator';
-import { STORAGE_FOLDERS } from 'src/config/storage.config';
+import { PASTAS_DE_DOCUMENTO } from 'src/shared/storage/tipo-arquivo';
+import { TIPOS_DOCUMENTO_EMITIDO } from '../clinical-documents.constants';
 
 export class CreateClinicalDocumentDto {
   @IsUUID()
@@ -18,10 +20,12 @@ export class CreateClinicalDocumentDto {
 
   @IsString()
   @IsOptional()
+  @IsNotIn(TIPOS_DOCUMENTO_EMITIDO)
   type?: string;
 
   @IsString()
   @IsNotEmpty()
+  @IsNotIn(TIPOS_DOCUMENTO_EMITIDO)
   key: string;
 
   @IsString()
@@ -30,6 +34,6 @@ export class CreateClinicalDocumentDto {
 
   @IsString()
   @IsNotEmpty()
-  @IsIn(Object.values(STORAGE_FOLDERS))
+  @IsIn(PASTAS_DE_DOCUMENTO)
   folder: string;
 }

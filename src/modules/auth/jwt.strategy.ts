@@ -9,6 +9,7 @@ import {
   JwtPayload,
   JWT_DEFAULT_AUDIENCE,
   JWT_DEFAULT_ISSUER,
+  tokenVersionValida,
 } from './jwt-payload.interface';
 
 @Injectable()
@@ -33,12 +34,22 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload) {
+    if (payload.purpose !== undefined) {
+      throw new UnauthorizedException('Sessão inválida');
+    }
+
     const user = await this.userRepository.findOneWithProfile({
       id: payload.userId,
     });
 
     if (!user || user.status !== UserStatus.ACTIVE) {
       throw new UnauthorizedException('Sessão inválida');
+    }
+
+    if (!tokenVersionValida(payload, user.tokenVersion)) {
+      throw new UnauthorizedException(
+        'Sessão encerrada. Faça login novamente.',
+      );
     }
 
     return {

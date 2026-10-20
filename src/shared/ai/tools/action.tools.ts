@@ -81,6 +81,7 @@ export function buildActionTools({
     name: 'advance_surgery_request',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {
@@ -234,6 +235,7 @@ export function buildActionTools({
     name: 'set_has_opme',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {
@@ -311,6 +313,7 @@ export function buildActionTools({
     name: 'close_surgery_request',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {

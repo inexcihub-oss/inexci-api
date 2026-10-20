@@ -18,6 +18,7 @@ import {
 } from 'src/database/entities/doctor-profile.entity';
 import { UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
+import { canonicalizarTelefone } from 'src/shared/utils/phone.util';
 
 export const LEDGER_PROFISSIONAL = 'user:prof';
 export const LEDGER_FUNCIONARIO = 'user:func';
@@ -160,13 +161,25 @@ interface Pessoa {
   permissoes: Permission[];
 }
 
+function telefoneDeUsuario(
+  valores: (string | null | undefined)[],
+): string | null {
+  for (const telefone of telefonesDistintos(valores)) {
+    const canonico = canonicalizarTelefone(telefone);
+    if (canonico) return canonico;
+  }
+  return null;
+}
+
 export function planejarEquipe(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
 ): PlanoEquipe {
   const rel = ctx.relatorio;
   const plano: PlanoEquipe = { usuarios: [], perfis: [], acessos: [] };
-  const telefonesReservados = new Set(ctx.telefonesEmUso);
+  const telefonesReservados = new Set(
+    [...ctx.telefonesEmUso].map((t) => canonicalizarTelefone(t) ?? t),
+  );
   const emailsReservados = new Map<string, string>();
 
   const pessoas = [...lerProfissionais(exp), ...lerFuncionarios(exp)];
@@ -423,13 +436,12 @@ function lerProfissionais(exp: ExportFeegow): Pessoa[] {
       emailLongo: [p.email1, p.email2].some((e) =>
         emailLongoDemais(e, EMAIL_MAX.usuario),
       ),
-      telefone:
-        telefonesDistintos([
-          p.celular1,
-          p.celular2,
-          p.telefone1,
-          p.telefone2,
-        ])[0] ?? null,
+      telefone: telefoneDeUsuario([
+        p.celular1,
+        p.celular2,
+        p.telefone1,
+        p.telefone2,
+      ]),
       cpf: normalizarCpf(p.cpf),
       sexo: normalizarSexo(p.sexo_id),
       nascimento: normalizarData(p.nascimento),
@@ -471,7 +483,7 @@ function lerFuncionarios(exp: ExportFeegow): Pessoa[] {
       nome: normalizarTexto(f.nome_funcionario, 100),
       email: normalizarEmail(f.email, EMAIL_MAX.usuario),
       emailLongo: emailLongoDemais(f.email, EMAIL_MAX.usuario),
-      telefone: telefonesDistintos([f.celular])[0] ?? null,
+      telefone: telefoneDeUsuario([f.celular]),
       cpf: normalizarCpf(f.cpf),
       sexo: normalizarSexo(f.sexo_id),
       nascimento: normalizarData(f.nascimento),

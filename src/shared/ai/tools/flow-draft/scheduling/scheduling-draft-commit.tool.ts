@@ -1,18 +1,25 @@
 import { AiTool } from '../../tool.interface';
+import { draftConfirmationFingerprint } from '../../helpers/draft-fingerprint';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { FlowDraftDeps } from '../_types';
-import { recordAiActivity } from '../../helpers/surgery-request-access';
+import {
+  getAuthorizedRequest,
+  recordAiActivity,
+} from '../../helpers/surgery-request-access';
 import { errorMessage } from '../../../../utils/error-message.util';
 import { UpdateDateOptionsDto } from '../../../../../modules/surgery-requests/dto/update-date-options.dto';
 import { ConfirmDateDto } from '../../../../../modules/surgery-requests/dto/confirm-date.dto';
 
 export function buildSchedulingDraftCommitTool(deps: FlowDraftDeps): AiTool {
-  const { draftService, workflowService, activityRepo } = deps;
+  const { draftService, workflowService, activityRepo, surgeryRequestRepo } =
+    deps;
   return {
     name: 'scheduling_draft_commit',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
+    confirmationFingerprint: draftConfirmationFingerprint(deps.draftService),
     definition: {
       type: 'function',
       function: {
@@ -51,6 +58,14 @@ export function buildSchedulingDraftCommitTool(deps: FlowDraftDeps): AiTool {
         });
       }
       const f = v.draft.fields;
+      const acesso = await getAuthorizedRequest(
+        surgeryRequestRepo,
+        f.surgeryRequestId,
+        context,
+      );
+      if (!acesso.ok) {
+        return buildToolResult({ status: 'error', message: acesso.message });
+      }
       try {
         const hasOptions =
           Array.isArray(f.dateOptions) && f.dateOptions.length > 0;

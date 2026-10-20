@@ -1,4 +1,10 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { User } from '../../database/entities/user.entity';
 import { UserRepository } from '../../database/repositories/user.repository';
 import { ConsentType, REQUIRED_CONSENTS } from '../../config/consent.config';
@@ -15,7 +21,17 @@ export interface ConsentStatus {
 export class ConsentService {
   private readonly logger = new Logger(ConsentService.name);
 
-  constructor(private readonly userRepo: UserRepository) {}
+  constructor(
+    private readonly userRepo: UserRepository,
+    @Optional() private readonly eventEmitter?: EventEmitter2,
+  ) {}
+
+  private emitAccessChanged(user: Pick<User, 'id' | 'phone'>): void {
+    this.eventEmitter?.emit('user.access_changed', {
+      userId: user.id,
+      phone: user.phone,
+    });
+  }
 
   async getStatus(userId: string): Promise<ConsentStatus> {
     const user = await this.findUserOrThrow(userId);
@@ -42,6 +58,7 @@ export class ConsentService {
     const now = new Date();
     await this.userRepo.update(userId, { aiConsentAcceptedAt: now });
     this.logger.log(`[CONSENT_AI_GRANTED] user=${userId}`);
+    this.emitAccessChanged(user);
     return this.buildStatusFromUser({ ...user, aiConsentAcceptedAt: now });
   }
 
@@ -49,6 +66,7 @@ export class ConsentService {
     const user = await this.findUserOrThrow(userId);
     await this.userRepo.update(userId, { aiConsentAcceptedAt: null });
     this.logger.warn(`[CONSENT_AI_REVOKED] user=${userId}`);
+    this.emitAccessChanged(user);
     return this.buildStatusFromUser({ ...user, aiConsentAcceptedAt: null });
   }
 

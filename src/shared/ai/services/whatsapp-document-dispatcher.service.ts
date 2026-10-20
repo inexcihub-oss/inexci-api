@@ -9,6 +9,11 @@ import {
 } from '../../whatsapp/whatsapp-media.service';
 import { AiRedisService } from './ai-redis.service';
 import { DocumentClassification } from '../ocr/document-classifier.types';
+import {
+  ArquivoRecebidoInvalidoError,
+  MIME_DOCUMENTOS_RECEBIDOS,
+  tiparArquivoRecebido,
+} from '../utils/arquivo-recebido';
 
 const PENDING_DOC_REDIS_KEY_PREFIX = 'doc:pending:';
 
@@ -112,21 +117,29 @@ export class WhatsappDocumentDispatcherService {
         STORAGE_FOLDERS.WHATSAPP_TMP,
       );
 
+      const tipo = await tiparArquivoRecebido(
+        downloaded.buffer,
+        downloaded.fileName,
+        MIME_DOCUMENTOS_RECEBIDOS,
+      );
+      const kind: PendingDocumentRequest['kind'] =
+        tipo.mime === 'application/pdf' ? 'pdf' : 'image';
+
       const storagePath = await this.storageService.uploadBuffer(
         downloaded.buffer,
         folder,
-        downloaded.fileName,
-        downloaded.mimeType,
+        tipo.nome,
+        tipo.mime,
       );
 
       const ttlMinutes = this.getPendingTtlMinutes();
       const now = Date.now();
       const pending: PendingDocumentRequest = {
         storagePath,
-        contentType: downloaded.mimeType,
+        contentType: tipo.mime,
         sizeBytes: downloaded.sizeBytes,
-        fileName: downloaded.fileName,
-        kind: downloaded.kind,
+        fileName: tipo.nome,
+        kind,
         receivedAt: now,
         expiresAt: now + ttlMinutes * 60 * 1000,
         messageSid: opts.messageSid,
@@ -135,7 +148,7 @@ export class WhatsappDocumentDispatcherService {
       await this.savePending(opts.phone, pending);
 
       this.logger.log(
-        `[AI_DOC] sid=${opts.messageSid} phone=${this.maskPhone(opts.phone)} mime=${downloaded.mimeType} bytes=${downloaded.sizeBytes} kind=${downloaded.kind} stored=${storagePath}`,
+        `[AI_DOC] sid=${opts.messageSid} phone=${this.maskPhone(opts.phone)} mime=${tipo.mime} bytes=${downloaded.sizeBytes} kind=${kind} stored=${storagePath}`,
       );
 
       return { status: 'staged', pending };
@@ -143,7 +156,9 @@ export class WhatsappDocumentDispatcherService {
       const errMessage = error instanceof Error ? error.message : String(error);
 
       let reason: PendingDownloadFailureReason = 'UNKNOWN';
-      if (error instanceof WhatsappMediaValidationError) {
+      if (error instanceof ArquivoRecebidoInvalidoError) {
+        reason = 'DOC_NOT_ALLOWED';
+      } else if (error instanceof WhatsappMediaValidationError) {
         if (
           error.code === 'DOC_NOT_ALLOWED' ||
           error.code === 'DOC_TOO_LARGE' ||

@@ -23,6 +23,7 @@ export function buildSetHealthPlanTool(deps: ManageToolDeps): AiTool {
     name: 'set_health_plan',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {

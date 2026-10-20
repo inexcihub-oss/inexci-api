@@ -16,6 +16,8 @@ export interface ToolContext {
   }>;
   piiVault?: PiiVaultService;
   permissions?: Permission[];
+  turnId?: string | null;
+  userMessage?: string | null;
 }
 
 export interface AiToolCacheConfig {
@@ -35,5 +37,7 @@ export interface AiTool {
   cacheable?: AiToolCacheConfig;
   requiredPermission: ToolPermissionRequirement;
   mutates?: boolean;
+  requiresConfirmation?: boolean;
+  confirmationFingerprint?: (context: ToolContext) => Promise<unknown>;
   execute(args: Record<string, unknown>, context: ToolContext): Promise<string>;
 }

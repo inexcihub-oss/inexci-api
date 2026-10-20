@@ -19,9 +19,11 @@ import {
   SurgeryRequestOwnerGuard,
   SkipSurgeryOwner,
 } from 'src/shared/guards/surgery-request-owner.guard';
+import { AiConsentGuard } from 'src/shared/guards/ai-consent.guard';
 import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
 import { Permission } from 'src/shared/permissions';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { limitesDeUpload } from 'src/shared/storage/limites-upload';
 import {
   ApiTags,
   ApiOperation,
@@ -91,6 +93,7 @@ export class SurgeryRequestsController {
   ) {}
 
   @Post()
+  @SkipSurgeryOwner()
   @Throttle({ short: { ttl: 60000, limit: 10 } })
   @ApiOperation({ summary: 'Criar solicitação cirúrgica' })
   createSurgeryRequest(
@@ -101,6 +104,7 @@ export class SurgeryRequestsController {
   }
 
   @Post('extract-from-document')
+  @UseGuards(AiConsentGuard)
   @Throttle({ short: { ttl: 60000, limit: 5 } })
   @ApiOperation({
     summary:
@@ -108,7 +112,7 @@ export class SurgeryRequestsController {
   })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    FileInterceptor('document', { limits: { fileSize: 10 * 1024 * 1024 } }),
+    FileInterceptor('document', limitesDeUpload(10 * 1024 * 1024)),
   )
   @HttpCode(HttpStatus.ACCEPTED)
   extractFromDocument(
@@ -133,6 +137,7 @@ export class SurgeryRequestsController {
   }
 
   @Get('extract-from-document/:jobId')
+  @SkipSurgeryOwner()
   @Throttle({ short: { ttl: 60000, limit: 120 } })
   @ApiOperation({
     summary: 'Consultar status da extração assíncrona de documento.',
@@ -145,6 +150,7 @@ export class SurgeryRequestsController {
   }
 
   @Post('from-document')
+  @SkipSurgeryOwner()
   @Throttle({ short: { ttl: 60000, limit: 5 } })
   @ApiOperation({
     summary: 'Cria uma SC PENDENTE a partir dos dados revisados do documento.',
@@ -173,6 +179,7 @@ export class SurgeryRequestsController {
   }
 
   @Get()
+  @SkipSurgeryOwner()
   @RequirePermission(Permission.SOLICITACOES, Permission.ATENDIMENTO)
   @ApiOperation({ summary: 'Listar solicitações cirúrgicas' })
   findAll(
@@ -187,6 +194,7 @@ export class SurgeryRequestsController {
   }
 
   @Get('kanban')
+  @SkipSurgeryOwner()
   @ApiOperation({
     summary:
       'Listar cards do kanban (payload enxuto + contadores de pendência já embutidos)',
@@ -199,6 +207,7 @@ export class SurgeryRequestsController {
   }
 
   @Get('agenda')
+  @SkipSurgeryOwner()
   @ApiOperation({
     summary: 'Listar cirurgias da agenda por intervalo de data (surgeryDate)',
   })
@@ -525,6 +534,7 @@ export class SurgeryRequestsController {
   }
 
   @Get('available-doctors')
+  @SkipSurgeryOwner()
   @RequirePermission()
   @ApiOperation({ summary: 'Listar médicos disponíveis' })
   getAvailableDoctors(@CurrentUser() user: AuthenticatedUser) {
@@ -532,12 +542,14 @@ export class SurgeryRequestsController {
   }
 
   @Get('templates')
+  @SkipSurgeryOwner()
   @ApiOperation({ summary: 'Listar templates' })
   getTemplates(@CurrentUser() user: AuthenticatedUser) {
     return this.surgeryRequestsService.getTemplates(user.userId, user.ownerId);
   }
 
   @Post('templates')
+  @SkipSurgeryOwner()
   @ApiOperation({ summary: 'Criar template' })
   createTemplate(
     @Body() dto: CreateSurgeryRequestTemplateDto,
@@ -551,6 +563,7 @@ export class SurgeryRequestsController {
   }
 
   @Post('templates/bulk-delete')
+  @SkipSurgeryOwner()
   @ApiOperation({ summary: 'Excluir templates em lote' })
   bulkDeleteTemplates(
     @Body() dto: BulkDeleteTemplatesDto,

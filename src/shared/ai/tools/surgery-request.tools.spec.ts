@@ -1,6 +1,7 @@
 import { buildSurgeryRequestTools } from './surgery-request.tools';
 import { ToolContext } from './tool.interface';
 import { PiiVaultService } from '../services/pii-vault.service';
+import * as audit from 'src/shared/logging/audit';
 
 const mockSurgeryRequestRepo = {
   findOneSimple: jest.fn(),
@@ -49,6 +50,38 @@ describe('SurgeryRequestTools', () => {
       expect(result).toContain('João Silva');
     });
 
+    it('audita a leitura da SC pela IA', async () => {
+      const spy = jest
+        .spyOn(audit, 'auditProntuarioAccess')
+        .mockImplementation(() => undefined);
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-1',
+        ownerId: 'owner-1',
+        protocol: 'SC-0042',
+        status: 1,
+        priority: 2,
+        doctorId: 'doctor-1',
+        patientId: 'pat-1',
+        patient: { name: 'João Silva' },
+      });
+
+      await getTool('query_surgery_requests').execute(
+        { identifier: 'SC-0042' },
+        baseContext,
+      );
+
+      expect(spy).toHaveBeenCalledWith({
+        resource: 'surgery_request',
+        resourceId: 'req-1',
+        action: 'read',
+        actorUserId: 'user-1',
+        tenantId: 'owner-1',
+        patientId: 'pat-1',
+        origin: 'ai',
+      });
+      spy.mockRestore();
+    });
+
     it('deve retornar erro se solicitação não encontrada', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(null);
       mockSurgeryRequestRepo.findMany.mockResolvedValue([]);
@@ -56,7 +89,7 @@ describe('SurgeryRequestTools', () => {
       const tool = getTool('query_surgery_requests');
       const result = await tool.execute({ identifier: 'SC-9999' }, baseContext);
 
-      expect(result).toContain('Não encontrei');
+      expect(result).toContain('não encontrada');
     });
 
     it('deve buscar por protocolo mesmo com pontuação no final', async () => {

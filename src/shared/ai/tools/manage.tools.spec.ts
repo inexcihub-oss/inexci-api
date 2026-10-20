@@ -1,3 +1,17 @@
+const detectarTipo = (buf: Buffer) => {
+  const hex = buf.subarray(0, 8).toString('hex');
+  if (hex.startsWith('89504e470d0a1a0a'))
+    return Promise.resolve({ ext: 'png', mime: 'image/png' });
+  if (hex.startsWith('ffd8ff'))
+    return Promise.resolve({ ext: 'jpg', mime: 'image/jpeg' });
+  if (buf.subarray(0, 4).toString() === '%PDF')
+    return Promise.resolve({ ext: 'pdf', mime: 'application/pdf' });
+  return Promise.resolve(undefined);
+};
+jest.mock('file-type', () => ({ fileTypeFromBuffer: detectarTipo }), {
+  virtual: true,
+});
+
 import { EntityResolverService } from '../services/entity-resolver.service';
 import { buildManageTools } from './manage.tools';
 import { ToolContext } from './tool.interface';
@@ -625,7 +639,7 @@ describe('ManageTools', () => {
         ok: true,
         status: 200,
         headers: { get: () => 'application/pdf' },
-        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+        arrayBuffer: async () => new TextEncoder().encode('%PDF-1.7 x').buffer,
       } as any);
 
       mockStorageService.create.mockResolvedValue('documents/doc-1.pdf');
@@ -649,11 +663,19 @@ describe('ManageTools', () => {
         },
       );
 
-      expect(mockStorageService.create).toHaveBeenCalled();
+      expect(mockStorageService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          originalname: 'Laudo.pdf',
+          mimetype: 'application/pdf',
+        }),
+        expect.any(String),
+        expect.anything(),
+      );
       expect(mockDocumentsService.createFromPath).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'medical_report',
           key: 'medical_report',
+          contentType: 'application/pdf',
         }),
       );
       expect(result).toContain('anexado');
@@ -759,7 +781,8 @@ describe('ManageTools', () => {
         ok: true,
         status: 200,
         headers: { get: () => 'image/jpeg' },
-        arrayBuffer: async () => new Uint8Array([1, 2]).buffer,
+        arrayBuffer: async () =>
+          new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]).buffer,
       } as any);
 
       mockStorageService.create.mockResolvedValue('documents/img-1.jpg');
@@ -783,14 +806,80 @@ describe('ManageTools', () => {
         },
       );
 
+      expect(mockStorageService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          originalname: 'RX joelho.jpg',
+          mimetype: 'image/jpeg',
+        }),
+        expect.any(String),
+        expect.anything(),
+      );
       expect(mockDocumentsService.createFromPath).toHaveBeenCalledWith(
         expect.objectContaining({
           key: 'report_images',
           type: 'exam_image',
+          contentType: 'image/jpeg',
         }),
       );
       expect(result).toContain('anexada');
 
+      fetchMock.mockRestore();
+    });
+
+    it('nome padrão sem extensão ganha a extensão do tipo detectado (PNG declarado como JPEG)', async () => {
+      const fetchMock = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: { get: () => 'image/jpeg' },
+        arrayBuffer: async () =>
+          new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+            .buffer,
+      } as any);
+      mockStorageService.create.mockResolvedValue('documents/img-2.png');
+
+      await getTool('manage_report_images').execute(
+        { surgeryRequestId: 'req-1', operation: 'attach', confirm: true },
+        {
+          ...baseContext,
+          inboundMedia: [
+            {
+              url: 'https://api.twilio.com/2010-04-01/media/2',
+              contentType: 'image/jpeg',
+            },
+          ],
+        },
+      );
+
+      const [arquivo] = mockStorageService.create.mock.calls.at(-1);
+      expect(arquivo.originalname).toMatch(/^Imagem do laudo .+\.png$/);
+      expect(arquivo.mimetype).toBe('image/png');
+      fetchMock.mockRestore();
+    });
+
+    it('recusa attach quando o conteúdo baixado não é imagem', async () => {
+      const fetchMock = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: { get: () => 'image/jpeg' },
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      } as any);
+      mockStorageService.create.mockClear();
+
+      const result = await getTool('manage_report_images').execute(
+        { surgeryRequestId: 'req-1', operation: 'attach', confirm: true },
+        {
+          ...baseContext,
+          inboundMedia: [
+            {
+              url: 'https://api.twilio.com/2010-04-01/media/3',
+              contentType: 'image/jpeg',
+            },
+          ],
+        },
+      );
+
+      expect(parseToolResult(result)?.status).toBe('blocked');
+      expect(mockStorageService.create).not.toHaveBeenCalled();
       fetchMock.mockRestore();
     });
 

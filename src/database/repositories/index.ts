@@ -31,3 +31,4 @@ export { AiPiiRedactionLogRepository } from './ai-pii-redaction-log.repository';
 export { ClinicRepository } from './clinic.repository';
 export { ClinicRoomRepository } from './clinic-room.repository';
 export { AppointmentActivityRepository } from './appointment-activity.repository';
+export { ClinicalAccessAuditRepository } from './clinical-access-audit.repository';

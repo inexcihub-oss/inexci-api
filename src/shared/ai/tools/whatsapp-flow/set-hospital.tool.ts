@@ -23,6 +23,7 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
     name: 'set_hospital',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {

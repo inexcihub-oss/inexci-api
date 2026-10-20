@@ -18,5 +18,5 @@ export function requestContextMiddleware(
   res.setHeader('X-Request-Id', requestId);
   (req as Request & { requestId: string }).requestId = requestId;
 
-  requestContextStorage.run({ requestId }, () => next());
+  requestContextStorage.run({ requestId, ip: req.ip ?? null }, () => next());
 }

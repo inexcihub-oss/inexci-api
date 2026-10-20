@@ -2,7 +2,10 @@ import { UserRepository } from './user.repository';
 
 describe('UserRepository', () => {
   function buildRepo() {
-    const mockRepository = { findOne: jest.fn().mockResolvedValue(null) };
+    const mockRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+      find: jest.fn().mockResolvedValue([]),
+    };
     const repo = new UserRepository(mockRepository as never);
     return { repo, mockRepository };
   }
@@ -16,6 +19,33 @@ describe('UserRepository', () => {
     const call = mockRepository.findOne.mock.calls[0][0];
     expect(call.where).toEqual({ phone: '+5511999999999' });
     expect(call.select).toMatchObject({ permissions: true });
+  });
+
+  it('findManyByPhones busca as grafias de uma vez, com o mesmo select do perfil, e traz até 2 para detectar ambiguidade', async () => {
+    const { repo, mockRepository } = buildRepo();
+
+    await repo.findManyByPhones([
+      '11987654321',
+      '',
+      '11987654321',
+      '+5511987654321',
+    ]);
+
+    expect(mockRepository.find).toHaveBeenCalledTimes(1);
+    const call = mockRepository.find.mock.calls[0][0];
+    expect(call.where.phone.value).toEqual(['11987654321', '+5511987654321']);
+    expect(call.take).toBe(2);
+    expect(call.select).toMatchObject({
+      permissions: true,
+      aiConsentAcceptedAt: true,
+    });
+  });
+
+  it('findManyByPhones sem telefone não consulta o banco', async () => {
+    const { repo, mockRepository } = buildRepo();
+
+    await expect(repo.findManyByPhones([''])).resolves.toEqual([]);
+    expect(mockRepository.find).not.toHaveBeenCalled();
   });
 
   it('findOne (genérico) NÃO inclui `permissions` no select', async () => {

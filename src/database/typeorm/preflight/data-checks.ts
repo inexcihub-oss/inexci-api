@@ -1,4 +1,5 @@
-import { maskPhone } from '../../../shared/utils/mask.util';
+import { maskEmail, maskPhone } from '../../../shared/utils/mask.util';
+import { telefoneCanonicoSql } from '../../../shared/utils/phone.util';
 
 function texto(valor: unknown): string {
   if (typeof valor === 'string') return valor;
@@ -350,6 +351,53 @@ export const HOSPITAL_OU_CONVENIO_COM_NOME_REPETIDO: VerificacaoPreMigration = {
     })),
 };
 
+export const TELEFONE_REPETIDO_APOS_CANONIZAR: VerificacaoPreMigration = {
+  migration: 'CanonicalizeUserPhones1755802000000',
+  descricao:
+    'usuários vivos em "users" cujos telefones viram o mesmo número depois de canonizados (DDD + número, com o nono dígito)',
+  sql: `SELECT c.canonico AS phone,
+               string_agg(c.id::text, ', ' ORDER BY c.created_at) AS ids
+          FROM (SELECT u."id" AS id,
+                       u."created_at" AS created_at,
+                       ${telefoneCanonicoSql('u."phone"')} AS canonico
+                  FROM "users" u
+                 WHERE u."phone" IS NOT NULL AND u."deleted_at" IS NULL) c
+         WHERE c.canonico IS NOT NULL
+         GROUP BY c.canonico
+        HAVING count(*) > 1
+         ORDER BY c.canonico`,
+  comoResolver:
+    'Os números abaixo pertencem a mais de uma conta quando escritos sem máscara, sem DDI 55 e com o nono dígito. Confirme com cada titular qual conta é a dona do número e troque o telefone (ou desative) as demais antes de repetir o deploy.',
+  inspecionar:
+    'SELECT id, email, role, status, owner_id, created_at FROM users WHERE id IN (...);',
+  mapear: (linhas) =>
+    linhas.map((linha) => ({
+      chave: maskPhone(texto(linha.phone)),
+      ids: texto(linha.ids),
+    })),
+};
+
+export const EMAIL_REPETIDO_SEM_MAIUSCULAS: VerificacaoPreMigration = {
+  migration: 'NormalizeUserEmailsLowercase1755802237000',
+  descricao:
+    'usuários em "users" (inclusive excluídos) cujos e-mails viram o mesmo endereço depois de btrim + lower',
+  sql: `SELECT lower(btrim(u."email")) AS email,
+               string_agg(u."id"::text, ', ' ORDER BY u."created_at") AS ids
+          FROM "users" u
+         GROUP BY lower(btrim(u."email"))
+        HAVING count(*) > 1
+         ORDER BY 1`,
+  comoResolver:
+    'Os endereços abaixo pertencem a mais de uma conta quando comparados sem diferenciar maiúsculas. Confirme com cada titular qual conta fica com o e-mail e troque o e-mail (ou exclua definitivamente) as demais antes de repetir o deploy.',
+  inspecionar:
+    'SELECT id, email, role, status, owner_id, created_at, deleted_at FROM users WHERE id IN (...);',
+  mapear: (linhas) =>
+    linhas.map((linha) => ({
+      chave: maskEmail(texto(linha.email)),
+      ids: texto(linha.ids),
+    })),
+};
+
 export const VERIFICACOES_PRE_MIGRATION: VerificacaoPreMigration[] = [
   TELEFONE_DUPLICADO,
   ORFAOS_ANTES_DA_CASCATA,
@@ -359,6 +407,8 @@ export const VERIFICACOES_PRE_MIGRATION: VerificacaoPreMigration[] = [
   SALAS_COM_NOME_REPETIDO,
   FOTO_DE_PACIENTE_REPETIDA,
   HOSPITAL_OU_CONVENIO_COM_NOME_REPETIDO,
+  TELEFONE_REPETIDO_APOS_CANONIZAR,
+  EMAIL_REPETIDO_SEM_MAIUSCULAS,
 ];
 
 export function montarDiagnostico(

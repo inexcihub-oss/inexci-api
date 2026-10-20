@@ -19,6 +19,7 @@ export function buildManageReportSectionsTool(
     name: 'manage_report_sections',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {

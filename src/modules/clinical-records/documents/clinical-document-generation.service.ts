@@ -629,6 +629,7 @@ export class ClinicalDocumentGenerationService {
       action: 'create',
       actorUserId: userId,
       tenantId: record.ownerId,
+      patientId: record.patientId,
     });
 
     this.logger.log(

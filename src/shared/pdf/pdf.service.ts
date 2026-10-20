@@ -8,6 +8,7 @@ import * as https from 'https';
 import * as http from 'http';
 import type { PDFImage } from 'pdf-lib';
 import { errorMessage } from 'src/shared/utils/error-message.util';
+import { MAX_STORAGE_FILE_SIZE } from 'src/config/storage.config';
 
 export interface CustomHeaderData {
   logoUrl?: string | null;
@@ -181,6 +182,48 @@ const CLINICAL_DOCUMENT_PDF_OPTIONS = {
 
 const ALLOWED_URL_HOSTS = ['r2.cloudflarestorage.com'];
 
+export const FETCH_DATA_URI_MAX_BYTES = 10 * 1024 * 1024;
+export const FETCH_BUFFER_MAX_BYTES = MAX_STORAGE_FILE_SIZE;
+
+export function lerCorpoComLimite(
+  req: http.ClientRequest,
+  res: http.IncomingMessage,
+  maxBytes: number,
+  concluir: (corpo: Buffer | null, motivo?: 'limite' | 'erro') => void,
+): void {
+  let encerrado = false;
+  const finalizar = (corpo: Buffer | null, motivo?: 'limite' | 'erro') => {
+    if (encerrado) return;
+    encerrado = true;
+    concluir(corpo, motivo);
+  };
+  const abortar = () => {
+    res.destroy();
+    req.destroy();
+    finalizar(null, 'limite');
+  };
+
+  const declarado = Number(res.headers['content-length']);
+  if (Number.isFinite(declarado) && declarado > maxBytes) {
+    abortar();
+    return;
+  }
+
+  const chunks: Buffer[] = [];
+  let total = 0;
+  res.on('data', (chunk: Buffer) => {
+    if (encerrado) return;
+    total += chunk.length;
+    if (total > maxBytes) {
+      abortar();
+      return;
+    }
+    chunks.push(chunk);
+  });
+  res.on('end', () => finalizar(Buffer.concat(chunks, total)));
+  res.on('error', () => finalizar(null, 'erro'));
+}
+
 export function isAllowedHost(url: string): boolean {
   try {
     const { hostname, protocol } = new URL(url);
@@ -351,24 +394,29 @@ export class PdfService {
             return;
           }
 
-          const chunks: Buffer[] = [];
-          res.on('data', (chunk) => chunks.push(chunk));
-          res.on('end', () => {
-            const contentType = (res.headers['content-type'] || 'image/jpeg')
-              .split(';')[0]
-              .trim();
-            const base64 = Buffer.concat(chunks).toString('base64');
-            this.logger.debug(
-              `fetchAsDataUri: OK contentType=${contentType} bytes=${Buffer.concat(chunks).length}`,
-            );
-            resolve(`data:${contentType};base64,${base64}`);
-          });
-          res.on('error', (err) => {
-            this.logger.warn(
-              `fetchAsDataUri: erro no stream: ${errorMessage(err)}`,
-            );
-            resolve(null);
-          });
+          lerCorpoComLimite(
+            req,
+            res,
+            FETCH_DATA_URI_MAX_BYTES,
+            (corpo, motivo) => {
+              if (!corpo) {
+                this.logger.warn(
+                  motivo === 'limite'
+                    ? `fetchAsDataUri: resposta excede ${FETCH_DATA_URI_MAX_BYTES} bytes — ${url.substring(0, 80)}`
+                    : `fetchAsDataUri: erro no stream — ${url.substring(0, 80)}`,
+                );
+                resolve(null);
+                return;
+              }
+              const contentType = (res.headers['content-type'] || 'image/jpeg')
+                .split(';')[0]
+                .trim();
+              this.logger.debug(
+                `fetchAsDataUri: OK contentType=${contentType} bytes=${corpo.length}`,
+              );
+              resolve(`data:${contentType};base64,${corpo.toString('base64')}`);
+            },
+          );
         });
         req.on('error', (err) => {
           this.logger.warn(`fetchAsDataUri: req error: ${errorMessage(err)}`);
@@ -423,10 +471,19 @@ export class PdfService {
             resolve(null);
             return;
           }
-          const chunks: Buffer[] = [];
-          res.on('data', (chunk) => chunks.push(chunk));
-          res.on('end', () => resolve(Buffer.concat(chunks)));
-          res.on('error', () => resolve(null));
+          lerCorpoComLimite(
+            req,
+            res,
+            FETCH_BUFFER_MAX_BYTES,
+            (corpo, motivo) => {
+              if (motivo === 'limite') {
+                this.logger.warn(
+                  `fetchBuffer: resposta excede ${FETCH_BUFFER_MAX_BYTES} bytes — ${url.substring(0, 80)}`,
+                );
+              }
+              resolve(corpo);
+            },
+          );
         });
         req.on('error', () => resolve(null));
         req.on('timeout', () => {

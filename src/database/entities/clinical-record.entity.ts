@@ -14,6 +14,7 @@ import { Patient } from './patient.entity';
 import { Appointment } from './appointment.entity';
 import { SurgeryRequest } from './surgery-request.entity';
 import { Procedure } from './procedure.entity';
+import { encryptedTransformer } from '../../shared/crypto/encryption.util';
 
 export interface ClinicalCidCode {
   code: string;
@@ -48,19 +49,24 @@ export class ClinicalRecord {
   @Column({ name: 'appointment_id', type: 'uuid', nullable: true })
   appointmentId: string | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   anamnesis: string | null;
 
-  @Column({ name: 'physical_exam', type: 'text', nullable: true })
+  @Column({
+    name: 'physical_exam',
+    type: 'text',
+    nullable: true,
+    transformer: encryptedTransformer,
+  })
   physicalExam: string | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   diagnosis: string | null;
 
   @Column({ name: 'cid_codes', type: 'jsonb', nullable: true })
   cidCodes: ClinicalCidCode[] | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedTransformer })
   conduct: string | null;
 
   @Column({ name: 'surgical_indication', type: 'boolean', default: false })

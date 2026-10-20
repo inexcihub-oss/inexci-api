@@ -1,8 +1,14 @@
-import { Controller, Get } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  ServiceUnavailableException,
+  UseGuards,
+} from '@nestjs/common';
 import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { NotificationsHealthService } from './notifications-health.service';
 import { Public } from 'src/shared/decorators/is-public.decorator';
+import { PlatformAdminGuard } from 'src/shared/guards/platform-admin.guard';
 
 @ApiTags('Health')
 @Controller('health/notifications')
@@ -14,11 +20,31 @@ export class NotificationsHealthController {
 
   @Get()
   @Public()
+  @ApiOperation({
+    summary: 'Healthcheck resumido dos canais de notificação',
+  })
+  async check(): Promise<{ status: 'ok' }> {
+    try {
+      await this.executar();
+      return { status: 'ok' };
+    } catch {
+      throw new ServiceUnavailableException({ status: 'error' });
+    }
+  }
+
+  @Get('details')
+  @ApiBearerAuth()
+  @UseGuards(PlatformAdminGuard)
   @HealthCheck()
   @ApiOperation({
-    summary: 'Healthcheck dos canais de notificação (Redis, SMTP, Twilio)',
+    summary:
+      'Healthcheck detalhado dos canais de notificação (Redis, SMTP, Twilio)',
   })
-  check() {
+  details() {
+    return this.executar();
+  }
+
+  private executar() {
     return this.health.check([
       () => this.notificationsHealth.checkRedis(),
       () => this.notificationsHealth.checkSmtp(),

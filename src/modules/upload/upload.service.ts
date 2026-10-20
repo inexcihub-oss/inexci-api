@@ -15,24 +15,26 @@ import {
   otimizarFotoPaciente,
 } from '../../shared/storage/foto-paciente';
 import { DocumentRepository } from '../../database/repositories/document.repository';
+import { AccessControlService } from '../../shared/services/access-control.service';
+import {
+  nomeComExtensao,
+  validarTipoArquivo,
+} from '../../shared/storage/tipo-arquivo';
 
-const MIME_TO_EXT: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/jpg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'image/gif': 'gif',
-  'application/pdf': 'pdf',
-  'audio/mpeg': 'mp3',
-  'audio/mp3': 'mp3',
-  'audio/ogg': 'ogg',
-  'audio/wav': 'wav',
-  'audio/x-wav': 'wav',
-  'audio/mp4': 'mp4',
-  'audio/webm': 'webm',
-  'video/mp4': 'mp4',
-  'video/webm': 'webm',
-};
+const MIME_PERMITIDOS: readonly string[] = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'application/pdf',
+  'audio/mpeg',
+  'audio/ogg',
+  'audio/wav',
+  'audio/mp4',
+  'audio/webm',
+  'video/mp4',
+  'video/webm',
+];
 
 const TENANT_SCOPED_FOLDERS = [
   STORAGE_FOLDERS.DOCUMENTS,
@@ -48,17 +50,8 @@ const PASTAS_PUBLICAS = [
 const ALLOWED_FOLDERS: readonly string[] = Object.values(STORAGE_FOLDERS);
 
 const MIME_PERMITIDOS_POR_PASTA: Record<string, readonly string[]> = {
-  [STORAGE_FOLDERS.PATIENT_PHOTOS]: [
-    'image/jpeg',
-    'image/jpg',
-    'image/png',
-    'image/webp',
-  ],
+  [STORAGE_FOLDERS.PATIENT_PHOTOS]: ['image/jpeg', 'image/png', 'image/webp'],
 };
-
-function mimeCanonico(mime: string): string {
-  return mime === 'image/jpg' ? 'image/jpeg' : mime;
-}
 
 function exigeDeteccao(mime: string): boolean {
   return mime.startsWith('image/') || mime === 'application/pdf';
@@ -69,6 +62,7 @@ export class UploadService {
   constructor(
     private readonly storageService: StorageService,
     private readonly documentRepository: DocumentRepository,
+    private readonly accessControlService: AccessControlService,
   ) {}
 
   async uploadFile(
@@ -86,17 +80,6 @@ export class UploadService {
       );
     }
 
-    const ext = MIME_TO_EXT[file.mimetype];
-    const permitidosNaPasta = MIME_PERMITIDOS_POR_PASTA[folder];
-    if (
-      !ext ||
-      (permitidosNaPasta && !permitidosNaPasta.includes(file.mimetype))
-    ) {
-      throw new BadRequestException(
-        `Tipo de arquivo não permitido: ${file.mimetype}`,
-      );
-    }
-
     const sizeLimit = STORAGE_FOLDER_SIZE_LIMITS[folder];
     if (sizeLimit !== undefined && file.buffer.length > sizeLimit) {
       throw new BadRequestException(
@@ -104,20 +87,17 @@ export class UploadService {
       );
     }
 
-    const { fileTypeFromBuffer } = await import('file-type');
-    const detected = await fileTypeFromBuffer(file.buffer);
-    const declarado = mimeCanonico(file.mimetype);
-    if (
-      (detected && mimeCanonico(detected.mime) !== declarado) ||
-      (!detected && exigeDeteccao(declarado)) ||
-      (detected &&
-        permitidosNaPasta &&
-        !permitidosNaPasta.includes(detected.mime))
-    ) {
-      throw new BadRequestException('Tipo de arquivo inválido');
-    }
+    const { mime, ext } = await validarTipoArquivo(
+      file,
+      MIME_PERMITIDOS_POR_PASTA[folder] ?? MIME_PERMITIDOS,
+      { exigeDeteccao },
+    );
 
-    let arquivo = file;
+    let arquivo: Express.Multer.File = {
+      ...file,
+      mimetype: mime,
+      originalname: nomeComExtensao(file.originalname, ext),
+    };
     if (folder === STORAGE_FOLDERS.PATIENT_PHOTOS) {
       let otimizada: Buffer;
       try {
@@ -145,7 +125,7 @@ export class UploadService {
   async getSignedUrl(
     filePath: string,
     ownerId: string | null,
-    _expiresIn = 3600,
+    userId?: string | null,
   ): Promise<{ url: string }> {
     const safePath = path.normalize(filePath).replace(/^(\.\.[/\\])+/, '');
     const [folder, tenantDoCaminho] = safePath.split('/');
@@ -156,9 +136,10 @@ export class UploadService {
       }
 
       if (TENANT_SCOPED_FOLDERS.includes(folder)) {
-        const belongs = await this.documentRepository.existsByUriAndOwner(
+        const belongs = await this.podeAcessarDocumento(
           safePath,
           ownerId,
+          userId,
         );
         if (!belongs) {
           throw new ForbiddenException('Acesso negado ao arquivo solicitado');
@@ -170,6 +151,33 @@ export class UploadService {
 
     const url = await this.storageService.getSignedUrl(safePath);
     return { url };
+  }
+
+  private async podeAcessarDocumento(
+    uri: string,
+    ownerId: string,
+    userId: string | null | undefined,
+  ): Promise<boolean> {
+    const escopos = await this.documentRepository.findAccessScopesByUriAndOwner(
+      uri,
+      ownerId,
+    );
+    if (escopos.length === 0) return false;
+    if (escopos.some((e) => !e.surgeryRequestId && !e.clinicalRecordId)) {
+      return true;
+    }
+    if (!userId) return false;
+
+    const acessiveis = new Set(
+      await this.accessControlService.getAccessibleDoctorIds(userId),
+    );
+    return escopos.some((e) => {
+      const medicos = [
+        e.surgeryRequestId ? e.surgeryRequestDoctorId : undefined,
+        e.clinicalRecordId ? e.clinicalRecordDoctorId : undefined,
+      ].filter((m) => m !== undefined);
+      return medicos.every((m) => !!m && acessiveis.has(m));
+    });
   }
 
   uploadMultipleFiles(

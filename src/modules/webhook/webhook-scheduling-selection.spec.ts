@@ -29,6 +29,7 @@ describe('WebhookService — escolha de data da cirurgia pelo paciente', () => {
       {} as any,
       {} as any,
       {} as any,
+      { findActiveByPhone: jest.fn().mockResolvedValue(null) } as any,
     );
   });
 

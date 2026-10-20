@@ -28,6 +28,7 @@ export function buildManageOpmeItemsTool(deps: ManageToolDeps): AiTool {
     name: 'manage_opme_items',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {

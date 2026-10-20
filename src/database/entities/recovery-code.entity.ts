@@ -9,6 +9,11 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 
+export enum RecoveryCodePurpose {
+  PASSWORD_RESET = 'password_reset',
+  INVITE = 'invite',
+}
+
 @Entity('recovery_codes')
 export class RecoveryCode {
   @PrimaryGeneratedColumn('uuid')
@@ -25,6 +30,13 @@ export class RecoveryCode {
 
   @Column({ type: 'int', default: 0 })
   attempts: number;
+
+  @Column({
+    type: 'varchar',
+    length: 32,
+    default: RecoveryCodePurpose.PASSWORD_RESET,
+  })
+  purpose: RecoveryCodePurpose;
 
   @Column({ name: 'expires_at', type: 'timestamp', nullable: true })
   expiresAt: Date | null;

@@ -9,6 +9,9 @@ describe('LogRetentionService', () => {
     const notificationRepository = {
       deleteReadOlderThan: jest.fn().mockResolvedValue(3),
     };
+    const clinicalAccessAuditRepository = {
+      deleteOlderThan: jest.fn().mockResolvedValue(0),
+    };
     const config = {
       get: jest.fn((key: string, def: unknown) =>
         key in configValues ? configValues[key] : def,
@@ -21,8 +24,9 @@ describe('LogRetentionService', () => {
       repoVazio() as never,
       notificationRepository as never,
       config as never,
+      clinicalAccessAuditRepository as never,
     );
-    return { service, notificationRepository };
+    return { service, notificationRepository, clinicalAccessAuditRepository };
   }
 
   it('apaga notificações lidas com mais de 90 dias por padrão', async () => {
@@ -54,5 +58,34 @@ describe('LogRetentionService', () => {
     );
 
     await expect(service.runDaily()).resolves.toBeUndefined();
+  });
+
+  it('apaga auditoria de prontuário com mais de 5 anos por padrão', async () => {
+    const { service, clinicalAccessAuditRepository } = build();
+    const antes = Date.now();
+
+    await service.runDaily();
+
+    const [cutoff] = clinicalAccessAuditRepository.deleteOlderThan.mock
+      .calls[0] as [Date];
+    const dias = (antes - cutoff.getTime()) / (24 * 60 * 60 * 1000);
+    expect(Math.round(dias)).toBe(1825);
+  });
+
+  it('respeita LOG_RETENTION_CLINICAL_AUDIT_DAYS e falha não derruba o ciclo', async () => {
+    const { service, clinicalAccessAuditRepository } = build({
+      LOG_RETENTION_CLINICAL_AUDIT_DAYS: 0,
+    });
+
+    await service.runDaily();
+    expect(
+      clinicalAccessAuditRepository.deleteOlderThan,
+    ).not.toHaveBeenCalled();
+
+    const outro = build();
+    outro.clinicalAccessAuditRepository.deleteOlderThan.mockRejectedValue(
+      new Error('db'),
+    );
+    await expect(outro.service.runDaily()).resolves.toBeUndefined();
   });
 });

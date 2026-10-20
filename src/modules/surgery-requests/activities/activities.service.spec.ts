@@ -8,6 +8,7 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { ActivityMentionsService } from './mentions/activity-mentions.service';
+import { ActivityType } from 'src/database/entities/surgery-request-activity.entity';
 
 describe('ActivitiesService', () => {
   let module: TestingModule;
@@ -123,6 +124,107 @@ describe('ActivitiesService', () => {
         }),
       );
       expect(result.mentions).toEqual([{ id: 'user-2', name: 'Dr. Bruno' }]);
+    });
+    it('grava sempre como comentário, mesmo que o tipo enviado seja outro', async () => {
+      const activityRepository = module.get(SurgeryRequestActivityRepository);
+      (activityRepository.create as jest.Mock).mockResolvedValue({
+        id: 'act-2',
+        type: ActivityType.COMMENT,
+        content: 'x',
+        createdAt: new Date(),
+      });
+
+      await service.create(
+        'sc-1',
+        {
+          content: JSON.stringify({ pdf_path: 'pdfs/owner-2/alheio.pdf' }),
+          type: ActivityType.PDF_GENERATED,
+        } as never,
+        'user-1',
+      );
+
+      expect(activityRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: ActivityType.COMMENT,
+          userId: 'user-1',
+        }),
+      );
+    });
+  });
+
+  describe('findAll — PDF gerado', () => {
+    function atividadePdf(
+      id: string,
+      pdfPath: string,
+      userId: string | null = null,
+    ) {
+      return {
+        id,
+        type: ActivityType.PDF_GENERATED,
+        userId,
+        user: null,
+        createdAt: new Date('2026-10-01T10:00:00Z'),
+        content: JSON.stringify({
+          description: 'PDF gerado',
+          pdf_path: pdfPath,
+        }),
+      };
+    }
+
+    function mockAtividades(lista: unknown[]) {
+      const activityRepository = module.get(SurgeryRequestActivityRepository);
+      (activityRepository.findBySurgeryRequest as jest.Mock).mockResolvedValue(
+        lista,
+      );
+    }
+
+    it('assina o PDF gravado pelo sistema na pasta do tenant da SC', async () => {
+      mockAtividades([atividadePdf('a-1', 'pdfs/owner-1/uuid-sc.pdf')]);
+      const storage = module.get(StorageService);
+      (storage.getSignedUrl as jest.Mock).mockResolvedValue('https://assinada');
+
+      const [item] = await service.findAll('sc-1', 'user-1');
+
+      expect(storage.getSignedUrl).toHaveBeenCalledWith(
+        'pdfs/owner-1/uuid-sc.pdf',
+      );
+      expect(item.pdfUrl).toBe('https://assinada');
+      expect(item.content).toBe('PDF gerado');
+    });
+
+    it('não assina pdf_path de outro tenant', async () => {
+      mockAtividades([atividadePdf('a-1', 'pdfs/owner-2/uuid-alheio.pdf')]);
+      const storage = module.get(StorageService);
+
+      const [item] = await service.findAll('sc-1', 'user-1');
+
+      expect(storage.getSignedUrl).not.toHaveBeenCalled();
+      expect(item.pdfUrl).toBeUndefined();
+    });
+
+    it('não assina caminho com travessia ou fora da pasta de PDFs', async () => {
+      mockAtividades([
+        atividadePdf('a-1', 'pdfs/owner-1/../owner-2/x.pdf'),
+        atividadePdf('a-2', 'documents/owner-1/x.pdf'),
+      ]);
+      const storage = module.get(StorageService);
+
+      const itens = await service.findAll('sc-1', 'user-1');
+
+      expect(storage.getSignedUrl).not.toHaveBeenCalled();
+      expect(itens.every((i) => i.pdfUrl === undefined)).toBe(true);
+    });
+
+    it('não assina PDF de atividade com autor (gravada por cliente)', async () => {
+      mockAtividades([
+        atividadePdf('a-1', 'pdfs/owner-1/uuid-sc.pdf', 'user-1'),
+      ]);
+      const storage = module.get(StorageService);
+
+      const [item] = await service.findAll('sc-1', 'user-1');
+
+      expect(storage.getSignedUrl).not.toHaveBeenCalled();
+      expect(item.pdfUrl).toBeUndefined();
     });
   });
 });

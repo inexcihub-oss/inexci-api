@@ -23,6 +23,10 @@ import {
   STORAGE_FOLDER_TTL,
 } from '../../config/storage.config';
 import { errorMessage } from 'src/shared/utils/error-message.util';
+import {
+  cabecalhosDeRespostaPorCaminho,
+  contentTypeSeguro,
+} from './tipo-arquivo';
 
 export interface ArquivoParaUpload {
   originalname: string;
@@ -45,6 +49,10 @@ export class StorageService {
       throw new Error('Variável R2_BUCKET não configurada');
     }
     this.bucket = bucket;
+  }
+
+  get nomeDoBucket(): string {
+    return this.bucket;
   }
 
   private sanitizeFilename(name: string): string {
@@ -85,7 +93,7 @@ export class StorageService {
           Bucket: this.bucket,
           Key: filePath,
           Body: file.buffer,
-          ContentType: file.mimetype,
+          ContentType: contentTypeSeguro(file.mimetype),
           CacheControl: this.cacheControl(filePath),
         }),
       );
@@ -108,6 +116,7 @@ export class StorageService {
       const command = new GetObjectCommand({
         Bucket: this.bucket,
         Key: filePath,
+        ...cabecalhosDeRespostaPorCaminho(filePath),
         ...(cacheControl ? { ResponseCacheControl: cacheControl } : {}),
       });
       if (!cacheControl) {
@@ -146,7 +155,7 @@ export class StorageService {
           Bucket: this.bucket,
           Key: filePath,
           Body: buffer,
-          ContentType: contentType,
+          ContentType: contentTypeSeguro(contentType),
           CacheControl: this.cacheControl(filePath),
         }),
       );

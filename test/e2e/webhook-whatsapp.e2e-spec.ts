@@ -48,7 +48,10 @@ describe('Webhook WhatsApp — Contrato HTTP (e2e)', () => {
         WebhookService,
         {
           provide: AiOrchestratorService,
-          useValue: { enqueueInboundMessage },
+          useValue: {
+            enqueueInboundMessage,
+            claimInboundMessage: jest.fn().mockResolvedValue(true),
+          },
         },
         {
           provide: SurgeryRequestRepository,

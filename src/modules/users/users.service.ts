@@ -43,15 +43,22 @@ import {
 import { UserDoctorAccessRepository } from 'src/database/repositories/user-doctor-access.repository';
 import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
-import { RefreshTokenStore } from '../auth/refresh-token.store';
+import { RecoveryCodePurpose } from 'src/database/entities/recovery-code.entity';
+import { SessionRevocationService } from '../auth/session-revocation.service';
 
 import { generateValidationCode, omitUserSecrets } from 'src/shared/utils';
 import {
   ehArquivoDaConta,
   PASTAS_DE_ASSINATURA,
   PASTAS_DE_AVATAR,
+  PASTAS_DE_CABECALHO,
 } from './arquivo-da-conta';
 import { errorMessage } from 'src/shared/utils/error-message.util';
+import {
+  TELEFONE_INVALIDO_MENSAGEM,
+  canonicalizarTelefone,
+  variantesLegadasDoTelefone,
+} from 'src/shared/utils/phone.util';
 
 export const AVATAR_INVALIDO = 'Avatar inválido: envie a imagem novamente.';
 export const ASSINATURA_INVALIDA =
@@ -74,12 +81,45 @@ export class UsersService {
     private readonly whatsappService: WhatsappService,
     private readonly configService: ConfigService,
     private readonly doctorHeaderRepository: DoctorHeaderRepository,
-    private readonly refreshTokenStore: RefreshTokenStore,
+    private readonly sessionRevocation: SessionRevocationService,
     @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {}
 
-  private emitAccessChanged(userId: string, phone: string | null | undefined) {
-    this.eventEmitter?.emit('user.access_changed', { userId, phone });
+  private emitAccessChanged(
+    userId: string,
+    phone: string | null | undefined,
+    previousPhone?: string | null,
+  ) {
+    this.eventEmitter?.emit('user.access_changed', {
+      userId,
+      phone,
+      ...(previousPhone && previousPhone !== phone ? { previousPhone } : {}),
+    });
+  }
+
+  private telefoneCanonico(valor: string): string {
+    const canonico = canonicalizarTelefone(valor);
+    if (!canonico) throw new BadRequestException(TELEFONE_INVALIDO_MENSAGEM);
+    return canonico;
+  }
+
+  private telefoneOpcional(
+    valor: string | null | undefined,
+  ): string | undefined {
+    return valor ? this.telefoneCanonico(valor) : undefined;
+  }
+
+  private async telefoneEmUso(
+    canonico: string,
+    ignorarUsuarioId?: string,
+  ): Promise<boolean> {
+    const encontrado = await this.userRepository.findOne(
+      variantesLegadasDoTelefone(canonico).map((phone) => ({
+        phone,
+        ...(ignorarUsuarioId ? { id: Not(ignorarUsuarioId) } : {}),
+      })),
+    );
+    return !!encontrado;
   }
 
   private async assertPodeGerirEquipe(userId: string): Promise<User> {
@@ -144,12 +184,9 @@ export class UsersService {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    if (data.phone) {
-      const phoneFound = await this.userRepository.findOne({
-        phone: data.phone,
-        id: Not(userId),
-      });
-      if (phoneFound) throw new BadRequestException('Telefone já está em uso');
+    const novoTelefone = this.telefoneOpcional(data.phone);
+    if (novoTelefone && (await this.telefoneEmUso(novoTelefone, userId))) {
+      throw new BadRequestException('Telefone já está em uso');
     }
 
     if (data.cpf) {
@@ -187,7 +224,7 @@ export class UsersService {
 
     const userUpdates: Partial<User> = {};
     if (data.name) userUpdates.name = data.name;
-    if (data.phone) userUpdates.phone = data.phone;
+    if (novoTelefone) userUpdates.phone = novoTelefone;
     if (data.cpf) userUpdates.cpf = data.cpf;
     if (data.birthDate) userUpdates.birthDate = new Date(data.birthDate);
     if (data.gender) userUpdates.gender = data.gender;
@@ -202,6 +239,10 @@ export class UsersService {
     if (data.state !== undefined) userUpdates.state = data.state;
 
     await this.userRepository.update(userId, userUpdates);
+
+    if (novoTelefone && novoTelefone !== user.phone) {
+      this.emitAccessChanged(userId, novoTelefone, user.phone);
+    }
 
     if (novoAvatar !== undefined && user.avatarUrl !== novoAvatar) {
       const antigo = user.avatarUrl;
@@ -281,12 +322,9 @@ export class UsersService {
       this.assertAlvoNaoEhDono({ id: target.id, ownerId: target.ownerId });
     }
 
-    if (data.phone) {
-      const phoneFound = await this.userRepository.findOne({
-        phone: data.phone,
-        id: Not(targetId),
-      });
-      if (phoneFound) throw new BadRequestException('Telefone já está em uso');
+    const novoTelefone = this.telefoneOpcional(data.phone);
+    if (novoTelefone && (await this.telefoneEmUso(novoTelefone, targetId))) {
+      throw new BadRequestException('Telefone já está em uso');
     }
 
     if (data.cpf) {
@@ -299,7 +337,7 @@ export class UsersService {
 
     const userUpdates: Partial<User> = {};
     if (data.name !== undefined) userUpdates.name = data.name;
-    if (data.phone !== undefined) userUpdates.phone = data.phone;
+    if (novoTelefone) userUpdates.phone = novoTelefone;
     if (data.cpf !== undefined) userUpdates.cpf = data.cpf;
     if (data.birthDate !== undefined)
       userUpdates.birthDate = new Date(data.birthDate);
@@ -323,17 +361,18 @@ export class UsersService {
     if (data.state !== undefined) userUpdates.state = data.state;
 
     const updatedUser = await this.userRepository.update(targetId, userUpdates);
+    if (novoTelefone && novoTelefone !== target.phone) {
+      this.emitAccessChanged(targetId, novoTelefone, target.phone);
+    }
     return updatedUser;
   }
 
   async create(data: CreateUserDto, userId: string) {
     const user = await this.assertPodeGerirEquipe(userId);
 
-    if (data.phone) {
-      const phoneFound = await this.userRepository.findOne({
-        phone: data.phone,
-      });
-      if (phoneFound) throw new BadRequestException('Telefone em uso');
+    const telefone = this.telefoneCanonico(data.phone);
+    if (await this.telefoneEmUso(telefone)) {
+      throw new BadRequestException('Telefone em uso');
     }
 
     const emailFound = await this.userRepository.findOne({ email: data.email });
@@ -344,7 +383,7 @@ export class UsersService {
     const newUser = await this.userRepository.create({
       email: data.email,
       name: data.name,
-      phone: data.phone,
+      phone: telefone,
       role: UserRole.COLLABORATOR,
       status: UserStatus.PENDING,
       password: await bcrypt.hash(placeholderPw, BCRYPT_ROUNDS),
@@ -354,17 +393,19 @@ export class UsersService {
     await this.recoveryCodeRepository.deleteMany({
       userId: newUser.id,
       used: false,
+      purpose: RecoveryCodePurpose.INVITE,
     });
     const inviteToken = generateValidationCode(6);
     await this.recoveryCodeRepository.create({
       userId: newUser.id,
       used: false,
+      purpose: RecoveryCodePurpose.INVITE,
       code: inviteToken,
       expiresAt: new Date(Date.now() + INVITE_CODE_TTL_MS),
     });
 
     const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
-    const setupLink = `${dashboardUrl}/primeiro-acesso?email=${encodeURIComponent(newUser.email)}&token=${inviteToken}`;
+    const setupLink = `${dashboardUrl}/primeiro-acesso#email=${encodeURIComponent(newUser.email)}&token=${inviteToken}`;
 
     void this.mailService.send(
       'invite-collaborator',
@@ -568,8 +609,12 @@ export class UsersService {
     return { records };
   }
 
-  async createCollaborator(data: CreateCollaboratorDto, adminId: string) {
+  async createCollaborator(dados: CreateCollaboratorDto, adminId: string) {
     const admin = await this.assertPodeGerirEquipe(adminId);
+    const data: CreateCollaboratorDto = {
+      ...dados,
+      phone: this.telefoneCanonico(dados.phone),
+    };
     await this.liberarContatoParaConvite(data);
 
     const council = data.council ?? ProfessionalCouncil.CRM;
@@ -623,11 +668,8 @@ export class UsersService {
       });
     }
 
-    if (data.phone) {
-      const phoneFound = await this.userRepository.findOne({
-        phone: data.phone,
-      });
-      if (phoneFound) throw new BadRequestException('Telefone já está em uso');
+    if (data.phone && (await this.telefoneEmUso(data.phone))) {
+      throw new BadRequestException('Telefone já está em uso');
     }
   }
 
@@ -685,17 +727,19 @@ export class UsersService {
     await this.recoveryCodeRepository.deleteMany({
       userId: newUser.id,
       used: false,
+      purpose: RecoveryCodePurpose.INVITE,
     });
     const inviteToken = randomUUID();
     await this.recoveryCodeRepository.create({
       userId: newUser.id,
       used: false,
+      purpose: RecoveryCodePurpose.INVITE,
       code: inviteToken,
       expiresAt: new Date(Date.now() + INVITE_TOKEN_TTL_MS),
     });
 
     const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
-    const setupLink = `${dashboardUrl}/primeiro-acesso?email=${encodeURIComponent(newUser.email)}&token=${inviteToken}`;
+    const setupLink = `${dashboardUrl}/primeiro-acesso#email=${encodeURIComponent(newUser.email)}&token=${inviteToken}`;
 
     void this.mailService.send(
       'invite-collaborator',
@@ -716,10 +760,14 @@ export class UsersService {
 
   async updateCollaborator(
     collaboratorId: string,
-    data: UpdateCollaboratorDto,
+    dados: UpdateCollaboratorDto,
     adminId: string,
   ) {
     const admin = await this.assertPodeGerirEquipe(adminId);
+    const data: UpdateCollaboratorDto = {
+      ...dados,
+      phone: this.telefoneOpcional(dados.phone),
+    };
     const collaborator = await this.carregarColaboradorDaConta(
       collaboratorId,
       admin,
@@ -743,12 +791,18 @@ export class UsersService {
     );
     if (!updated) throw new NotFoundException('Colaborador não encontrado');
 
+    const trocouTelefone = !!data.phone && data.phone !== collaborator.phone;
     if (
+      trocouTelefone ||
       data.permissions !== undefined ||
       data.isDoctor !== undefined ||
       data.council !== undefined
     ) {
-      this.emitAccessChanged(collaboratorId, collaborator.phone);
+      this.emitAccessChanged(
+        collaboratorId,
+        data.phone ?? collaborator.phone,
+        collaborator.phone,
+      );
     }
 
     const grantedPermissionsAfterUpdate =
@@ -816,12 +870,8 @@ export class UsersService {
       if (emailFound) throw new BadRequestException('Email já está em uso');
     }
 
-    if (data.phone) {
-      const phoneFound = await this.userRepository.findOne({
-        phone: data.phone,
-        id: Not(collaboratorId),
-      });
-      if (phoneFound) throw new BadRequestException('Telefone já está em uso');
+    if (data.phone && (await this.telefoneEmUso(data.phone, collaboratorId))) {
+      throw new BadRequestException('Telefone já está em uso');
     }
   }
 
@@ -831,7 +881,7 @@ export class UsersService {
     const updates: Partial<User> = {};
     if (data.name !== undefined) updates.name = data.name;
     if (data.email !== undefined) updates.email = data.email;
-    if (data.phone !== undefined) updates.phone = data.phone;
+    if (data.phone) updates.phone = data.phone;
     if (data.cep !== undefined) updates.cep = data.cep;
     if (data.address !== undefined) updates.address = data.address;
     if (data.addressNumber !== undefined)
@@ -921,6 +971,8 @@ export class UsersService {
     });
     await this.userRepository.delete(collaboratorId);
 
+    await this.sessionRevocation.revokeAllSessions(collaboratorId, 'deleted');
+
     this.emitAccessChanged(collaboratorId, originalPhone);
 
     return { message: 'Colaborador desativado com sucesso' };
@@ -961,6 +1013,10 @@ export class UsersService {
     await this.userRepository.bulkSoftDelete(uniqueIds);
 
     for (const collaborator of collaborators) {
+      await this.sessionRevocation.revokeAllSessions(
+        collaborator.id,
+        'deleted',
+      );
       this.emitAccessChanged(collaborator.id, collaborator.phone);
     }
 
@@ -1015,6 +1071,13 @@ export class UsersService {
 
     await this.userRepository.update(collaboratorId, { status: newStatus });
 
+    if (newStatus === UserStatus.INACTIVE) {
+      await this.sessionRevocation.revokeAllSessions(
+        collaboratorId,
+        'deactivated',
+      );
+    }
+
     this.emitAccessChanged(collaboratorId, collaborator.phone);
 
     return { status: newStatus };
@@ -1042,7 +1105,10 @@ export class UsersService {
     const hashed = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     await this.userRepository.update(collaboratorId, { password: hashed });
 
-    await this.refreshTokenStore.revokeAllForUser(collaborator.id);
+    await this.sessionRevocation.revokeAllSessions(
+      collaborator.id,
+      'password_reset',
+    );
 
     return { message: 'Senha redefinida com sucesso' };
   }
@@ -1074,18 +1140,20 @@ export class UsersService {
 
     await this.recoveryCodeRepository.deleteMany({
       userId: collaborator.id,
+      purpose: RecoveryCodePurpose.INVITE,
     });
 
     const inviteToken = generateValidationCode(6);
     await this.recoveryCodeRepository.create({
       userId: collaborator.id,
       used: false,
+      purpose: RecoveryCodePurpose.INVITE,
       code: inviteToken,
       expiresAt: new Date(Date.now() + INVITE_CODE_TTL_MS),
     });
 
     const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
-    const setupLink = `${dashboardUrl}/primeiro-acesso?email=${encodeURIComponent(collaborator.email)}&token=${inviteToken}`;
+    const setupLink = `${dashboardUrl}/primeiro-acesso#email=${encodeURIComponent(collaborator.email)}&token=${inviteToken}`;
 
     void this.mailService.send(
       'invite-collaborator',
@@ -1199,6 +1267,9 @@ export class UsersService {
         'Sem permissão para configurar este cabeçalho',
       );
     }
+    if (!isSelf) {
+      this.assertAlvoNaoEhDono({ id: target.id, ownerId: target.ownerId });
+    }
 
     const profile =
       await this.doctorProfileRepository.findByUserId(targetUserId);
@@ -1207,7 +1278,39 @@ export class UsersService {
         'Este usuário não possui perfil de médico para cabeçalho',
       );
 
-    return profile;
+    return { profile, ownerId: target.ownerId };
+  }
+
+  private async dadosDoCabecalho(
+    doctorProfileId: string,
+    dto: UpsertDoctorHeaderDto,
+    ownerId: string,
+  ): Promise<Parameters<DoctorHeaderRepository['upsert']>[1]> {
+    const data: Parameters<DoctorHeaderRepository['upsert']>[1] = {
+      logoPosition: dto.logoPosition ?? 'left',
+    };
+
+    if (dto.logoUrl !== undefined) {
+      const atual =
+        await this.doctorHeaderRepository.findByDoctorProfileId(
+          doctorProfileId,
+        );
+      data.logoUrl = this.validarCaminhoDeArquivo(
+        dto.logoUrl,
+        atual?.logoUrl,
+        PASTAS_DE_CABECALHO,
+        ownerId,
+        'Logo do cabeçalho inválido.',
+      );
+    }
+
+    if (dto.contentHtml !== undefined) {
+      data.contentHtml = dto.contentHtml
+        ? this.sanitizeHeaderHtml(dto.contentHtml)
+        : null;
+    }
+
+    return data;
   }
 
   async getMyHeader(userId: string) {
@@ -1221,20 +1324,10 @@ export class UsersService {
     if (!profile)
       throw new ForbiddenException('Apenas médicos podem configurar cabeçalho');
 
-    const data: Parameters<DoctorHeaderRepository['upsert']>[1] = {
-      logoPosition: dto.logoPosition ?? 'left',
-    };
+    const user = await this.userRepository.findOne({ id: userId });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    if (dto.logoUrl !== undefined) {
-      data.logoUrl = dto.logoUrl;
-    }
-
-    if (dto.contentHtml !== undefined) {
-      data.contentHtml = dto.contentHtml
-        ? this.sanitizeHeaderHtml(dto.contentHtml)
-        : null;
-    }
-
+    const data = await this.dadosDoCabecalho(profile.id, dto, user.ownerId);
     return this.doctorHeaderRepository.upsert(profile.id, data);
   }
 
@@ -1250,7 +1343,7 @@ export class UsersService {
     targetUserId: string,
     requestingUserId: string,
   ) {
-    const profile = await this.getAuthorizedDoctorProfileForHeader(
+    const { profile } = await this.getAuthorizedDoctorProfileForHeader(
       targetUserId,
       requestingUserId,
     );
@@ -1262,25 +1355,12 @@ export class UsersService {
     dto: UpsertDoctorHeaderDto,
     requestingUserId: string,
   ) {
-    const profile = await this.getAuthorizedDoctorProfileForHeader(
+    const { profile, ownerId } = await this.getAuthorizedDoctorProfileForHeader(
       targetUserId,
       requestingUserId,
     );
 
-    const data: Parameters<DoctorHeaderRepository['upsert']>[1] = {
-      logoPosition: dto.logoPosition ?? 'left',
-    };
-
-    if (dto.logoUrl !== undefined) {
-      data.logoUrl = dto.logoUrl;
-    }
-
-    if (dto.contentHtml !== undefined) {
-      data.contentHtml = dto.contentHtml
-        ? this.sanitizeHeaderHtml(dto.contentHtml)
-        : null;
-    }
-
+    const data = await this.dadosDoCabecalho(profile.id, dto, ownerId);
     return this.doctorHeaderRepository.upsert(profile.id, data);
   }
 
@@ -1288,7 +1368,7 @@ export class UsersService {
     targetUserId: string,
     requestingUserId: string,
   ) {
-    const profile = await this.getAuthorizedDoctorProfileForHeader(
+    const { profile } = await this.getAuthorizedDoctorProfileForHeader(
       targetUserId,
       requestingUserId,
     );

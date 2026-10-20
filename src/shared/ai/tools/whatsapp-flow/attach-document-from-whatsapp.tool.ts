@@ -31,6 +31,7 @@ export function buildAttachDocumentFromWhatsappTool(
     name: 'attach_document_from_whatsapp',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {

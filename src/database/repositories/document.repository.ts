@@ -4,6 +4,13 @@ import { Repository, FindOptionsWhere } from 'typeorm';
 import { Document } from '../entities/document.entity';
 import { BaseRepository } from './base.repository';
 
+export interface DocumentAccessScope {
+  surgeryRequestId: string | null;
+  clinicalRecordId: string | null;
+  surgeryRequestDoctorId: string | null;
+  clinicalRecordDoctorId: string | null;
+}
+
 @Global()
 @Injectable()
 export class DocumentRepository extends BaseRepository<Document> {
@@ -51,18 +58,47 @@ export class DocumentRepository extends BaseRepository<Document> {
     });
   }
 
-  async existsByUriAndOwner(uri: string, ownerId: string): Promise<boolean> {
-    const count = await this.repository
+  async findByPatientIdForDoctors(
+    patientId: string,
+    doctorIds: string[],
+  ): Promise<Document[]> {
+    const query = this.repository
+      .createQueryBuilder('doc')
+      .leftJoin('doc.clinicalRecord', 'cr')
+      .where('doc.patientId = :patientId', { patientId })
+      .orderBy('doc.createdAt', 'DESC');
+
+    if (doctorIds.length === 0) {
+      query.andWhere('doc.clinicalRecordId IS NULL');
+    } else {
+      query.andWhere(
+        '(doc.clinicalRecordId IS NULL OR cr.doctorId IN (:...doctorIds))',
+        { doctorIds },
+      );
+    }
+
+    return await query.getMany();
+  }
+
+  async findAccessScopesByUriAndOwner(
+    uri: string,
+    ownerId: string,
+  ): Promise<DocumentAccessScope[]> {
+    const rows = await this.repository
       .createQueryBuilder('doc')
       .leftJoin('doc.surgeryRequest', 'sr')
       .leftJoin('doc.patient', 'patient')
       .leftJoin('doc.clinicalRecord', 'cr')
+      .select('doc.surgeryRequestId', 'surgeryRequestId')
+      .addSelect('doc.clinicalRecordId', 'clinicalRecordId')
+      .addSelect('sr.doctorId', 'surgeryRequestDoctorId')
+      .addSelect('cr.doctorId', 'clinicalRecordDoctorId')
       .where('doc.uri = :uri', { uri })
       .andWhere(
         '(sr.ownerId = :ownerId OR patient.ownerId = :ownerId OR cr.ownerId = :ownerId)',
         { ownerId },
       )
-      .getCount();
-    return count > 0;
+      .getRawMany<DocumentAccessScope>();
+    return rows;
   }
 }

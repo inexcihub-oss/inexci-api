@@ -60,6 +60,19 @@ describe('DocumentEntityResolverService', () => {
     expect(result.patient[0].name).toBe('Maria Souza');
   });
 
+  it('escapa curingas do LIKE no nome do paciente', async () => {
+    const patientQb = makeQb([]);
+    dataSource.getRepository.mockReturnValue({
+      createQueryBuilder: () => patientQb,
+    });
+
+    await service.resolveCandidates({ patient: { name: '%_Maria' } }, 'user-1');
+
+    expect(patientQb.andWhere).toHaveBeenCalledWith(expect.any(String), {
+      term: '%\\%\\_Maria%',
+    });
+  });
+
   it('marca patientCpfMissing=true quando nome existe, CPF ausente e nenhum candidato encontrado', async () => {
     const emptyQb = makeQb([]);
     dataSource.getRepository.mockReturnValue({

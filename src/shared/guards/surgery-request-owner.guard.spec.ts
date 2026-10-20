@@ -109,11 +109,49 @@ describe('SurgeryRequestOwnerGuard', () => {
     expect(repo.findOneSimple).toHaveBeenCalledWith({ id: SC_A });
   });
 
-  it('libera rotas sem id de recurso (listagens)', async () => {
+  it('bloqueia rota JSON sem id de recurso (fail-closed)', async () => {
     const { guard, repo } = makeGuard(null);
+    const ctx = makeCtx({
+      headers: { 'content-type': 'application/json' },
+      body: {},
+      user: { userId: 'u1', ownerId: 'clinica-A' },
+    });
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(repo.findOneSimple).not.toHaveBeenCalled();
+  });
+
+  it('bloqueia rota sem id e sem content-type', async () => {
+    const { guard } = makeGuard(null);
     const ctx = makeCtx({ user: { userId: 'u1', ownerId: 'clinica-A' } });
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('deixa passar multipart sem id (posse validada no service)', async () => {
+    const { guard, repo } = makeGuard(null);
+    const ctx = makeCtx({
+      headers: {
+        'content-type': 'multipart/form-data; boundary=----abc',
+      },
+      user: { userId: 'u1', ownerId: 'clinica-A' },
+    });
     await expect(guard.canActivate(ctx)).resolves.toBe(true);
     expect(repo.findOneSimple).not.toHaveBeenCalled();
+  });
+
+  it('multipart com id já presente na rota continua validando a posse', async () => {
+    const { guard } = makeGuard({ ownerId: 'clinica-B', doctorId: 'm-1' });
+    const ctx = makeCtx({
+      headers: { 'content-type': 'multipart/form-data; boundary=x' },
+      params: { id: SC_B },
+      user: { userId: 'u1', ownerId: 'clinica-A' },
+    });
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 
   it('respeita @SkipSurgeryOwner()', async () => {

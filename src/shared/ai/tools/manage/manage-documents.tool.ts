@@ -18,6 +18,12 @@ import {
 import { errorMessage } from '../../../utils/error-message.util';
 import { Document } from '../../../../database/entities/document.entity';
 
+import { MIME_DOCUMENTOS_PERMITIDOS } from '../../../storage/tipo-arquivo';
+import {
+  ArquivoRecebidoInvalidoError,
+  tiparArquivoRecebido,
+} from '../../utils/arquivo-recebido';
+
 export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
   const {
     surgeryRequestRepo,
@@ -31,6 +37,7 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
     name: 'manage_documents',
     requiredPermission: Permission.SOLICITACOES,
     mutates: true,
+    requiresConfirmation: true,
     definition: {
       type: 'function',
       function: {
@@ -188,13 +195,27 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
             media.url,
             configService,
           );
+          let tipo: { mime: string; nome: string };
+          try {
+            tipo = await tiparArquivoRecebido(
+              downloaded.buffer,
+              computedName,
+              MIME_DOCUMENTOS_PERMITIDOS,
+            );
+          } catch (err) {
+            if (err instanceof ArquivoRecebidoInvalidoError) {
+              return buildToolResult({
+                status: 'blocked',
+                message:
+                  'Formato de arquivo não suportado. Envie PDF, imagem (JPG, PNG ou WEBP) ou documento Word.',
+              });
+            }
+            throw err;
+          }
           const path = await storageService.create(
             {
-              originalname: computedName,
-              mimetype:
-                media.contentType ||
-                downloaded.contentType ||
-                'application/octet-stream',
+              originalname: tipo.nome,
+              mimetype: tipo.mime,
               buffer: downloaded.buffer,
             },
             STORAGE_FOLDERS.DOCUMENTS,
@@ -209,10 +230,7 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
               type: detectedType,
               name: computedName,
               key: computedKey,
-              contentType:
-                media.contentType ||
-                downloaded.contentType ||
-                'application/octet-stream',
+              contentType: tipo.mime,
               createdById: context.userId as string,
             });
           } catch (err) {

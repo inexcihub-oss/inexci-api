@@ -197,6 +197,6 @@ export class TestDataFactory {
   }
 
   private static generatePhone(): string {
-    return `11${faker.string.numeric(9)}`;
+    return `119${faker.string.numeric(8)}`;
   }
 }

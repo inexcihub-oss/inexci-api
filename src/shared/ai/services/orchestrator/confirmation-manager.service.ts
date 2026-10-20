@@ -1,8 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { WhatsappConversationRepository } from '../../../../database/repositories/whatsapp-conversation.repository';
 import { ConversationService } from '../conversation.service';
 import { parseToolResult } from '../../tools/tool-result';
 import { ToolRegistryService } from '../tool-registry.service';
+import {
+  isAffirmativeConfirmation,
+  isNegativeConfirmation,
+} from './confirmation-phrases';
+import { ToolConfirmationGateService } from '../tool-confirmation-gate.service';
 
 export const TOOL_DISPLAY_LABELS: Record<string, string> = {
   upload_doctor_signature: 'atualizar sua assinatura digital',
@@ -71,87 +76,6 @@ export function inferDraftPendingTarget(
 
 const PENDING_CONFIRMATION_MAX_AGE_MS = 15 * 60 * 1000;
 
-const AFFIRMATIVE_PHRASES = new Set<string>([
-  'sim',
-  's',
-  'sim!',
-  'sim por favor',
-  'sim, por favor',
-  'sim por favor.',
-  'sim claro',
-  'sim, claro',
-  'claro',
-  'claro!',
-  'pode',
-  'pode sim',
-  'pode mandar',
-  'pode mandar ver',
-  'manda',
-  'manda ver',
-  'manda bala',
-  'mandar',
-  'segue',
-  'segue ai',
-  'segue aí',
-  'vai',
-  'vai la',
-  'vai lá',
-  'vamos',
-  'vamos la',
-  'vamos lá',
-  'confirmo',
-  'confirmado',
-  'confirma',
-  'confirmar',
-  'ok',
-  'okay',
-  'beleza',
-  'blz',
-  'show',
-  'isso',
-  'isso mesmo',
-  'isso ai',
-  'isso aí',
-  'positivo',
-  'afirmativo',
-  'quero',
-  'quero sim',
-  'quero sim por favor',
-  'aceito',
-  'aceitar',
-  'fechado',
-  'feito',
-  'bora',
-  'bora la',
-  'bora lá',
-  'pode prosseguir',
-  'prosseguir',
-  'prossiga',
-  'prossiga por favor',
-]);
-
-const NEGATIVE_PHRASES = new Set<string>([
-  'nao',
-  'n',
-  'nao, obrigado',
-  'nao obrigado',
-  'nao quero',
-  'cancela',
-  'cancelar',
-  'cancele',
-  'pare',
-  'para',
-  'desiste',
-  'desistir',
-  'esquece',
-  'esquecer',
-  'deixa',
-  'deixa pra la',
-  'deixa pra lá',
-  'nada',
-  'nada nao',
-]);
-
 interface PendingConfirmationPayload {
   tool: string;
   args: Record<string, unknown>;
@@ -166,7 +90,28 @@ export class ConfirmationManagerService {
     private readonly whatsappConversationRepo: WhatsappConversationRepository,
     private readonly conversationService: ConversationService,
     private readonly toolRegistry: ToolRegistryService,
+    @Optional()
+    private readonly confirmationGate?: ToolConfirmationGateService,
   ) {}
+
+  async beginTurn(
+    conversationId: string,
+    turnId: string | null | undefined,
+    userMessage: string | null | undefined,
+  ): Promise<void> {
+    if (!this.confirmationGate) return;
+    try {
+      await this.confirmationGate.beginTurn(
+        conversationId,
+        turnId,
+        userMessage,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `[CONFIRM_TOKEN] begin_turn_failed conv=${conversationId} err=${(err as Error)?.message}`,
+      );
+    }
+  }
 
   async setPendingConfirmation(
     conversationId: string,
@@ -297,6 +242,7 @@ export class ConfirmationManagerService {
 
     if (isNegative) {
       await this.clearPendingConfirmation(conversationId);
+      await this.confirmationGate?.clear(conversationId).catch(() => undefined);
       const description = pending.description || `executar ${pending.tool}`;
       return [
         'CANCELAMENTO DETERMINÍSTICO:',
@@ -386,17 +332,11 @@ export class ConfirmationManagerService {
   }
 
   parseAffirmativeConfirmation(rawInput: string): boolean {
-    if (!rawInput) return false;
-    const normalized = this.normalize(rawInput);
-    if (!normalized || normalized.length > 60) return false;
-    return AFFIRMATIVE_PHRASES.has(normalized);
+    return isAffirmativeConfirmation(rawInput);
   }
 
   parseNegativeConfirmation(rawInput: string): boolean {
-    if (!rawInput) return false;
-    const normalized = this.normalize(rawInput);
-    if (!normalized || normalized.length > 60) return false;
-    return NEGATIVE_PHRASES.has(normalized);
+    return isNegativeConfirmation(rawInput);
   }
 
   parseNumericChoice(rawInput: string): number | null {

@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { Patient } from '../entities/patient.entity';
 import { BaseRepository } from './base.repository';
+import { escapeLikePattern } from './owned-catalog.repository';
 
 const COLUNAS_DA_LISTAGEM = [
   'p.id',
@@ -69,12 +70,13 @@ export class PatientRepository extends BaseRepository<Patient> {
       .orderBy('p.name', 'ASC')
       .limit(limit);
 
+    const escaped = escapeLikePattern(search);
     const term =
       mode === 'exact'
         ? search
         : mode === 'prefix'
-          ? `${search}%`
-          : `%${search}%`;
+          ? `${escaped}%`
+          : `%${escaped}%`;
 
     if (mode === 'exact') {
       qb.andWhere('unaccent(lower(p.name)) = unaccent(lower(:term))', { term });
@@ -103,7 +105,7 @@ export class PatientRepository extends BaseRepository<Patient> {
 
     const trimmed = search?.trim();
     if (trimmed) {
-      const term = `%${trimmed}%`;
+      const term = `%${escapeLikePattern(trimmed)}%`;
       qb.andWhere(
         '(unaccent(lower(p.name)) ILIKE unaccent(lower(:term)) OR p.email ILIKE :term OR p.cpf ILIKE :term)',
         { term },

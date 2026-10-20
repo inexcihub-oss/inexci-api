@@ -11,6 +11,7 @@ import {
   HealthPlan,
 } from 'src/database/entities/health-plan.entity';
 import { violouIndice } from 'src/database/repositories/unique-violation.util';
+import { escapeLikePattern } from 'src/database/repositories/owned-catalog.repository';
 import { Procedure } from 'src/database/entities/procedure.entity';
 import { DocumentClassificationExtracted } from 'src/shared/ai/ocr/document-classifier.types';
 
@@ -153,7 +154,7 @@ export class DocumentEntityResolverService {
         .createQueryBuilder('p')
         .where('p.owner_id = :ownerId', { ownerId })
         .andWhere('unaccent(lower(p.name)) ILIKE unaccent(lower(:term))', {
-          term: `%${name}%`,
+          term: `%${escapeLikePattern(name)}%`,
         })
         .select(['p.id', 'p.name', 'p.cpf'])
         .limit(MAX_CANDIDATES)
@@ -201,7 +202,7 @@ export class DocumentEntityResolverService {
               OR :termNorm ILIKE ('%' || regexp_replace(unaccent(lower(e.name)), '[^a-z0-9]+', ' ', 'g') || '%')
             )`,
             {
-              termLike: `%${termNorm}%`,
+              termLike: `%${escapeLikePattern(termNorm)}%`,
               termNorm,
             },
           )

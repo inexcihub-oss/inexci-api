@@ -8,7 +8,7 @@ import {
   IsDateString,
   Matches,
 } from 'class-validator';
-import { PhoneTransform } from 'src/shared/pipes/phone-mask.pipe';
+import { UserPhone } from 'src/shared/pipes/phone-mask.pipe';
 
 export const SIGNATURE_PATH_REGEX = /^(signatures|stamps)\/[^/]+\/[^/]+$/;
 export const SIGNATURE_PATH_MESSAGE =
@@ -22,7 +22,7 @@ export class UpdateProfileDto {
 
   @IsOptional()
   @IsString()
-  @PhoneTransform()
+  @UserPhone()
   phone?: string;
 
   @IsOptional()

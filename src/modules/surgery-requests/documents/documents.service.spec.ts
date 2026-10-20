@@ -1,4 +1,17 @@
 import { BadRequestException } from '@nestjs/common';
+
+jest.mock(
+  'file-type',
+  () => ({
+    fileTypeFromBuffer: (buf: Buffer) =>
+      Promise.resolve(
+        buf.subarray(0, 4).toString() === '%PDF'
+          ? { ext: 'pdf', mime: 'application/pdf' }
+          : undefined,
+      ),
+  }),
+  { virtual: true },
+);
 import { DocumentsService } from './documents.service';
 import { STORAGE_FOLDERS } from 'src/config/storage.config';
 import { Document } from 'src/database/entities/document.entity';
@@ -42,7 +55,7 @@ describe('DocumentsService', () => {
       ({
         originalname: 'exame.pdf',
         mimetype: 'application/pdf',
-        buffer: Buffer.alloc(bytes),
+        buffer: Buffer.concat([Buffer.from('%PDF-'), Buffer.alloc(bytes - 5)]),
         size: bytes,
       }) as Express.Multer.File;
 
@@ -86,6 +99,73 @@ describe('DocumentsService', () => {
         ),
       ).resolves.toMatchObject({ id: 'doc-1' });
       expect(storageService.create).toHaveBeenCalled();
+    });
+  });
+
+  describe('create — tipo do arquivo', () => {
+    const dados = {
+      surgeryRequestId: 'sr-1',
+      key: 'exame',
+      name: 'exame',
+      folder: STORAGE_FOLDERS.DOCUMENTS,
+    };
+    let storageService: { create: jest.Mock; getSignedUrl: jest.Mock };
+    let servico: DocumentsService;
+
+    beforeEach(() => {
+      storageService = {
+        create: jest.fn().mockResolvedValue('documents/owner-1/exame.pdf'),
+        getSignedUrl: jest.fn().mockResolvedValue('https://signed'),
+      };
+      servico = new DocumentsService(
+        null as any,
+        storageService as any,
+        documentRepository as any,
+        { validateAndFetch: jest.fn() } as any,
+      );
+      documentRepository.create.mockResolvedValue(makeDoc());
+    });
+
+    it('recusa HTML e não grava nada', async () => {
+      await expect(
+        servico.create(dados as any, 'user-1', 'owner-1', {
+          originalname: 'x.html',
+          mimetype: 'text/html',
+          buffer: Buffer.from('<script>alert(1)</script>'),
+          size: 25,
+        } as Express.Multer.File),
+      ).rejects.toThrow(BadRequestException);
+      expect(storageService.create).not.toHaveBeenCalled();
+      expect(documentRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('recusa HTML declarado como PDF (magic bytes)', async () => {
+      await expect(
+        servico.create(dados as any, 'user-1', 'owner-1', {
+          originalname: 'x.pdf',
+          mimetype: 'application/pdf',
+          buffer: Buffer.from('<html></html>'),
+          size: 13,
+        } as Express.Multer.File),
+      ).rejects.toThrow('Tipo de arquivo inválido');
+      expect(storageService.create).not.toHaveBeenCalled();
+    });
+
+    it('grava com o tipo detectado, não o declarado pelo cliente', async () => {
+      await servico.create(dados, 'user-1', 'owner-1', {
+        originalname: 'exame.bin',
+        mimetype: 'application/octet-stream',
+        buffer: Buffer.from('%PDF-1.7'),
+        size: 8,
+      } as Express.Multer.File);
+      expect(storageService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mimetype: 'application/pdf',
+          originalname: 'exame.pdf',
+        }),
+        'documents',
+        'owner-1',
+      );
     });
   });
 

@@ -10,6 +10,7 @@ import { AccessControlService } from 'src/shared/services/access-control.service
 import { MailService } from 'src/shared/mail/mail.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { Patient } from 'src/database/entities/patient.entity';
+import { Permission } from 'src/shared/permissions';
 
 jest.mock('src/shared/logging/audit', () => ({
   auditProntuarioAccess: jest.fn(),
@@ -114,6 +115,93 @@ describe('PatientsService', () => {
 
   const gravadoNoCreate = () => patientRepository.create.mock.calls[0][0];
   const gravadoNoUpdate = () => patientRepository.update.mock.calls[0][1];
+
+  describe('dado clínico por permissão (medicalNotes)', () => {
+    const comNotas = () =>
+      patientRepository.findOne.mockResolvedValue(
+        paciente({ medicalNotes: 'Alergia a dipirona' }),
+      );
+
+    it('quem só tem Agenda não recebe medicalNotes no GET', async () => {
+      comNotas();
+
+      const r = await service.findOneWithPhoto('pac-1', 'user-1', [
+        Permission.AGENDA,
+      ]);
+
+      expect(r).not.toHaveProperty('medicalNotes');
+      expect(r.name).toBe('Maria');
+      expect(r.cpf).toBe('12345678909');
+    });
+
+    it('quem só tem Administração não recebe medicalNotes', async () => {
+      comNotas();
+
+      const r = await service.findOneWithPhoto('pac-1', 'user-1', [
+        Permission.ADMINISTRACAO,
+      ]);
+
+      expect(r).not.toHaveProperty('medicalNotes');
+    });
+
+    it('sem permissões informadas, oculta (fail-closed)', async () => {
+      comNotas();
+
+      const r = await service.findOneWithPhoto('pac-1', 'user-1');
+
+      expect(r).not.toHaveProperty('medicalNotes');
+    });
+
+    it.each([[Permission.ATENDIMENTO], [Permission.SOLICITACOES]])(
+      'quem tem %s recebe medicalNotes',
+      async (perm) => {
+        comNotas();
+
+        const r = await service.findOneWithPhoto('pac-1', 'user-1', [perm]);
+
+        expect(r.medicalNotes).toBe('Alergia a dipirona');
+      },
+    );
+
+    it('PATCH de quem não vê dado clínico não grava medicalNotes nem o devolve', async () => {
+      patientRepository.update.mockResolvedValue(
+        paciente({ medicalNotes: 'Alergia a dipirona' }),
+      );
+
+      const r = await service.updateWithPhoto(
+        'pac-1',
+        { name: 'Maria', medicalNotes: '' },
+        'user-1',
+        [Permission.AGENDA],
+      );
+
+      expect(gravadoNoUpdate()).not.toHaveProperty('medicalNotes');
+      expect(r).not.toHaveProperty('medicalNotes');
+    });
+
+    it('PATCH de quem tem Atendimento grava medicalNotes', async () => {
+      await service.updateWithPhoto(
+        'pac-1',
+        { medicalNotes: 'Hipertenso' },
+        'user-1',
+        [Permission.ATENDIMENTO],
+      );
+
+      expect(gravadoNoUpdate()).toEqual(
+        expect.objectContaining({ medicalNotes: 'Hipertenso' }),
+      );
+    });
+
+    it('POST de quem só tem Agenda não devolve medicalNotes', async () => {
+      const r = await service.createWithPhoto(
+        { name: 'Maria', medicalNotes: 'Obs' },
+        'user-1',
+        [Permission.AGENDA],
+      );
+
+      expect(r).not.toHaveProperty('medicalNotes');
+    });
+  });
 
   describe('create dentro de transação', () => {
     const dados = {

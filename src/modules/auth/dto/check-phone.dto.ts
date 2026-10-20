@@ -1,10 +1,9 @@
-import { IsNotEmpty, IsString, Matches } from 'class-validator';
+import { IsNotEmpty, IsString } from 'class-validator';
+import { UserPhone } from 'src/shared/pipes/phone-mask.pipe';
 
 export class CheckPhoneDto {
   @IsString()
   @IsNotEmpty()
-  @Matches(/^\D*(?:\d\D*){10,11}$/, {
-    message: 'Informe um telefone válido com DDD (10 ou 11 dígitos)',
-  })
+  @UserPhone()
   phone: string;
 }
