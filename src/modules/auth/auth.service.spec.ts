@@ -1226,6 +1226,7 @@ describe('AuthService', () => {
       expect(mockRefreshTokenStore.consume).toHaveBeenCalledWith('rt-token');
       expect(mockRefreshTokenStore.issue).toHaveBeenCalledWith(
         'user-1',
+        3,
         'fam-1',
       );
       expect(mockJwtService.sign).toHaveBeenCalledWith({
@@ -1251,7 +1252,76 @@ describe('AuthService', () => {
       expect(result.refresh_token).toBe('new-refresh-token');
       expect(mockRefreshTokenStore.issue).toHaveBeenCalledWith(
         'user-1',
+        0,
         'fam-1',
+      );
+    });
+
+    it('recusa o refresh emitido antes de uma revogação concorrente (versão de sessão mudou)', async () => {
+      mockRefreshTokenStore.consume.mockResolvedValue({
+        status: 'valid',
+        userId: 'user-1',
+        familyId: 'fam-1',
+        tokenVersion: 2,
+      });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        status: UserStatus.ACTIVE,
+        emailVerified: true,
+        tokenVersion: 3,
+      });
+
+      await expect(service.refreshAccessToken('rt-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
+      expect(mockJwtService.sign).not.toHaveBeenCalled();
+    });
+
+    it('aceita o refresh quando a versão de sessão do token bate com a do usuário', async () => {
+      mockRefreshTokenStore.consume.mockResolvedValue({
+        status: 'valid',
+        userId: 'user-1',
+        familyId: 'fam-1',
+        tokenVersion: 3,
+      });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        status: UserStatus.ACTIVE,
+        emailVerified: true,
+        tokenVersion: 3,
+      });
+
+      const result = await service.refreshAccessToken('rt-token');
+
+      expect(result.refresh_token).toBe('new-refresh-token');
+      expect(mockRefreshTokenStore.issue).toHaveBeenCalledWith(
+        'user-1',
+        3,
+        'fam-1',
+      );
+    });
+
+    it('token legado sem versão de sessão continua aceito até expirar', async () => {
+      mockRefreshTokenStore.consume.mockResolvedValue({
+        status: 'valid',
+        userId: 'user-1',
+        familyId: null,
+        tokenVersion: null,
+      });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        status: UserStatus.ACTIVE,
+        emailVerified: true,
+        tokenVersion: 5,
+      });
+
+      await service.refreshAccessToken('rt-legado');
+
+      expect(mockRefreshTokenStore.issue).toHaveBeenCalledWith(
+        'user-1',
+        5,
+        null,
       );
     });
 

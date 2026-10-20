@@ -10,11 +10,17 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { hashRefreshToken } from 'src/shared/crypto/refresh-token-hash.util';
 
+interface ConsumedToken {
+  userId: string;
+  familyId: string | null;
+  tokenVersion: number | null;
+}
+
 export type ConsumeResult =
-  | { status: 'valid'; userId: string; familyId: string | null }
-  | { status: 'grace'; userId: string; familyId: string | null }
-  | { status: 'grace_exhausted'; userId: string; familyId: string | null }
-  | { status: 'reused'; userId: string; familyId: string | null }
+  | ({ status: 'valid' } & ConsumedToken)
+  | ({ status: 'grace' } & ConsumedToken)
+  | ({ status: 'grace_exhausted' } & ConsumedToken)
+  | ({ status: 'reused' } & ConsumedToken)
   | { status: 'not_found' };
 
 const TOKEN_KEY_PREFIX = 'refresh:tok:';
@@ -36,6 +42,11 @@ local now = tonumber(redis.call('TIME')[1])
 local grace = tonumber(ARGV[1])
 local maxGrace = tonumber(ARGV[2])
 local family = data.familyId or ''
+local tv = ''
+if data.tokenVersion ~= nil then
+  tv = tostring(data.tokenVersion)
+end
+local suffix = data.userId .. ':' .. family .. ':' .. tv
 local ttl = redis.call('PTTL', KEYS[1])
 local function persist()
   if ttl and ttl > 0 then
@@ -50,22 +61,23 @@ if data.revoked then
     if used < maxGrace then
       data.graceUsed = used + 1
       persist()
-      return 'grace:' .. data.userId .. ':' .. family
+      return 'grace:' .. suffix
     end
-    return 'grace_exhausted:' .. data.userId .. ':' .. family
+    return 'grace_exhausted:' .. suffix
   end
-  return 'reused:' .. data.userId .. ':' .. family
+  return 'reused:' .. suffix
 end
 data.revoked = true
 data.revokedAt = now
 data.graceUsed = 0
 persist()
-return 'valid:' .. data.userId .. ':' .. family
+return 'valid:' .. suffix
 `;
 
 interface RefreshTokenRecord {
   userId: string;
   familyId: string;
+  tokenVersion: number;
   createdAt: number;
   revoked?: boolean;
   revokedAt?: number;
@@ -130,13 +142,18 @@ export class RefreshTokenStore implements OnModuleDestroy {
     return `${USER_KEY_PREFIX}${userId}`;
   }
 
-  async issue(userId: string, familyId?: string | null): Promise<string> {
+  async issue(
+    userId: string,
+    tokenVersion: number,
+    familyId?: string | null,
+  ): Promise<string> {
     const client = this.requireClient();
     const rawToken = uuidv4();
     const hash = hashRefreshToken(rawToken);
     const record: RefreshTokenRecord = {
       userId,
       familyId: familyId || uuidv4(),
+      tokenVersion,
       createdAt: Date.now(),
     };
 
@@ -167,7 +184,7 @@ export class RefreshTokenStore implements OnModuleDestroy {
       String(MAX_GRACE_EXCHANGES),
     )) as string;
 
-    const [status, userId, familyId] = result.split(':');
+    const [status, userId, familyId, tokenVersion] = result.split(':');
     if (!STATUS_CONHECIDOS.has(status) || !userId) {
       return { status: 'not_found' };
     }
@@ -175,6 +192,7 @@ export class RefreshTokenStore implements OnModuleDestroy {
       status: status as 'valid' | 'grace' | 'grace_exhausted' | 'reused',
       userId,
       familyId: familyId || null,
+      tokenVersion: tokenVersion ? Number(tokenVersion) : null,
     };
   }
 

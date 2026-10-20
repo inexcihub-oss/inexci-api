@@ -62,6 +62,8 @@ class FakeRedis {
     const grace = Number(graceArg);
     const maxGrace = Number(maxGraceArg);
     const family = data.familyId ?? '';
+    const tv = data.tokenVersion === undefined ? '' : String(data.tokenVersion);
+    const suffix = `${data.userId}:${family}:${tv}`;
     if (data.revoked) {
       if (
         data.revokedAt !== undefined &&
@@ -71,17 +73,17 @@ class FakeRedis {
         if (used < maxGrace) {
           data.graceUsed = used + 1;
           this.store.set(key, JSON.stringify(data));
-          return `grace:${data.userId}:${family}`;
+          return `grace:${suffix}`;
         }
-        return `grace_exhausted:${data.userId}:${family}`;
+        return `grace_exhausted:${suffix}`;
       }
-      return `reused:${data.userId}:${family}`;
+      return `reused:${suffix}`;
     }
     data.revoked = true;
     data.revokedAt = this.clockSeconds;
     data.graceUsed = 0;
     this.store.set(key, JSON.stringify(data));
-    return `valid:${data.userId}:${family}`;
+    return `valid:${suffix}`;
   }
 }
 
@@ -110,7 +112,7 @@ describe('RefreshTokenStore', () => {
   });
 
   it('issue retorna o token cru e persiste apenas o hash (nunca o cru)', async () => {
-    const raw = await store.issue('user-1');
+    const raw = await store.issue('user-1', 0);
 
     const hash = hashRefreshToken(raw);
     expect(fakeRedis.store.has(`refresh:tok:${hash}`)).toBe(true);
@@ -126,30 +128,31 @@ describe('RefreshTokenStore', () => {
       .familyId as string;
 
   it('issue sem família abre uma família nova; com família, herda', async () => {
-    const primeiro = await store.issue('user-1');
+    const primeiro = await store.issue('user-1', 0);
     const familia = familiaDe(primeiro);
     expect(familia).toEqual(expect.any(String));
 
-    const sucessor = await store.issue('user-1', familia);
+    const sucessor = await store.issue('user-1', 0, familia);
     expect(familiaDe(sucessor)).toBe(familia);
 
-    const outroLogin = await store.issue('user-1');
+    const outroLogin = await store.issue('user-1', 0);
     expect(familiaDe(outroLogin)).not.toBe(familia);
   });
 
   it('consume de um token válido retorna valid com a família e marca como revogado (rotação)', async () => {
-    const raw = await store.issue('user-1', 'fam-1');
+    const raw = await store.issue('user-1', 0, 'fam-1');
 
     const first = await store.consume(raw);
     expect(first).toEqual({
       status: 'valid',
       userId: 'user-1',
       familyId: 'fam-1',
+      tokenVersion: 0,
     });
   });
 
   it('a primeira reapresentação dentro da janela de graça é corrida legítima (grace, mesma família)', async () => {
-    const raw = await store.issue('user-1', 'fam-1');
+    const raw = await store.issue('user-1', 0, 'fam-1');
     await store.consume(raw);
 
     const replay = await store.consume(raw);
@@ -157,11 +160,12 @@ describe('RefreshTokenStore', () => {
       status: 'grace',
       userId: 'user-1',
       familyId: 'fam-1',
+      tokenVersion: 0,
     });
   });
 
   it('só permite uma troca de graça por token: a seguinte é recusada sem virar reuso', async () => {
-    const raw = await store.issue('user-1', 'fam-1');
+    const raw = await store.issue('user-1', 0, 'fam-1');
     await store.consume(raw);
     for (let i = 0; i < MAX_GRACE_EXCHANGES; i++) {
       await store.consume(raw);
@@ -172,11 +176,12 @@ describe('RefreshTokenStore', () => {
       status: 'grace_exhausted',
       userId: 'user-1',
       familyId: 'fam-1',
+      tokenVersion: 0,
     });
   });
 
   it('replay fora da janela de graça é reuso (reused)', async () => {
-    const raw = await store.issue('user-1', 'fam-1');
+    const raw = await store.issue('user-1', 0, 'fam-1');
     await store.consume(raw);
 
     fakeRedis.clockSeconds += 31;
@@ -186,6 +191,7 @@ describe('RefreshTokenStore', () => {
       status: 'reused',
       userId: 'user-1',
       familyId: 'fam-1',
+      tokenVersion: 0,
     });
   });
 
@@ -200,6 +206,22 @@ describe('RefreshTokenStore', () => {
       status: 'valid',
       userId: 'user-1',
       familyId: null,
+      tokenVersion: null,
+    });
+  });
+
+  it('guarda a versão de sessão do usuário e a devolve no consume', async () => {
+    const raw = await store.issue('user-1', 7, 'fam-1');
+    const registro = JSON.parse(
+      fakeRedis.store.get(`refresh:tok:${hashRefreshToken(raw)}`)!,
+    );
+    expect(registro.tokenVersion).toBe(7);
+
+    expect(await store.consume(raw)).toEqual({
+      status: 'valid',
+      userId: 'user-1',
+      familyId: 'fam-1',
+      tokenVersion: 7,
     });
   });
 
@@ -208,6 +230,7 @@ describe('RefreshTokenStore', () => {
     expect(CONSUME_LUA).toContain('maxGrace');
     expect(CONSUME_LUA).toContain("'grace_exhausted:'");
     expect(CONSUME_LUA).toContain('data.familyId');
+    expect(CONSUME_LUA).toContain('data.tokenVersion');
   });
 
   it('consume de um token inexistente retorna not_found', async () => {
@@ -215,8 +238,8 @@ describe('RefreshTokenStore', () => {
   });
 
   it('revokeAllForUser apaga todos os hashes do usuário', async () => {
-    const raw1 = await store.issue('user-1');
-    const raw2 = await store.issue('user-1');
+    const raw1 = await store.issue('user-1', 0);
+    const raw2 = await store.issue('user-1', 0);
 
     await store.revokeAllForUser('user-1');
 
@@ -232,7 +255,7 @@ describe('RefreshTokenStore', () => {
   it('falha fechado (não usa in-memory) quando o Redis não está pronto', async () => {
     fakeRedis.status = 'end';
 
-    await expect(store.issue('user-1')).rejects.toBeInstanceOf(
+    await expect(store.issue('user-1', 0)).rejects.toBeInstanceOf(
       ServiceUnavailableException,
     );
     await expect(store.consume('x')).rejects.toBeInstanceOf(

@@ -130,10 +130,14 @@ export class AuthService {
   private readonly RECOVERY_CODE_EXPIRY_MS = 15 * 60 * 1000;
 
   private async createRefreshToken(
-    userId: string,
+    user: Pick<User, 'id' | 'tokenVersion'>,
     familyId?: string | null,
   ): Promise<string> {
-    return this.refreshTokenStore.issue(userId, familyId);
+    return this.refreshTokenStore.issue(
+      user.id,
+      user.tokenVersion ?? 0,
+      familyId,
+    );
   }
 
   private signAccessToken(user: Pick<User, 'id' | 'tokenVersion'>): string {
@@ -410,7 +414,7 @@ export class AuthService {
     if (!user) throw new UnauthorizedException('Sessão inválida');
     return {
       access_token: this.signAccessToken(user),
-      refresh_token: await this.createRefreshToken(user.id),
+      refresh_token: await this.createRefreshToken(user),
     };
   }
 
@@ -421,7 +425,7 @@ export class AuthService {
     const doctorProfile = fullUser?.doctorProfile ?? null;
     const account = await this.buildAccountInfo(result.id, fullUser?.ownerId);
 
-    const refreshToken = await this.createRefreshToken(result.id);
+    const refreshToken = await this.createRefreshToken(result);
 
     let pendingConsents: string[] = [];
     try {
@@ -775,8 +779,15 @@ export class AuthService {
       );
     }
 
+    if (
+      typeof consumed.tokenVersion === 'number' &&
+      consumed.tokenVersion !== (user.tokenVersion ?? 0)
+    ) {
+      throw new UnauthorizedException('Sessão revogada. Faça login novamente.');
+    }
+
     const newRefreshToken = await this.createRefreshToken(
-      consumed.userId,
+      user,
       consumed.familyId,
     );
 

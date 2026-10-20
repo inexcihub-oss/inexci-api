@@ -60,8 +60,10 @@ jest.mock('ioredis', () => ({
   default: jest.fn().mockImplementation(() => fakeRedis),
 }));
 
+import { ServiceUnavailableException } from '@nestjs/common';
 import {
   AuthAttemptLimiter,
+  LIMITE_INDISPONIVEL_MENSAGEM,
   LOGIN_BLOQUEIO_SEGUNDOS,
   LOGIN_MAX_FALHAS,
   MFA_BLOQUEIO_SEGUNDOS,
@@ -161,23 +163,46 @@ describe('AuthAttemptLimiter', () => {
       fakeRedis.status = 'connecting';
     });
 
-    it('não bloqueia ninguém (fail-open) e não lança', async () => {
-      await expect(limiter.isLoginLocked('a@b.com')).resolves.toBe(false);
-      await expect(
-        limiter.registerLoginFailure('a@b.com'),
-      ).resolves.toBeUndefined();
-      await expect(limiter.tryConsumeRecoveryIssue('user-1')).resolves.toBe(
-        true,
+    it('recusa o login com 503 em vez de liberar tentativas sem limite', async () => {
+      await expect(limiter.isLoginLocked('a@b.com')).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
       );
-      await expect(limiter.isRecoveryValidationLocked('a@b.com')).resolves.toBe(
-        false,
+      await expect(limiter.isLoginLocked('a@b.com')).rejects.toThrow(
+        LIMITE_INDISPONIVEL_MENSAGEM,
       );
     });
 
-    it('erro de comando também cai no fallback', async () => {
+    it('trata a recuperação de senha como bloqueada, sem lançar (resposta genérica)', async () => {
+      await expect(limiter.tryConsumeRecoveryIssue('user-1')).resolves.toBe(
+        false,
+      );
+      await expect(limiter.isRecoveryValidationLocked('a@b.com')).resolves.toBe(
+        true,
+      );
+    });
+
+    it('registrar e limpar falhas não lança', async () => {
+      await expect(
+        limiter.registerLoginFailure('a@b.com'),
+      ).resolves.toBeUndefined();
+      await expect(
+        limiter.clearLoginFailures('a@b.com'),
+      ).resolves.toBeUndefined();
+      await expect(
+        limiter.registerRecoveryFailure('a@b.com'),
+      ).resolves.toBeUndefined();
+    });
+
+    it('erro de comando também recusa', async () => {
       fakeRedis.status = 'ready';
       jest.spyOn(fakeRedis, 'exists').mockRejectedValue(new Error('boom'));
-      await expect(limiter.isLoginLocked('a@b.com')).resolves.toBe(false);
+      jest.spyOn(fakeRedis, 'get').mockRejectedValue(new Error('boom'));
+      await expect(limiter.isLoginLocked('a@b.com')).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
+      await expect(limiter.isRecoveryValidationLocked('a@b.com')).resolves.toBe(
+        true,
+      );
     });
   });
 
@@ -204,9 +229,11 @@ describe('AuthAttemptLimiter', () => {
       expect(fakeRedis.store.has('auth:limit:mfa:fail:user-1')).toBe(false);
     });
 
-    it('Redis indisponível não derruba a verificação (fail-open como o login)', async () => {
+    it('Redis indisponível recusa a verificação com 503', async () => {
       fakeRedis.status = 'end';
-      await expect(limiter.isMfaLocked('user-1')).resolves.toBe(false);
+      await expect(limiter.isMfaLocked('user-1')).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
       await expect(limiter.registerMfaFailure('user-1')).resolves.toBe(false);
     });
   });

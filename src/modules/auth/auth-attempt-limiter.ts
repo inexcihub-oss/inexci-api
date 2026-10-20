@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import IORedis from 'ioredis';
 import { createHash } from 'crypto';
@@ -18,6 +23,13 @@ export const MFA_JANELA_SEGUNDOS = 15 * 60;
 export const MFA_BLOQUEIO_SEGUNDOS = 15 * 60;
 
 const PREFIXO = 'auth:limit:';
+
+export const LIMITE_INDISPONIVEL_MENSAGEM =
+  'Serviço de autenticação indisponível. Tente novamente em instantes.';
+
+function recusarPorIndisponibilidade(): never {
+  throw new ServiceUnavailableException(LIMITE_INDISPONIVEL_MENSAGEM);
+}
 
 const INCREMENTAR_LUA = `
 local n = redis.call('INCR', KEYS[1])
@@ -71,17 +83,6 @@ export class AuthAttemptLimiter implements OnModuleDestroy {
     this.redis?.disconnect();
   }
 
-  private cliente(): IORedis | null {
-    if (this.desligado) return null;
-    if (this.redis?.status !== 'ready') {
-      this.logger.warn(
-        '[AUTH_LIMITER] Redis indisponível; limite por conta não aplicado nesta requisição.',
-      );
-      return null;
-    }
-    return this.redis;
-  }
-
   private async incrementar(
     cliente: IORedis,
     chave: string,
@@ -101,100 +102,142 @@ export class AuthAttemptLimiter implements OnModuleDestroy {
     return valor ? Number(valor) : 0;
   }
 
-  private async seguro<T>(fallback: T, fn: (c: IORedis) => Promise<T>) {
-    const c = this.cliente();
-    if (!c) return fallback;
+  private async seguro<T>(
+    permitido: T,
+    indisponivel: () => T,
+    fn: (c: IORedis) => Promise<T>,
+  ): Promise<T> {
+    if (this.desligado) return permitido;
+    if (this.redis?.status !== 'ready') {
+      this.logger.warn(
+        '[AUTH_LIMITER] Redis indisponível; tentativa recusada por segurança.',
+      );
+      return indisponivel();
+    }
     try {
-      return await fn(c);
+      return await fn(this.redis);
     } catch (err) {
       this.logger.warn(
-        `[AUTH_LIMITER] Falha ao consultar o Redis: ${err instanceof Error ? err.message : String(err)}`,
+        `[AUTH_LIMITER] Falha ao consultar o Redis; tentativa recusada por segurança: ${err instanceof Error ? err.message : String(err)}`,
       );
-      return fallback;
+      return indisponivel();
     }
   }
 
   isLoginLocked(email: string): Promise<boolean> {
     const chave = `${PREFIXO}login:lock:${chaveDoEmail(email)}`;
-    return this.seguro(false, async (c) => (await c.exists(chave)) > 0);
+    return this.seguro(
+      false,
+      recusarPorIndisponibilidade,
+      async (c) => (await c.exists(chave)) > 0,
+    );
   }
 
   registerLoginFailure(email: string): Promise<void> {
     const id = chaveDoEmail(email);
     const falhas = `${PREFIXO}login:fail:${id}`;
     const bloqueio = `${PREFIXO}login:lock:${id}`;
-    return this.seguro(undefined, async (c) => {
-      const n = await this.incrementar(c, falhas, LOGIN_JANELA_SEGUNDOS);
-      if (n >= LOGIN_MAX_FALHAS) {
-        await c
-          .multi()
-          .set(bloqueio, '1', 'EX', LOGIN_BLOQUEIO_SEGUNDOS)
-          .del(falhas)
-          .exec();
-      }
-    });
+    return this.seguro(
+      undefined,
+      () => undefined,
+      async (c) => {
+        const n = await this.incrementar(c, falhas, LOGIN_JANELA_SEGUNDOS);
+        if (n >= LOGIN_MAX_FALHAS) {
+          await c
+            .multi()
+            .set(bloqueio, '1', 'EX', LOGIN_BLOQUEIO_SEGUNDOS)
+            .del(falhas)
+            .exec();
+        }
+      },
+    );
   }
 
   clearLoginFailures(email: string): Promise<void> {
     const chave = `${PREFIXO}login:fail:${chaveDoEmail(email)}`;
-    return this.seguro(undefined, async (c) => {
-      await c.del(chave);
-    });
+    return this.seguro(
+      undefined,
+      () => undefined,
+      async (c) => {
+        await c.del(chave);
+      },
+    );
   }
 
   tryConsumeRecoveryIssue(userId: string): Promise<boolean> {
     const chave = `${PREFIXO}recovery:issued:${userId}`;
-    return this.seguro(true, async (c) => {
-      const n = await this.incrementar(
-        c,
-        chave,
-        RECOVERY_JANELA_EMISSAO_SEGUNDOS,
-      );
-      return n <= RECOVERY_MAX_EMISSOES;
-    });
+    return this.seguro(
+      true,
+      () => false,
+      async (c) => {
+        const n = await this.incrementar(
+          c,
+          chave,
+          RECOVERY_JANELA_EMISSAO_SEGUNDOS,
+        );
+        return n <= RECOVERY_MAX_EMISSOES;
+      },
+    );
   }
 
   isRecoveryValidationLocked(email: string): Promise<boolean> {
     const chave = `${PREFIXO}recovery:fail:${chaveDoEmail(email)}`;
     return this.seguro(
       false,
+      () => true,
       async (c) => (await this.contador(c, chave)) >= RECOVERY_MAX_FALHAS,
     );
   }
 
   registerRecoveryFailure(email: string): Promise<void> {
     const chave = `${PREFIXO}recovery:fail:${chaveDoEmail(email)}`;
-    return this.seguro(undefined, async (c) => {
-      await this.incrementar(c, chave, RECOVERY_JANELA_FALHAS_SEGUNDOS);
-    });
+    return this.seguro(
+      undefined,
+      () => undefined,
+      async (c) => {
+        await this.incrementar(c, chave, RECOVERY_JANELA_FALHAS_SEGUNDOS);
+      },
+    );
   }
 
   isMfaLocked(userId: string): Promise<boolean> {
     const chave = `${PREFIXO}mfa:lock:${userId}`;
-    return this.seguro(false, async (c) => (await c.exists(chave)) > 0);
+    return this.seguro(
+      false,
+      recusarPorIndisponibilidade,
+      async (c) => (await c.exists(chave)) > 0,
+    );
   }
 
   registerMfaFailure(userId: string): Promise<boolean> {
     const falhas = `${PREFIXO}mfa:fail:${userId}`;
     const bloqueio = `${PREFIXO}mfa:lock:${userId}`;
-    return this.seguro(false, async (c) => {
-      const n = await this.incrementar(c, falhas, MFA_JANELA_SEGUNDOS);
-      if (n >= MFA_MAX_FALHAS) {
-        await c
-          .multi()
-          .set(bloqueio, '1', 'EX', MFA_BLOQUEIO_SEGUNDOS)
-          .del(falhas)
-          .exec();
-        return true;
-      }
-      return false;
-    });
+    return this.seguro(
+      false,
+      () => false,
+      async (c) => {
+        const n = await this.incrementar(c, falhas, MFA_JANELA_SEGUNDOS);
+        if (n >= MFA_MAX_FALHAS) {
+          await c
+            .multi()
+            .set(bloqueio, '1', 'EX', MFA_BLOQUEIO_SEGUNDOS)
+            .del(falhas)
+            .exec();
+          return true;
+        }
+        return false;
+      },
+    );
   }
 
   clearMfaFailures(userId: string): Promise<void> {
     const chave = `${PREFIXO}mfa:fail:${userId}`;
-    return this.seguro(undefined, async (c) => {
-      await c.del(chave);
-    });
+    return this.seguro(
+      undefined,
+      () => undefined,
+      async (c) => {
+        await c.del(chave);
+      },
+    );
   }
 }
