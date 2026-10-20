@@ -53,9 +53,22 @@ export class AppointmentReminderService {
     const until = new Date(now.getTime() + REMINDER_WINDOW_MS);
     const due = await this.appointmentRepository.findDueForReminder(now, until);
 
+    const lembreteLigado = new Map<string, Promise<boolean>>();
+
     let sent = 0;
     for (const appt of due) {
       try {
+        if (!lembreteLigado.has(appt.ownerId)) {
+          lembreteLigado.set(
+            appt.ownerId,
+            this.userRepository.isPatientNotificationEnabled(
+              appt.ownerId,
+              'appointmentReminder',
+            ),
+          );
+        }
+        if (!(await lembreteLigado.get(appt.ownerId))) continue;
+
         const outcome = await this.notify(appt);
 
         if (outcome.attempted && !outcome.delivered) {
@@ -79,12 +92,6 @@ export class AppointmentReminderService {
   }
 
   private async notify(appt: Appointment): Promise<ReminderOutcome> {
-    const habilitado = await this.userRepository.isPatientNotificationEnabled(
-      appt.ownerId,
-      'appointmentReminder',
-    );
-    if (!habilitado) return { attempted: false, delivered: false };
-
     const patient = await this.patientRepository.findOne({
       id: appt.patientId,
     });

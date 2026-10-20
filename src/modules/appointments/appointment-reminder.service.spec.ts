@@ -44,7 +44,7 @@ describe('AppointmentReminderService', () => {
     );
   });
 
-  it('lembrete desligado pela clínica: não envia nada, mas marca reminderSentAt (sem nova tentativa)', async () => {
+  it('lembrete desligado pela clínica: não envia nada e não marca reminderSentAt', async () => {
     mockUserRepository.isPatientNotificationEnabled.mockResolvedValue(false);
     mockAppointmentRepository.findDueForReminder.mockResolvedValue([appt]);
     mockPatientRepository.findOne.mockResolvedValue({
@@ -64,9 +64,48 @@ describe('AppointmentReminderService', () => {
     expect(
       mockWhatsappService.sendAppointmentConfirmation,
     ).not.toHaveBeenCalled();
+    expect(mockAppointmentRepository.update).not.toHaveBeenCalled();
+  });
+
+  it('religado dentro da janela, a consulta é lembrada na rodada seguinte', async () => {
+    mockAppointmentRepository.findDueForReminder.mockResolvedValue([appt]);
+    mockPatientRepository.findOne.mockResolvedValue({
+      id: 'p1',
+      name: 'Ana',
+      email: 'ana@x.com',
+      phone: null,
+    });
+
+    mockUserRepository.isPatientNotificationEnabled.mockResolvedValue(false);
+    await service.sendDueReminders();
+    expect(mockMailService.sendAppointmentReminder).not.toHaveBeenCalled();
+
+    mockUserRepository.isPatientNotificationEnabled.mockResolvedValue(true);
+    const sent = await service.sendDueReminders();
+
+    expect(sent).toBe(1);
+    expect(mockMailService.sendAppointmentReminder).toHaveBeenCalledTimes(1);
     expect(mockAppointmentRepository.update).toHaveBeenCalledWith('appt-1', {
       reminderSentAt: expect.any(Date),
     });
+  });
+
+  it('consulta a configuração uma vez por conta em cada rodada', async () => {
+    mockUserRepository.isPatientNotificationEnabled.mockResolvedValue(false);
+    mockAppointmentRepository.findDueForReminder.mockResolvedValue([
+      appt,
+      { ...appt, id: 'appt-2' },
+      { ...appt, id: 'appt-3', ownerId: 'owner-2' },
+    ]);
+
+    await service.sendDueReminders();
+
+    expect(
+      mockUserRepository.isPatientNotificationEnabled,
+    ).toHaveBeenCalledTimes(2);
+    expect(
+      mockUserRepository.isPatientNotificationEnabled,
+    ).toHaveBeenCalledWith('owner-2', 'appointmentReminder');
   });
 
   it('envia e-mail e WhatsApp quando o paciente tem ambos e marca reminderSentAt', async () => {
