@@ -4,6 +4,17 @@ import { LinhaCsv, lerCsv, ProblemaCsv } from '../core/csv';
 
 export const PASTA_TABELAS = join('database', 'Dados do Cliente');
 
+export const TABELAS_FINANCEIRAS = [
+  'contas',
+  'conta_itens',
+  'movimentacao',
+  'pagamento_associacao',
+  'caixas',
+  'contas_correntes',
+  'formas_recebimentos',
+  'devolucoes',
+] as const;
+
 export class ExportFeegow {
   private readonly cache = new Map<string, LinhaCsv[]>();
   private problemas: ProblemaCsv[] = [];
@@ -34,6 +45,12 @@ export class ExportFeegow {
     const linhas = caminho ? lerCsv(caminho, nome, this.problemas) : [];
     this.cache.set(nome, linhas);
     return linhas;
+  }
+
+  temTabela(nome: string): boolean {
+    if (this.cache.has(nome)) return true;
+    if (!this.dir || /[\\/\0]/.test(nome) || nome.includes('..')) return false;
+    return !!this.dentroDoExport(join(this.dir, PASTA_TABELAS, `${nome}.csv`));
   }
 
   drenarProblemas(): ProblemaCsv[] {

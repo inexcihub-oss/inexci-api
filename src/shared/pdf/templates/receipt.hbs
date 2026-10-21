@@ -1,0 +1,57 @@
+<html lang='pt-BR'>
+  <head>
+    <meta charset='UTF-8' />
+    <title>Recibo</title>
+    {{> clinical-styles}}
+  </head>
+  <body>
+
+    {{> clinical-header documentTitle='RECIBO'}}
+
+    <div class='section'>
+      <div class='section-heading'>
+        <span class='section-title'>Dados do pagamento</span>
+      </div>
+      <div class='patient-grid'>
+        <div class='patient-row'>
+          <span class='patient-label'>Recebido de:</span>
+          <span class='patient-value'>{{patientName}}</span>
+        </div>
+        {{#if patientCpf}}
+          <div class='patient-row'>
+            <span class='patient-label'>CPF:</span>
+            <span class='patient-value'>{{patientCpf}}</span>
+          </div>
+        {{/if}}
+        <div class='patient-row'>
+          <span class='patient-label'>Valor:</span>
+          <span class='patient-value'>{{amount}}</span>
+        </div>
+        <div class='patient-row'>
+          <span class='patient-label'>Forma de pagamento:</span>
+          <span class='patient-value'>{{paymentMethod}}</span>
+        </div>
+        <div class='patient-row'>
+          <span class='patient-label'>Data do pagamento:</span>
+          <span class='patient-value'>{{paidAt}}</span>
+        </div>
+        {{#if refundedAmount}}
+          <div class='patient-row'>
+            <span class='patient-label'>Valor estornado:</span>
+            <span class='patient-value'>{{refundedAmount}}</span>
+          </div>
+        {{/if}}
+      </div>
+    </div>
+
+    <div class='section'>
+      <p class='statement'>Recebi de <strong>{{patientName}}</strong>{{#if patientCpf}}, CPF {{patientCpf}},{{/if}} a importância de <strong>{{amount}}</strong> ({{amountInWords}}) referente a {{description}}.</p>
+      {{#if showPlaceAndDate}}
+        <p class='body-text'>{{placeAndDate}}</p>
+      {{/if}}
+    </div>
+
+    {{> clinical-signature}}
+
+  </body>
+</html>

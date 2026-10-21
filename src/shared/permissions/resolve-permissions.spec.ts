@@ -54,6 +54,75 @@ describe('resolveEffectivePermissions', () => {
     ).not.toContain(Permission.ADMINISTRACAO);
   });
 
+  it('não dá financeiro ao médico por ser médico', () => {
+    expect(
+      resolveEffectivePermissions({
+        role: UserRole.COLLABORATOR,
+        permissions: [],
+        isDoctor: true,
+        isPhysician: true,
+      }),
+    ).not.toContain(Permission.FINANCEIRO);
+  });
+
+  it('dá financeiro ao dono da conta', () => {
+    expect(
+      resolveEffectivePermissions({
+        role: UserRole.ADMIN,
+        permissions: [],
+        isDoctor: true,
+        isPhysician: true,
+      }),
+    ).toContain(Permission.FINANCEIRO);
+  });
+
+  it('mantém financeiro concedido no array ao colaborador e ao médico', () => {
+    expect(
+      resolveEffectivePermissions({
+        role: UserRole.COLLABORATOR,
+        permissions: [Permission.FINANCEIRO],
+        isDoctor: false,
+        isPhysician: false,
+      }),
+    ).toEqual([Permission.FINANCEIRO]);
+    expect(
+      resolveEffectivePermissions({
+        role: UserRole.COLLABORATOR,
+        permissions: [Permission.ADMINISTRACAO, Permission.FINANCEIRO],
+        isDoctor: true,
+        isPhysician: true,
+      }),
+    ).toEqual([
+      Permission.AGENDA,
+      Permission.ATENDIMENTO,
+      Permission.SOLICITACOES,
+      Permission.FINANCEIRO,
+      Permission.ADMINISTRACAO,
+    ]);
+  });
+
+  it('dá agenda a quem tem atendimento', () => {
+    expect(
+      resolveEffectivePermissions({
+        role: UserRole.COLLABORATOR,
+        permissions: [Permission.ATENDIMENTO],
+        isDoctor: false,
+        isPhysician: false,
+      }),
+    ).toEqual([Permission.AGENDA, Permission.ATENDIMENTO]);
+  });
+
+  it('não dá atendimento a quem só tem agenda', () => {
+    expect(
+      resolveEffectivePermissions({
+        role: UserRole.COLLABORATOR,
+        permissions: [Permission.AGENDA],
+        isDoctor: false,
+        isPhysician: false,
+      }),
+    ).not.toContain(Permission.ATENDIMENTO);
+  });
+
   it('trata null e undefined como array vazio', () => {
     expect(
       resolveEffectivePermissions({
@@ -76,7 +145,7 @@ describe('resolveEffectivePermissions', () => {
     expect(
       resolveEffectivePermissions({
         role: UserRole.COLLABORATOR,
-        permissions: ['financeiro' as Permission, Permission.AGENDA],
+        permissions: ['estoque' as Permission, Permission.AGENDA],
         isDoctor: false,
         isPhysician: false,
       }),
@@ -102,7 +171,7 @@ describe('resolveEffectivePermissions', () => {
       isPhysician: false,
     });
     resultado.pop();
-    expect(ALL_PERMISSIONS).toHaveLength(4);
+    expect(ALL_PERMISSIONS).toHaveLength(5);
   });
   describe('profissional de saúde que não é médico (MIG-02)', () => {
     const naoMedico = {

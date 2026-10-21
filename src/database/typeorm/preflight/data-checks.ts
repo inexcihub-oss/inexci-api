@@ -398,6 +398,51 @@ export const EMAIL_REPETIDO_SEM_MAIUSCULAS: VerificacaoPreMigration = {
     })),
 };
 
+function tabelasQueAMigrationCria(
+  migration: string,
+  tabelas: readonly string[],
+): VerificacaoPreMigration {
+  const lista = tabelas.map((tabela) => `'${tabela}'`).join(', ');
+  return {
+    migration,
+    descricao: `tabela que a migration cria já existe no banco (${tabelas.join(', ')})`,
+    sql: `SELECT t.nome AS tabela, t.nome AS ids
+          FROM unnest(ARRAY[${lista}]::text[]) AS t(nome)
+         WHERE to_regclass(format('public.%I', t.nome)) IS NOT NULL
+         ORDER BY 1`,
+    comoResolver:
+      'A tabela existe sem a migration registrada (resto de execução manual ou parcial). Se estiver vazia, remova-a antes de repetir o deploy; se tiver dado, investigue a origem antes de qualquer ação.',
+    inspecionar: 'SELECT count(*) FROM <tabela>;',
+    mapear: (linhas) =>
+      linhas.map((linha) => ({
+        chave: texto(linha.tabela),
+        ids: texto(linha.ids),
+      })),
+  };
+}
+
+export const TABELAS_DA_FUNDACAO_FINANCEIRA = tabelasQueAMigrationCria(
+  'CreateFinancialAccountsAndPaymentMethodConfigs1760900000000',
+  ['financial_accounts', 'payment_method_configs'],
+);
+
+export const TABELA_DE_CAIXA = tabelasQueAMigrationCria(
+  'CreateCashSessions1760900100000',
+  ['cash_sessions'],
+);
+
+export const TABELAS_DE_COBRANCA = tabelasQueAMigrationCria(
+  'CreateReceivablesAndPayments1760900200000',
+  [
+    'receivables',
+    'receivable_items',
+    'payments',
+    'refunds',
+    'financial_entries',
+    'payment_receipt_issues',
+  ],
+);
+
 export const VERIFICACOES_PRE_MIGRATION: VerificacaoPreMigration[] = [
   TELEFONE_DUPLICADO,
   ORFAOS_ANTES_DA_CASCATA,
@@ -409,6 +454,9 @@ export const VERIFICACOES_PRE_MIGRATION: VerificacaoPreMigration[] = [
   HOSPITAL_OU_CONVENIO_COM_NOME_REPETIDO,
   TELEFONE_REPETIDO_APOS_CANONIZAR,
   EMAIL_REPETIDO_SEM_MAIUSCULAS,
+  TABELAS_DA_FUNDACAO_FINANCEIRA,
+  TABELA_DE_CAIXA,
+  TABELAS_DE_COBRANCA,
 ];
 
 export function montarDiagnostico(

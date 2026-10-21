@@ -1,10 +1,14 @@
 import { Ledger } from '../core/ledger';
 import {
+  colunasExigidas,
   COLUNAS_EXIGIDAS,
   formatarConferencia,
+  formatarConferenciaFinanceira,
   verificarCarga,
+  verificarFinanceiro,
   verificarSchema,
 } from './verificacao';
+import { ResumoFinanceiro } from './mappers/finance.mapper';
 
 describe('verificarSchema', () => {
   it('devolve as colunas que faltam', async () => {
@@ -82,5 +86,104 @@ describe('verificarCarga', () => {
     ]);
     expect(texto.split('\n')[0]).toContain('← faltando');
     expect(texto.split('\n')[1]).not.toContain('faltando');
+  });
+});
+
+describe('verificação do financeiro', () => {
+  it('schema: só a fase financeiro exige as tabelas novas', () => {
+    expect(colunasExigidas('agenda')).toBe(COLUNAS_EXIGIDAS);
+    const fin = colunasExigidas('financeiro');
+    expect(Object.keys(fin)).toEqual(
+      expect.arrayContaining(['receivables', 'payments', 'cash_sessions']),
+    );
+    expect(fin.appointments).toEqual(
+      expect.arrayContaining(['room_id', 'price']),
+    );
+  });
+
+  const esperado: ResumoFinanceiro = {
+    somas: {
+      porAno: { '2025': 58000, '2026': 20000 },
+      porForma: {
+        cash: 18000,
+        pix: 20000,
+        debit_card: 0,
+        other: 20000,
+        credit_card: 20000,
+      },
+    },
+    abertas: 1,
+    parciais: 1,
+  };
+
+  function consultarCom(pix2025: string, dinheiroSemCaixa = 0) {
+    return jest.fn().mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM payments WHERE'))
+        return [
+          { ano: '2025', metodo: 'cash', centavos: '18000' },
+          { ano: '2025', metodo: 'pix', centavos: pix2025 },
+          { ano: '2025', metodo: 'debit_card', centavos: '40000' },
+          { ano: '2025', metodo: 'credit_card', centavos: '20000' },
+          { ano: '2026', metodo: 'other', centavos: '20000' },
+        ];
+      if (sql.includes('FROM refunds'))
+        return [{ ano: '2025', metodo: 'debit_card', centavos: '40000' }];
+      if (sql.includes('GROUP BY status'))
+        return [
+          { status: 'open', n: 1 },
+          { status: 'partial', n: 1 },
+          { status: 'paid', n: 5 },
+        ];
+      return [{ n: dinheiroSemCaixa }];
+    });
+  }
+
+  it('Σ pagamentos − Σ estornos por ano e por forma batem com o export', async () => {
+    const ledger = new Ledger(null);
+    ledger.registrar('payment', 'p1', 'u1');
+    const consultar = consultarCom('20000');
+    const r = await verificarFinanceiro(consultar, ledger, 'owner-1', esperado);
+    expect(r.ok).toBe(true);
+    expect(r.somas.porAno['2025']).toEqual({
+      export: '580.00',
+      banco: '580.00',
+      diferenca: '0.00',
+    });
+    for (const [, params] of consultar.mock.calls) {
+      expect(params[1]).toBe('owner-1');
+    }
+    expect(formatarConferenciaFinanceira(r)).not.toContain('diferença');
+  });
+
+  it('diferença de soma ou dinheiro sem caixa reprovam', async () => {
+    const ledger = new Ledger(null);
+    const diferente = await verificarFinanceiro(
+      consultarCom('15000'),
+      ledger,
+      'owner-1',
+      esperado,
+    );
+    expect(diferente.ok).toBe(false);
+    expect(diferente.somas.porForma.pix.diferenca).toBe('50.00');
+    expect(formatarConferenciaFinanceira(diferente)).toContain(
+      '← diferença 50.00',
+    );
+    const semCaixa = await verificarFinanceiro(
+      consultarCom('20000', 2),
+      ledger,
+      'owner-1',
+      esperado,
+    );
+    expect(semCaixa.ok).toBe(false);
+    expect(semCaixa.dinheiroSemCaixa).toBe(2);
+  });
+
+  it('a conferência por registro inclui as entidades financeiras do ledger', async () => {
+    const ledger = new Ledger(null);
+    ledger.registrar('receivable', '100', 'r1');
+    ledger.registrar('payment', 'p1', 'pg1');
+    const consultar = jest.fn().mockResolvedValue([{ n: 1 }]);
+    const linhas = await verificarCarga(consultar, ledger, 'owner-1');
+    expect(linhas.map((l) => l.rotulo)).toEqual(['cobrança', 'pagamento']);
   });
 });

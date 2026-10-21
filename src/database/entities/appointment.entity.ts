@@ -118,6 +118,9 @@ export class Appointment {
   @Column({ name: 'cancellation_reason', type: 'text', nullable: true })
   cancellationReason: string | null;
 
+  @Column({ type: 'numeric', precision: 12, scale: 2, nullable: true })
+  price: string | null;
+
   @Column({ name: 'reminder_sent_at', type: 'timestamptz', nullable: true })
   reminderSentAt: Date | null;
 

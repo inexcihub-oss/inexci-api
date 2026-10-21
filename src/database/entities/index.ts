@@ -68,6 +68,26 @@ import { AiKnowledgeChunk } from './ai-knowledge-chunk.entity';
 import { AiTokenUsageLog } from './ai-token-usage-log.entity';
 import { AiPiiRedactionLog } from './ai-pii-redaction-log.entity';
 import { ClinicalAccessAudit } from './clinical-access-audit.entity';
+import {
+  FinancialAccount,
+  FinancialAccountType,
+} from './financial-account.entity';
+import {
+  PaymentMethodConfig,
+  PaymentMethod,
+} from './payment-method-config.entity';
+import { CashSession } from './cash-session.entity';
+import { Receivable, ReceivableStatus } from './receivable.entity';
+import { ReceivableItem } from './receivable-item.entity';
+import { Payment } from './payment.entity';
+import { Refund, RefundReason } from './refund.entity';
+import {
+  FinancialEntry,
+  FinancialEntryDirection,
+  FinancialEntryKind,
+} from './financial-entry.entity';
+import { ServicePrice } from './service-price.entity';
+import { PaymentReceiptIssue } from './payment-receipt-issue.entity';
 
 export { User, UserRole, UserStatus };
 export { DoctorProfile };
@@ -132,6 +152,17 @@ export { AiTokenUsageLog };
 export { AiPiiRedactionLog };
 export { ClinicalAccessAudit };
 
+export { FinancialAccount, FinancialAccountType };
+export { PaymentMethodConfig, PaymentMethod };
+export { CashSession };
+export { Receivable, ReceivableStatus };
+export { ReceivableItem };
+export { Payment };
+export { Refund, RefundReason };
+export { FinancialEntry, FinancialEntryDirection, FinancialEntryKind };
+export { ServicePrice };
+export { PaymentReceiptIssue };
+
 export const ENTITIES = [
   User,
   DoctorProfile,
@@ -180,4 +211,14 @@ export const ENTITIES = [
   AiTokenUsageLog,
   AiPiiRedactionLog,
   ClinicalAccessAudit,
+  FinancialAccount,
+  PaymentMethodConfig,
+  CashSession,
+  Receivable,
+  ReceivableItem,
+  Payment,
+  Refund,
+  FinancialEntry,
+  ServicePrice,
+  PaymentReceiptIssue,
 ];

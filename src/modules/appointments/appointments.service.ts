@@ -20,6 +20,7 @@ import { formatAppointmentWhen, formatDoctorName } from 'src/shared/utils';
 import {
   Appointment,
   AppointmentStatus,
+  AppointmentType,
   isActiveAppointmentStatus,
   OCCUPYING_APPOINTMENT_STATUSES,
   PG_EXCLUSION_VIOLATION,
@@ -41,6 +42,12 @@ import {
   FindAppointmentsDto,
 } from './dto/find-appointments.dto';
 import { errorMessage } from 'src/shared/utils/error-message.util';
+import { ServicePriceRepository } from 'src/database/repositories/service-price.repository';
+import { normalizarValor } from '../finance/utils/dinheiro';
+
+export interface OpcoesDePreco {
+  podeDefinirPreco?: boolean;
+}
 
 export type AppointmentComFicha = Appointment & {
   clinicalRecordStatus: ClinicalRecordStatus | null;
@@ -65,6 +72,7 @@ export class AppointmentsService {
     private readonly healthPlanRepository: HealthPlanRepository,
     private readonly activityRepository: AppointmentActivityRepository,
     private readonly availabilityService: AvailabilityService,
+    private readonly servicePriceRepository: ServicePriceRepository,
   ) {}
 
   private registrar(
@@ -256,6 +264,7 @@ export class AppointmentsService {
   async create(
     data: CreateAppointmentDto,
     userId: string,
+    opcoes: OpcoesDePreco = {},
   ): Promise<Appointment> {
     const ownerId = await this.accessControlService.getOwnerId(userId);
 
@@ -304,6 +313,8 @@ export class AppointmentsService {
       end,
     });
 
+    const price = await this.precoDaNovaConsulta(data, ownerId, opcoes);
+
     const criada = await this.traduzirConflitoDeHorario(
       this.appointmentRepository.create({
         ownerId,
@@ -319,6 +330,7 @@ export class AppointmentsService {
         durationMinutes,
         notes: data.notes?.trim() || null,
         status: AppointmentStatus.SCHEDULED,
+        price,
       }),
     );
 
@@ -347,6 +359,7 @@ export class AppointmentsService {
     id: string,
     data: UpdateAppointmentDto,
     userId: string,
+    opcoes: OpcoesDePreco = {},
   ): Promise<Appointment> {
     const appointment = await this.findOne(id, userId);
 
@@ -433,6 +446,11 @@ export class AppointmentsService {
         );
       }
       updateData.healthPlanId = data.healthPlanId ?? null;
+    }
+
+    if (opcoes.podeDefinirPreco && data.price !== undefined) {
+      updateData.price =
+        data.price === null ? null : normalizarValor(data.price);
     }
 
     const remarcou =
@@ -578,6 +596,30 @@ export class AppointmentsService {
     return atualizada;
   }
 
+  private async precoDaNovaConsulta(
+    data: CreateAppointmentDto,
+    ownerId: string,
+    opcoes: OpcoesDePreco,
+  ): Promise<string | null> {
+    if (opcoes.podeDefinirPreco && data.price !== undefined) {
+      return data.price === null ? null : normalizarValor(data.price);
+    }
+    if (data.healthPlanId) return null;
+
+    try {
+      const sugerido = await this.servicePriceRepository.resolvePrice(ownerId, {
+        doctorId: data.doctorId,
+        type: data.type ?? AppointmentType.FIRST_VISIT,
+      });
+      return sugerido ? normalizarValor(sugerido.amount) : null;
+    } catch (err) {
+      this.logger.warn(
+        `Falha ao sugerir o preço da consulta: ${errorMessage(err)}`,
+      );
+      return null;
+    }
+  }
+
   private async avisarPacienteDoAgendamento(
     patient: { name: string; phone: string | null } | null,
     ownerId: string,
@@ -689,6 +731,7 @@ export class AppointmentsService {
       ['healthPlanId', 'convênio'],
       ['isWalkIn', 'encaixe'],
       ['notes', 'observações'],
+      ['price', 'valor'],
     ];
     const campos = rotulos.filter(([campo]) => mudou(campo)).map(([, r]) => r);
     if (campos.length) {
@@ -775,4 +818,5 @@ type CampoComparavel = keyof Pick<
   | 'healthPlanId'
   | 'isWalkIn'
   | 'notes'
+  | 'price'
 >;

@@ -24,7 +24,13 @@ import {
   gravarDisponibilidade,
   planejarDisponibilidade,
 } from './phases/disponibilidade.phase';
+import {
+  carregarFinanceiro,
+  gravarFinanceiro,
+  planejarFinanceiro,
+} from './phases/financeiro.phase';
 import { ArmazenamentoImportacao } from '../core/armazenamento';
+import type { Consultar } from './verificacao';
 
 export interface Fase<P = unknown> {
   nome: string;
@@ -32,6 +38,8 @@ export interface Fase<P = unknown> {
   gravar(plano: P, manager: EntityManager): Promise<void>;
   enviar?(plano: P, armazenamento: ArmazenamentoImportacao): Promise<string[]>;
   descartados?(plano: P): string[];
+  carregar?(consultar: Consultar, ctx: ContextoImportacao): Promise<void>;
+  foraDoTudo?: boolean;
 }
 
 export const FASES: Fase<unknown>[] = [
@@ -60,7 +68,20 @@ export const FASES: Fase<unknown>[] = [
     planejar: planejarDisponibilidade,
     gravar: gravarDisponibilidade,
   },
+  {
+    nome: 'financeiro',
+    planejar: planejarFinanceiro,
+    gravar: gravarFinanceiro,
+    carregar: carregarFinanceiro,
+    foraDoTudo: true,
+  },
 ];
+
+export function fasesDaExecucao(fase: string): Fase<unknown>[] {
+  return fase === 'tudo'
+    ? FASES.filter((f) => !f.foraDoTudo)
+    : FASES.filter((f) => f.nome === fase);
+}
 
 export interface OpcoesCli {
   dir: string;
@@ -114,7 +135,11 @@ const USO = `Uso:
                  ficha, marcados como rascunho
   --modelos-vazios  cria um modelo de anamnese vazio por formulário do Feegow
   --bloqueios-so-futuros  importa só os bloqueios de agenda de hoje em diante
-  --verificar    pós-carga: confere no banco cada registro do ledger.json`;
+  --verificar    pós-carga: confere no banco cada registro do ledger.json
+                 (com --fase financeiro, confere também as somas por ano e
+                 por forma, as cobranças abertas e parciais e o caixa do dinheiro)
+  --fase financeiro  carga incremental do financeiro; não entra no "tudo" e
+                 exige o ledger da carga de produção no --out`;
 
 export function interpretarArgumentos(argv: string[]): OpcoesCli {
   const valor = (nome: string) => {

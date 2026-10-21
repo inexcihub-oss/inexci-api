@@ -4,6 +4,9 @@ import {
   HOSPITAL_OU_CONVENIO_COM_NOME_REPETIDO,
   OUTRO_NAO_UNIFICADO,
   SALAS_COM_NOME_REPETIDO,
+  TABELA_DE_CAIXA,
+  TABELAS_DA_FUNDACAO_FINANCEIRA,
+  TABELAS_DE_COBRANCA,
   TELEFONE_DUPLICADO,
   VERIFICACOES_PRE_MIGRATION,
   montarDiagnostico,
@@ -262,5 +265,42 @@ describe('CONSULTAS_SOBREPOSTAS.sqlAntesDoSchema', () => {
       expect(texto).toContain('hospital da conta o1: santa casa -> h-1, h-2');
       expect(texto).toContain('FROM hospitals WHERE id IN');
     });
+  });
+});
+
+describe('tabelas do módulo financeiro', () => {
+  const verificacoes = [
+    TABELAS_DA_FUNDACAO_FINANCEIRA,
+    TABELA_DE_CAIXA,
+    TABELAS_DE_COBRANCA,
+  ];
+
+  it.each(verificacoes.map((v) => [v.migration, v]))(
+    '%s está registrada e é read-only',
+    (_migration, verificacao) => {
+      expect(VERIFICACOES_PRE_MIGRATION).toContain(verificacao);
+      expect(verificacao.sql).toMatch(/^\s*SELECT/i);
+      expect(verificacao.sql).not.toMatch(
+        /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)\b/i,
+      );
+      expect(verificacao.sql).toContain('to_regclass');
+    },
+  );
+
+  it('lista as tabelas que cada migration cria', () => {
+    expect(TABELAS_DA_FUNDACAO_FINANCEIRA.sql).toContain(
+      "'financial_accounts', 'payment_method_configs'",
+    );
+    expect(TABELA_DE_CAIXA.sql).toContain("'cash_sessions'");
+    expect(TABELAS_DE_COBRANCA.sql).toContain("'financial_entries'");
+  });
+
+  it('aponta a tabela que já existe no diagnóstico', () => {
+    const conflitos = TABELA_DE_CAIXA.mapear([
+      { tabela: 'cash_sessions', ids: 'cash_sessions' },
+    ]);
+    expect(montarDiagnostico(TABELA_DE_CAIXA, conflitos)).toContain(
+      'CreateCashSessions1760900100000 bloqueada',
+    );
   });
 });

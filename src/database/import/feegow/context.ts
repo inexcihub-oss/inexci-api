@@ -1,5 +1,6 @@
 import { Ledger } from '../core/ledger';
 import { Relatorio } from '../core/report';
+import type { DadosFinanceirosDoBanco } from './mappers/finance.mapper';
 
 export interface UsuarioExistente {
   id: string;
@@ -20,6 +21,7 @@ export interface ContextoImportacao {
   consultasComFicha: Set<string>;
   conveniosExistentes: Map<string, string>;
   mapear: Map<string, string>;
+  financeiro?: DadosFinanceirosDoBanco;
   opcoes: {
     somenteComAtividade: boolean;
     semLembretes: boolean;

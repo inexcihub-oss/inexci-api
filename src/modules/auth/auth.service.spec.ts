@@ -339,7 +339,7 @@ describe('AuthService', () => {
     });
 
     describe('permissions (achado Critical)', () => {
-      it('devolve as quatro permissões para o dono da conta (admin)', async () => {
+      it('devolve as cinco permissões para o dono da conta (admin)', async () => {
         mockUserRepository.findOneWithProfile.mockResolvedValue({
           id: 'dono-1',
           role: UserRole.ADMIN,
@@ -360,6 +360,7 @@ describe('AuthService', () => {
           Permission.AGENDA,
           Permission.ATENDIMENTO,
           Permission.SOLICITACOES,
+          Permission.FINANCEIRO,
           Permission.ADMINISTRACAO,
         ]);
       });
@@ -1022,7 +1023,7 @@ describe('AuthService', () => {
       );
     });
 
-    it('devolve as quatro permissões (register só cria o dono/ADMIN da conta)', async () => {
+    it('devolve as cinco permissões (register só cria o dono/ADMIN da conta)', async () => {
       mockUserRepository.findOne.mockResolvedValue(null);
       (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-password');
 
@@ -1055,6 +1056,7 @@ describe('AuthService', () => {
         Permission.AGENDA,
         Permission.ATENDIMENTO,
         Permission.SOLICITACOES,
+        Permission.FINANCEIRO,
         Permission.ADMINISTRACAO,
       ]);
     });
@@ -1122,7 +1124,7 @@ describe('AuthService', () => {
     });
 
     describe('permissions (achado Critical)', () => {
-      it('devolve as quatro permissões para o dono da conta (admin)', async () => {
+      it('devolve as cinco permissões para o dono da conta (admin)', async () => {
         (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
         const authenticatedUser = mockAuthenticatedUser({
           role: UserRole.ADMIN,
@@ -1144,6 +1146,7 @@ describe('AuthService', () => {
           Permission.AGENDA,
           Permission.ATENDIMENTO,
           Permission.SOLICITACOES,
+          Permission.FINANCEIRO,
           Permission.ADMINISTRACAO,
         ]);
       });

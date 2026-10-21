@@ -175,6 +175,20 @@ export interface ExamReferralPdfData
   cidCodes?: Array<{ code: string; description?: string }>;
 }
 
+export interface ReceiptPdfData extends ClinicalDocumentDoctorFields {
+  today: string;
+  patientName: string;
+  patientCpf?: string;
+  amount: string;
+  amountInWords: string;
+  description: string;
+  paymentMethod: string;
+  paidAt: string;
+  placeAndDate: string;
+  showPlaceAndDate: boolean;
+  refundedAmount?: string;
+}
+
 const CLINICAL_DOCUMENT_PDF_OPTIONS = {
   format: 'A4' as const,
   margin: { top: '14mm', right: '14mm', bottom: '16mm', left: '14mm' },
@@ -267,6 +281,11 @@ export class PdfService {
 
   async generateExamReferralPdf(data: ExamReferralPdfData): Promise<Buffer> {
     const html = await this.renderClinicalDocument('exam-referral', data);
+    return this.htmlToPdf(html, CLINICAL_DOCUMENT_PDF_OPTIONS);
+  }
+
+  async generateReceiptPdf(data: ReceiptPdfData): Promise<Buffer> {
+    const html = await this.renderClinicalDocument('receipt', data);
     return this.htmlToPdf(html, CLINICAL_DOCUMENT_PDF_OPTIONS);
   }
 

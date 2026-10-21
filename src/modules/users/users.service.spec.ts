@@ -6,7 +6,11 @@ import {
   BadRequestException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { UsersService } from './users.service';
+import {
+  FINANCEIRO_SO_PELO_DONO,
+  PERMISSOES_PROPRIAS,
+  UsersService,
+} from './users.service';
 import { UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
 import { Permission } from 'src/shared/permissions';
@@ -1527,6 +1531,166 @@ describe('UsersService — Colaboradores e Permissões', () => {
         Permission.ATENDIMENTO,
         Permission.SOLICITACOES,
       ]);
+    });
+  });
+
+  describe('área Financeiro e permissões próprias', () => {
+    const dono = {
+      id: 'dono-1',
+      role: UserRole.ADMIN,
+      ownerId: 'dono-1',
+      permissions: [],
+      doctorProfile: null,
+    };
+    const delegado = {
+      id: 'delegado-1',
+      role: UserRole.COLLABORATOR,
+      ownerId: 'dono-1',
+      permissions: [Permission.ADMINISTRACAO],
+      doctorProfile: null,
+    };
+    const colaborador = (permissions: Permission[]) => ({
+      id: 'collab-1',
+      role: UserRole.COLLABORATOR,
+      ownerId: 'dono-1',
+      permissions,
+      doctorProfile: null,
+    });
+
+    it('ehDonoDaConta exige role admin e id igual ao ownerId', () => {
+      expect(UsersService.ehDonoDaConta(dono)).toBe(true);
+      expect(UsersService.ehDonoDaConta(delegado)).toBe(false);
+      expect(
+        UsersService.ehDonoDaConta({
+          id: 'admin-2',
+          role: UserRole.ADMIN,
+          ownerId: 'dono-1',
+        }),
+      ).toBe(false);
+    });
+
+    it('admin delegado não cria colaborador com Financeiro', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue(delegado);
+      await expect(
+        service.createCollaborator(
+          {
+            name: 'Ana',
+            email: 'ana@x.com',
+            phone: '11999999999',
+            permissions: [Permission.AGENDA, Permission.FINANCEIRO],
+          },
+          'delegado-1',
+        ),
+      ).rejects.toThrow(FINANCEIRO_SO_PELO_DONO);
+      expect(mockUserRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('dono cria colaborador com Financeiro', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue(dono);
+      mockUserRepository.findOne.mockResolvedValue(null);
+      mockUserRepository.findOneWithDeleted.mockResolvedValue(null);
+      mockUserRepository.create.mockResolvedValue({ id: 'novo-1' });
+      await service.createCollaborator(
+        {
+          name: 'Ana',
+          email: 'ana@x.com',
+          phone: '11999999999',
+          permissions: [Permission.FINANCEIRO],
+        },
+        'dono-1',
+      );
+      expect(mockUserRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ permissions: [Permission.FINANCEIRO] }),
+      );
+    });
+
+    it.each([
+      [
+        'conceder',
+        [Permission.AGENDA],
+        [Permission.AGENDA, Permission.FINANCEIRO],
+      ],
+      ['retirar', [Permission.FINANCEIRO], []],
+    ])(
+      'admin delegado não pode %s Financeiro',
+      async (_acao, atuais, novas) => {
+        mockUserRepository.findOneWithProfile
+          .mockResolvedValueOnce(delegado)
+          .mockResolvedValueOnce(colaborador(atuais));
+        await expect(
+          service.updateCollaborator(
+            'collab-1',
+            { permissions: novas },
+            'delegado-1',
+          ),
+        ).rejects.toThrow(FINANCEIRO_SO_PELO_DONO);
+        expect(mockUserRepository.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it('admin delegado mexe nas outras áreas mantendo o Financeiro', () => {
+      expect(() =>
+        UsersService.assertPodeAlterarPermissoes(
+          delegado,
+          'collab-1',
+          [Permission.FINANCEIRO],
+          [Permission.FINANCEIRO, Permission.AGENDA],
+        ),
+      ).not.toThrow();
+    });
+
+    it('dono concede e retira Financeiro', () => {
+      expect(() =>
+        UsersService.assertPodeAlterarPermissoes(
+          dono,
+          'collab-1',
+          [],
+          [Permission.FINANCEIRO],
+        ),
+      ).not.toThrow();
+      expect(() =>
+        UsersService.assertPodeAlterarPermissoes(
+          dono,
+          'collab-1',
+          [Permission.FINANCEIRO],
+          [],
+        ),
+      ).not.toThrow();
+    });
+
+    it('ninguém altera as próprias permissões, nem o dono', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce(delegado)
+        .mockResolvedValueOnce(delegado);
+      await expect(
+        service.updateCollaborator(
+          'delegado-1',
+          {
+            permissions: [Permission.ADMINISTRACAO, Permission.SOLICITACOES],
+          },
+          'delegado-1',
+        ),
+      ).rejects.toThrow(PERMISSOES_PROPRIAS);
+      expect(mockUserRepository.update).not.toHaveBeenCalled();
+      expect(() =>
+        UsersService.assertPodeAlterarPermissoes(
+          dono,
+          'dono-1',
+          [],
+          [Permission.FINANCEIRO],
+        ),
+      ).toThrow(PERMISSOES_PROPRIAS);
+    });
+
+    it('reenviar as mesmas permissões (em outra ordem) não conta como alteração', () => {
+      expect(() =>
+        UsersService.assertPodeAlterarPermissoes(
+          delegado,
+          'delegado-1',
+          [Permission.ADMINISTRACAO, Permission.AGENDA],
+          [Permission.AGENDA, Permission.ADMINISTRACAO],
+        ),
+      ).not.toThrow();
     });
   });
 
