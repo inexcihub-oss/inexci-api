@@ -101,6 +101,28 @@ describe('resolveEffectivePermissions', () => {
     ]);
   });
 
+  it('dá agenda a quem tem atendimento', () => {
+    expect(
+      resolveEffectivePermissions({
+        role: UserRole.COLLABORATOR,
+        permissions: [Permission.ATENDIMENTO],
+        isDoctor: false,
+        isPhysician: false,
+      }),
+    ).toEqual([Permission.AGENDA, Permission.ATENDIMENTO]);
+  });
+
+  it('não dá atendimento a quem só tem agenda', () => {
+    expect(
+      resolveEffectivePermissions({
+        role: UserRole.COLLABORATOR,
+        permissions: [Permission.AGENDA],
+        isDoctor: false,
+        isPhysician: false,
+      }),
+    ).not.toContain(Permission.ATENDIMENTO);
+  });
+
   it('trata null e undefined como array vazio', () => {
     expect(
       resolveEffectivePermissions({

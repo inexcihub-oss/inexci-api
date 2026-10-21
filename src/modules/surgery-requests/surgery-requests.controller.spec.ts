@@ -9,7 +9,6 @@ import { DocumentsController } from './documents/documents.controller';
 import { OpmeController } from './opme/opme.controller';
 import { PendenciesController } from './pendencies/pendencies.controller';
 import { SurgeryRequestProceduresController } from './procedures/procedures.controller';
-import { ReportsController } from '../reports/reports.controller';
 
 describe('Permissões declaradas no módulo de SC', () => {
   const reflector = new Reflector();
@@ -48,7 +47,6 @@ describe('Permissões declaradas no módulo de SC', () => {
     ['OpmeController', OpmeController],
     ['PendenciesController', PendenciesController],
     ['SurgeryRequestProceduresController', SurgeryRequestProceduresController],
-    ['ReportsController', ReportsController],
   ];
 
   it.each(demaisControllersDeSC)(

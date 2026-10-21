@@ -22,6 +22,9 @@ export function resolveEffectivePermissions(
   if (subject.isDoctor && subject.isPhysician) {
     concedidas.add(Permission.SOLICITACOES);
   }
+  if (concedidas.has(Permission.ATENDIMENTO)) {
+    concedidas.add(Permission.AGENDA);
+  }
 
   return ALL_PERMISSIONS.filter((p) => concedidas.has(p));
 }

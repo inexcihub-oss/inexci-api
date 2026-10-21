@@ -16,7 +16,7 @@ import { Permission } from 'src/shared/permissions';
 @ApiTags('Relatórios')
 @ApiBearerAuth()
 @Controller('reports')
-@RequirePermission(Permission.SOLICITACOES)
+@RequirePermission(Permission.ADMINISTRACAO)
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
