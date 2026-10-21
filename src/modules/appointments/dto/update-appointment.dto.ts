@@ -1,16 +1,22 @@
 import {
   IsBoolean,
+  IsDecimal,
   IsDateString,
   IsEnum,
   IsInt,
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   Min,
   ValidateIf,
 } from 'class-validator';
 import { AppointmentType } from 'src/database/entities/appointment.entity';
+import {
+  MENSAGEM_VALOR_INVALIDO,
+  VALOR_NAO_NEGATIVO,
+} from 'src/modules/finance/dto/service-price.dto';
 
 const SeInformado = () => ValidateIf((_, v: unknown) => v !== undefined);
 
@@ -51,4 +57,10 @@ export class UpdateAppointmentDto {
   @IsOptional()
   @IsString()
   notes?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsDecimal({ decimal_digits: '0,2' }, { message: MENSAGEM_VALOR_INVALIDO })
+  @Matches(VALOR_NAO_NEGATIVO, { message: MENSAGEM_VALOR_INVALIDO })
+  price?: string | null;
 }

@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Query,
+  UseInterceptors,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import {
@@ -22,11 +23,16 @@ import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { UpdateAppointmentStatusDto } from './dto/update-appointment-status.dto';
 import { FindAppointmentsDto } from './dto/find-appointments.dto';
 import { CreateAppointmentCommentDto } from './dto/create-appointment-comment.dto';
+import {
+  OcultarPrecoSemFinanceiroInterceptor,
+  podeVerPreco,
+} from './preco-da-consulta';
 
 @ApiTags('Consultas')
 @ApiBearerAuth()
 @Controller('appointments')
 @RequirePermission(Permission.AGENDA)
+@UseInterceptors(OcultarPrecoSemFinanceiroInterceptor)
 export class AppointmentsController {
   constructor(private readonly appointmentsService: AppointmentsService) {}
 
@@ -86,7 +92,9 @@ export class AppointmentsController {
     @Body() data: CreateAppointmentDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.appointmentsService.create(data, user.userId);
+    return this.appointmentsService.create(data, user.userId, {
+      podeDefinirPreco: podeVerPreco(user),
+    });
   }
 
   @Patch(':id')
@@ -96,7 +104,9 @@ export class AppointmentsController {
     @Body() data: UpdateAppointmentDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.appointmentsService.update(id, data, user.userId);
+    return this.appointmentsService.update(id, data, user.userId, {
+      podeDefinirPreco: podeVerPreco(user),
+    });
   }
 
   @Patch(':id/status')

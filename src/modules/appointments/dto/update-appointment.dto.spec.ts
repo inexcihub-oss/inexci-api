@@ -42,4 +42,14 @@ describe('UpdateAppointmentDto', () => {
       [],
     );
   });
+
+  it('aceita valor decimal, zero e nulo', () => {
+    expect(erros({ price: '300.00' })).toEqual([]);
+    expect(erros({ price: '0' })).toEqual([]);
+    expect(erros({ price: null })).toEqual([]);
+  });
+
+  it.each(['-10.00', '10.999', 'dez'])('recusa o valor %p', (price) => {
+    expect(erros({ price })).toContain('price');
+  });
 });

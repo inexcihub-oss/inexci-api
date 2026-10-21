@@ -68,6 +68,11 @@ const MS_PER_HOUR = 60 * 60 * 1000;
 const INVITE_TOKEN_TTL_MS = 24 * MS_PER_HOUR;
 const INVITE_CODE_TTL_MS = 72 * MS_PER_HOUR;
 
+export const PERMISSOES_PROPRIAS =
+  'Você não pode alterar as próprias permissões';
+export const FINANCEIRO_SO_PELO_DONO =
+  'Só o dono da conta concede ou retira a área Financeiro';
+
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
@@ -137,6 +142,37 @@ export class UsersService {
     }
 
     return usuario;
+  }
+
+  static ehDonoDaConta(
+    usuario: Pick<User, 'id' | 'role' | 'ownerId'>,
+  ): boolean {
+    return (
+      usuario.role === UserRole.ADMIN &&
+      usuario.id === (usuario.ownerId ?? usuario.id)
+    );
+  }
+
+  static assertPodeAlterarPermissoes(
+    quemAltera: Pick<User, 'id' | 'role' | 'ownerId'>,
+    alvoId: string | null,
+    atuais: readonly Permission[],
+    novas: readonly Permission[] | undefined,
+  ): void {
+    if (novas === undefined) return;
+    const antes = new Set(atuais);
+    const depois = new Set(novas);
+    const mudou =
+      antes.size !== depois.size || [...depois].some((p) => !antes.has(p));
+    if (!mudou) return;
+    if (alvoId !== null && alvoId === quemAltera.id) {
+      throw new ForbiddenException(PERMISSOES_PROPRIAS);
+    }
+    const mexeNoFinanceiro =
+      antes.has(Permission.FINANCEIRO) !== depois.has(Permission.FINANCEIRO);
+    if (mexeNoFinanceiro && !UsersService.ehDonoDaConta(quemAltera)) {
+      throw new ForbiddenException(FINANCEIRO_SO_PELO_DONO);
+    }
   }
 
   private assertAlvoNaoEhDono(alvo: { id: string; ownerId: string }): void {
@@ -611,6 +647,12 @@ export class UsersService {
 
   async createCollaborator(dados: CreateCollaboratorDto, adminId: string) {
     const admin = await this.assertPodeGerirEquipe(adminId);
+    UsersService.assertPodeAlterarPermissoes(
+      admin,
+      null,
+      [],
+      dados.permissions,
+    );
     const data: CreateCollaboratorDto = {
       ...dados,
       phone: this.telefoneCanonico(dados.phone),
@@ -776,6 +818,12 @@ export class UsersService {
     if (collaboratorId === adminId) {
       this.assertNaoMudaProprioVinculo(collaborator, data);
     }
+    UsersService.assertPodeAlterarPermissoes(
+      admin,
+      collaboratorId,
+      collaborator.permissions ?? [],
+      data.permissions,
+    );
     await this.assertContatoDisponivel(data, collaboratorId);
 
     const { terPerfil, councilFinal } =

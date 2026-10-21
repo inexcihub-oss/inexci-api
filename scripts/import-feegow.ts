@@ -21,15 +21,22 @@ import {
   baseDoContexto,
   contextoDoBanco,
   contextoSemBanco,
-  FASES,
+  fasesDaExecucao,
   interpretarArgumentos,
   salvarRelatorio,
 } from '../src/database/import/feegow/runner';
 import {
+  colunasExigidas,
   formatarConferencia,
+  formatarConferenciaFinanceira,
   verificarCarga,
+  verificarFinanceiro,
   verificarSchema,
 } from '../src/database/import/feegow/verificacao';
+import {
+  lerFinanceiro,
+  resumoDoExport,
+} from '../src/database/import/feegow/mappers/finance.mapper';
 
 try {
   assertProcessoEmUtc();
@@ -42,10 +49,7 @@ async function main(): Promise<void> {
   const opcoes = interpretarArgumentos(process.argv.slice(2));
   const exp = new ExportFeegow(opcoes.dir);
   const ledger = new Ledger(join(opcoes.out, 'ledger.json'));
-  const fases =
-    opcoes.fase === 'tudo'
-      ? FASES
-      : FASES.filter((f) => f.nome === opcoes.fase);
+  const fases = fasesDaExecucao(opcoes.fase);
 
   let ds: DataSource | null = null;
   if (!opcoes.semBanco) {
@@ -59,7 +63,10 @@ async function main(): Promise<void> {
     assertBancoPermitido(banco, process.env.NODE_ENV);
     console.log(`[import-feegow] banco: ${banco}`);
 
-    const faltando = await verificarSchema((sql, p) => ds!.query(sql, p));
+    const faltando = await verificarSchema(
+      (sql, p) => ds!.query(sql, p),
+      colunasExigidas(opcoes.fase),
+    );
     if (faltando.length) {
       await ds.destroy();
       throw new Error(
@@ -103,6 +110,16 @@ async function main(): Promise<void> {
       );
       if (linhas.some((l) => l.encontrados !== l.previstos))
         process.exitCode = 2;
+      if (opcoes.fase === 'financeiro') {
+        const financeiro = await verificarFinanceiro(
+          (sql, p) => ds!.query(sql, p),
+          ledger,
+          dono.id,
+          resumoDoExport(lerFinanceiro(exp)),
+        );
+        console.log(formatarConferenciaFinanceira(financeiro));
+        if (!financeiro.ok) process.exitCode = 2;
+      }
     } finally {
       await ds?.destroy();
     }
@@ -117,6 +134,9 @@ async function main(): Promise<void> {
       const ctx = ds
         ? await contextoDoBanco(ds, opcoes.ownerEmail!, base)
         : contextoSemBanco(base);
+      if (ds && fase.carregar) {
+        await fase.carregar((sql, p) => ds.query(sql, p), ctx);
+      }
 
       const plano = fase.planejar(exp, ctx);
       for (const p of exp.drenarProblemas()) {
@@ -241,8 +261,7 @@ function salvarLedgerDepoisDoCommit(
         ),
       );
       onde = `cópia em ${copia}`;
-    } catch {
-    }
+    } catch {}
     throw new Error(
       `Fase "${fase}" GRAVADA no banco, mas o ledger.json não foi salvo (${(erro as Error).message}); ${onde}. ` +
         'Restaure o ledger.json a partir da cópia antes de rodar qualquer fase de novo, senão os registros serão duplicados.',

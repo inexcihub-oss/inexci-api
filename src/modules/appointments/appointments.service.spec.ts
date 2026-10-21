@@ -5,7 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { AppointmentsService } from './appointments.service';
-import { AppointmentStatus } from 'src/database/entities/appointment.entity';
+import {
+  AppointmentStatus,
+  AppointmentType,
+} from 'src/database/entities/appointment.entity';
 import { APPOINTMENTS_MAX_TAKE } from './dto/find-appointments.dto';
 
 describe('AppointmentsService', () => {
@@ -60,6 +63,10 @@ describe('AppointmentsService', () => {
   const mockWhatsappService = {
     sendAppointmentCancelled: jest.fn(),
     sendAppointmentScheduled: jest.fn(),
+  };
+
+  const mockServicePriceRepository = {
+    resolvePrice: jest.fn(),
   };
 
   const mockAccessControlService = {
@@ -119,7 +126,9 @@ describe('AppointmentsService', () => {
       mockHealthPlanRepository as any,
       mockActivityRepository as any,
       mockAvailabilityService as any,
+      mockServicePriceRepository as any,
     );
+    mockServicePriceRepository.resolvePrice.mockResolvedValue(null);
     mockAvailabilityService.assertNaoBloqueado.mockResolvedValue(undefined);
     mockAvailabilityService.foraDaGrade.mockResolvedValue(false);
     mockActivityRepository.create.mockImplementation((d) =>
@@ -2174,6 +2183,209 @@ describe('AppointmentsService', () => {
         BadRequestException,
       );
       expect(mockActivityRepository.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('valor da consulta (F4)', () => {
+    const comFinanceiro = { podeDefinirPreco: true };
+    const semFinanceiro = { podeDefinirPreco: false };
+
+    const consultaComPreco = {
+      id: 'appt-1',
+      ownerId,
+      doctorId,
+      patientId,
+      status: AppointmentStatus.SCHEDULED,
+      scheduledAt: new Date('2026-08-01T14:00:00.000Z'),
+      durationMinutes: 30,
+      price: '300.00',
+    };
+
+    const gravado = () =>
+      mockAppointmentRepository.create.mock.calls[0][0] as {
+        price: string | null;
+      };
+
+    it('grava o valor informado por quem tem a área financeiro', async () => {
+      await service.create(
+        { ...baseCreate, price: '250.5' },
+        userId,
+        comFinanceiro,
+      );
+
+      expect(gravado().price).toBe('250.50');
+      expect(mockServicePriceRepository.resolvePrice).not.toHaveBeenCalled();
+    });
+
+    it('ignora o valor enviado por quem não tem a área e usa o sugerido', async () => {
+      mockServicePriceRepository.resolvePrice.mockResolvedValue({
+        id: 'sp-1',
+        amount: '300.00',
+      });
+
+      await service.create(
+        { ...baseCreate, price: '1.00' },
+        userId,
+        semFinanceiro,
+      );
+
+      expect(gravado().price).toBe('300.00');
+    });
+
+    it('sem a área e sem tabela de preço, a consulta nasce sem valor', async () => {
+      await service.create({ ...baseCreate, price: '1.00' }, userId);
+
+      expect(gravado().price).toBeNull();
+    });
+
+    it('sugere o preço da tabela na consulta particular sem valor', async () => {
+      mockServicePriceRepository.resolvePrice.mockResolvedValue({
+        id: 'sp-1',
+        amount: '300',
+      });
+
+      await service.create(
+        { ...baseCreate, type: AppointmentType.RETURN },
+        userId,
+        comFinanceiro,
+      );
+
+      expect(mockServicePriceRepository.resolvePrice).toHaveBeenCalledWith(
+        ownerId,
+        { doctorId, type: AppointmentType.RETURN },
+      );
+      expect(gravado().price).toBe('300.00');
+    });
+
+    it('sem tipo informado, sugere pelo tipo padrão (primeira consulta)', async () => {
+      await service.create(baseCreate, userId);
+
+      expect(mockServicePriceRepository.resolvePrice).toHaveBeenCalledWith(
+        ownerId,
+        { doctorId, type: AppointmentType.FIRST_VISIT },
+      );
+    });
+
+    it('consulta com convênio não recebe sugestão', async () => {
+      mockHealthPlanRepository.findOne.mockResolvedValue({
+        id: 'hp-1',
+        ownerId,
+      });
+
+      await service.create(
+        { ...baseCreate, healthPlanId: 'hp-1' },
+        userId,
+        comFinanceiro,
+      );
+
+      expect(mockServicePriceRepository.resolvePrice).not.toHaveBeenCalled();
+      expect(gravado().price).toBeNull();
+    });
+
+    it('valor nulo explícito de quem tem a área não é substituído pela sugestão', async () => {
+      await service.create(
+        { ...baseCreate, price: null },
+        userId,
+        comFinanceiro,
+      );
+
+      expect(mockServicePriceRepository.resolvePrice).not.toHaveBeenCalled();
+      expect(gravado().price).toBeNull();
+    });
+
+    it('falha na sugestão não impede o agendamento', async () => {
+      mockServicePriceRepository.resolvePrice.mockRejectedValue(
+        new Error('banco fora'),
+      );
+
+      await expect(service.create(baseCreate, userId)).resolves.toBeDefined();
+      expect(gravado().price).toBeNull();
+    });
+
+    it('edição por quem não tem a área preserva o valor', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        consultaComPreco,
+      );
+
+      await service.update(
+        'appt-1',
+        { notes: 'trazer exames', price: null },
+        userId,
+        semFinanceiro,
+      );
+
+      const [, mudancas] = mockAppointmentRepository.update.mock.calls[0] as [
+        string,
+        Record<string, unknown>,
+      ];
+      expect(mudancas).not.toHaveProperty('price');
+    });
+
+    it('edição sem opções (padrão) também preserva o valor', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        consultaComPreco,
+      );
+
+      await service.update('appt-1', { price: '10.00' }, userId);
+
+      const [, mudancas] = mockAppointmentRepository.update.mock.calls[0] as [
+        string,
+        Record<string, unknown>,
+      ];
+      expect(mudancas).not.toHaveProperty('price');
+    });
+
+    it('edição por quem tem a área altera e registra no histórico', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        consultaComPreco,
+      );
+
+      await service.update('appt-1', { price: '350' }, userId, comFinanceiro);
+
+      expect(mockAppointmentRepository.update).toHaveBeenCalledWith(
+        'appt-1',
+        expect.objectContaining({ price: '350.00' }),
+      );
+      expect(mockActivityRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ content: 'Alterou: valor' }),
+      );
+    });
+
+    it('quem tem a área pode apagar o valor', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        consultaComPreco,
+      );
+
+      await service.update('appt-1', { price: null }, userId, comFinanceiro);
+
+      expect(mockAppointmentRepository.update).toHaveBeenCalledWith(
+        'appt-1',
+        expect.objectContaining({ price: null }),
+      );
+    });
+
+    it('trocar o convênio não mexe no valor gravado', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        consultaComPreco,
+      );
+      mockHealthPlanRepository.findOne.mockResolvedValue({
+        id: 'hp-1',
+        ownerId,
+      });
+
+      await service.update(
+        'appt-1',
+        { healthPlanId: 'hp-1' },
+        userId,
+        comFinanceiro,
+      );
+
+      const [, mudancas] = mockAppointmentRepository.update.mock.calls[0] as [
+        string,
+        Record<string, unknown>,
+      ];
+      expect(mudancas).not.toHaveProperty('price');
+      expect(mockServicePriceRepository.resolvePrice).not.toHaveBeenCalled();
     });
   });
 });

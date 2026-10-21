@@ -50,7 +50,7 @@ describe('JwtStrategy — permissões', () => {
     ]);
   });
 
-  it('dá as quatro ao dono da conta', async () => {
+  it('dá as cinco ao dono da conta', async () => {
     userRepository.findOneWithProfile.mockResolvedValue({
       id: 'o-1',
       ownerId: 'o-1',
@@ -62,7 +62,7 @@ describe('JwtStrategy — permissões', () => {
 
     const resultado = await strategy.validate({ userId: 'o-1' });
 
-    expect(resultado.permissions).toHaveLength(4);
+    expect(resultado.permissions).toHaveLength(5);
   });
 
   describe('tokenVersion', () => {

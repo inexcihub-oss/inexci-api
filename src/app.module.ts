@@ -33,6 +33,7 @@ import { AvailabilityModule } from './modules/availability/availability.module';
 import { ClinicalRecordsModule } from './modules/clinical-records/clinical-records.module';
 import { HospitalsModule } from './modules/hospitals/hospitals.module';
 import { ClinicsModule } from './modules/clinics/clinics.module';
+import { FinanceModule } from './modules/finance/finance.module';
 import { ProceduresModule as SurgeryProceduresModule } from './modules/surgery-requests/procedures/procedures.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { CidModule } from './modules/surgery-requests/cid/cid.module';
@@ -133,6 +134,7 @@ import { ObservabilityModule } from './shared/observability/observability.module
     ClinicalRecordsModule,
     HospitalsModule,
     ClinicsModule,
+    FinanceModule,
     SurgeryProceduresModule,
     ReportsModule,
     CidModule,

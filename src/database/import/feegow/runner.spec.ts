@@ -1,6 +1,7 @@
 import {
   assertBancoPermitido,
   FASES,
+  fasesDaExecucao,
   hojeEmSaoPaulo,
   interpretarArgumentos,
 } from './runner';
@@ -160,6 +161,24 @@ describe('opções do prontuário (T9)', () => {
     ).toThrow('--caixa-livre inválido');
   });
 
+  it('financeiro fica fora do "tudo" e só roda com --fase financeiro', () => {
+    expect(fasesDaExecucao('tudo').map((f) => f.nome)).not.toContain(
+      'financeiro',
+    );
+    expect(fasesDaExecucao('financeiro').map((f) => f.nome)).toEqual([
+      'financeiro',
+    ]);
+    expect(
+      interpretarArgumentos([
+        '--dir',
+        '/x',
+        '--fase',
+        'financeiro',
+        '--sem-banco',
+      ]).fase,
+    ).toBe('financeiro');
+  });
+
   it('fases na ordem de dependência; só anexos sai do banco', () => {
     expect(FASES.map((f) => f.nome)).toEqual([
       'cadastro',
@@ -169,6 +188,7 @@ describe('opções do prontuário (T9)', () => {
       'anexos',
       'modelos',
       'disponibilidade',
+      'financeiro',
     ]);
     expect(FASES.filter((f) => f.enviar).map((f) => f.nome)).toEqual([
       'anexos',

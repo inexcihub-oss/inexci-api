@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsDecimal,
   IsDateString,
   IsEnum,
   IsInt,
@@ -7,11 +8,16 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   Min,
   ValidateIf,
 } from 'class-validator';
 import { AppointmentType } from 'src/database/entities/appointment.entity';
+import {
+  MENSAGEM_VALOR_INVALIDO,
+  VALOR_NAO_NEGATIVO,
+} from 'src/modules/finance/dto/service-price.dto';
 
 export class CreateAppointmentDto {
   @IsUUID()
@@ -57,4 +63,10 @@ export class CreateAppointmentDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsDecimal({ decimal_digits: '0,2' }, { message: MENSAGEM_VALOR_INVALIDO })
+  @Matches(VALOR_NAO_NEGATIVO, { message: MENSAGEM_VALOR_INVALIDO })
+  price?: string | null;
 }
