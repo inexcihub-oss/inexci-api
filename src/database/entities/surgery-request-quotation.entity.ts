@@ -50,10 +50,10 @@ export class SurgeryRequestQuotation {
   @Column({ type: 'boolean', default: false })
   selected: boolean;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
   @ManyToOne(() => SurgeryRequest, (request) => request.quotations)

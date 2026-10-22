@@ -113,7 +113,7 @@ export class User {
   @Column({ name: 'email_verified', type: 'boolean', default: false })
   emailVerified: boolean;
 
-  @Column({ name: 'email_verified_at', type: 'timestamp', nullable: true })
+  @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
   emailVerifiedAt: Date | null;
 
   @Exclude()
@@ -128,7 +128,7 @@ export class User {
   @Exclude()
   @Column({
     name: 'email_verification_expires_at',
-    type: 'timestamp',
+    type: 'timestamptz',
     nullable: true,
   })
   emailVerificationExpiresAt: Date | null;
@@ -231,13 +231,13 @@ export class User {
   })
   patientNotificationSettings: Partial<PatientNotificationSettings> | null;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
-  @DeleteDateColumn({ name: 'deleted_at' })
+  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz' })
   deletedAt: Date | null;
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'CASCADE' })

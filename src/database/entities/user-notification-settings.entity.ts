@@ -41,10 +41,10 @@ export class UserNotificationSettings {
   @Column({ name: 'mention_emails', type: 'boolean', default: true })
   mentionEmails: boolean;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
   @OneToOne(() => User, (user) => user.notificationSettings, {

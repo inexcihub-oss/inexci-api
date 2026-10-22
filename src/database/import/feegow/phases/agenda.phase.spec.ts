@@ -220,7 +220,7 @@ describe('planejarAgenda (export sintético)', () => {
   describe('lembrete das consultas futuras', () => {
     const futura = () => ag('10', '1', '2026-10-05', '0', { status_id: '1' });
 
-    it('por padrão deixa a INEXCI lembrar (reminder_sent_at nulo)', () => {
+    it('por padrão deixa a Inexci lembrar (reminder_sent_at nulo)', () => {
       const { plano } = planejar([futura()]);
 
       expect(plano.consultas[0].reminderSentAt).toBeNull();

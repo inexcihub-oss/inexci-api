@@ -106,7 +106,7 @@ export class NotificationSendLog {
   @Column({ name: 'owner_id', type: 'uuid', nullable: true })
   ownerId: string | null;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })

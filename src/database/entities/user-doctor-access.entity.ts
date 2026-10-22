@@ -40,10 +40,10 @@ export class UserDoctorAccess {
   @Column({ name: 'created_by_id', type: 'uuid', nullable: true })
   createdById: string | null;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
   @ManyToOne(() => User, (user) => user.doctorAccesses, {

@@ -31,7 +31,7 @@ export class WhatsappConversationMessage {
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   @ManyToOne(() => WhatsappConversation, { onDelete: 'CASCADE' })

@@ -144,7 +144,7 @@ export async function gravarAnexos(
       plano.relatorio.avisar(
         'foto',
         idOrigem,
-        'paciente já tem foto na INEXCI: a do Feegow foi descartada',
+        'paciente já tem foto na Inexci: a do Feegow foi descartada',
       );
     }
   }

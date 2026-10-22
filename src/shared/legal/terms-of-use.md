@@ -2,7 +2,7 @@
 
 ## 1. Aceitação
 
-Ao criar conta na plataforma INEXCI, de titularidade da **RAIZE MEDICAL S.A.**, pessoa jurídica de direito privado, estabelecida à Rua Serra Negra, 10, Loja B, Bairro Tanque, CEP 22735-020, Rio de Janeiro/RJ, inscrita no CNPJ sob o nº **21.963.787/0001-67**, doravante denominada **INEXCI**, o Usuário declara ter lido, compreendido e aceito integralmente estes Termos de Uso e a [Política de Privacidade](/privacidade/politica).
+Ao criar conta na plataforma Inexci, de titularidade da **RAIZE MEDICAL S.A.**, pessoa jurídica de direito privado, estabelecida à Rua Serra Negra, 10, Loja B, Bairro Tanque, CEP 22735-020, Rio de Janeiro/RJ, inscrita no CNPJ sob o nº **21.963.787/0001-67**, doravante denominada **Inexci**, o Usuário declara ter lido, compreendido e aceito integralmente estes Termos de Uso e a [Política de Privacidade](/privacidade/politica).
 
 Caso não concorde com qualquer disposição, o Usuário não deverá utilizar a plataforma.
 

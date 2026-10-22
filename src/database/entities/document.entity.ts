@@ -45,10 +45,10 @@ export class Document {
   @Column({ name: 'contestation_id', type: 'uuid', nullable: true })
   contestationId: string | null;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
   @ManyToOne(() => SurgeryRequest, (request) => request.documents, {

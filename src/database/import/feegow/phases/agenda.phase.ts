@@ -160,7 +160,7 @@ async function encaixarSobreConsultasDoBanco(
     plano.relatorio.avisar(
       'consulta',
       c.agendamentos[1],
-      'sobrepõe consulta já cadastrada na INEXCI: entrou como encaixe',
+      'sobrepõe consulta já cadastrada na Inexci: entrou como encaixe',
       `profissional ${c.profissional}, ${c.inicio}`,
     );
   }

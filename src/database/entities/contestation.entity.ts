@@ -37,13 +37,13 @@ export class Contestation {
   @Column({ type: 'text' })
   reason: string;
 
-  @Column({ name: 'resolved_at', type: 'timestamp', nullable: true })
+  @Column({ name: 'resolved_at', type: 'timestamptz', nullable: true })
   resolvedAt: Date | null;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
   @ManyToOne(() => SurgeryRequest, (request) => request.contestations)

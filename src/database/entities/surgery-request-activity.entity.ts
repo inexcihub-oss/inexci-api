@@ -37,7 +37,7 @@ export class SurgeryRequestActivity {
   @Column({ type: 'text' })
   content: string;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   @ManyToOne(() => SurgeryRequest, (request) => request.activities)

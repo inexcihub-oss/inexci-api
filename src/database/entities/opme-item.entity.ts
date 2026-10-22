@@ -33,10 +33,10 @@ export class OpmeItem {
   @Column({ name: 'selected_supplier_id', type: 'uuid', nullable: true })
   selectedSupplierId: string | null;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
   @ManyToOne(() => SurgeryRequest, (request) => request.opmeItems)

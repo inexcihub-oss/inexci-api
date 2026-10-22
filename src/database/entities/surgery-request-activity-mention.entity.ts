@@ -26,7 +26,7 @@ export class SurgeryRequestActivityMention {
   @Column({ name: 'email_sent_at', type: 'timestamptz', nullable: true })
   emailSentAt: Date | null;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   @ManyToOne(() => SurgeryRequestActivity, { onDelete: 'CASCADE' })

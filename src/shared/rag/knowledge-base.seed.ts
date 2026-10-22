@@ -1,8 +1,8 @@
 export const FAQ_SEED = [
   {
-    question: 'O que é a INEXCI?',
+    question: 'O que é a Inexci?',
     answer:
-      'A INEXCI é uma plataforma digital para gestão de solicitações cirúrgicas. Ela automatiza o fluxo de autorização de procedimentos: médicos submetem pedidos, convênios analisam e autorizam, hospitais agendam e confirmam, e o sistema gerencia faturamento e pagamentos.',
+      'A Inexci é uma plataforma digital para gestão de solicitações cirúrgicas. Ela automatiza o fluxo de autorização de procedimentos: médicos submetem pedidos, convênios analisam e autorizam, hospitais agendam e confirmam, e o sistema gerencia faturamento e pagamentos.',
   },
   {
     question: 'Como submeto uma solicitação cirúrgica?',
@@ -45,9 +45,9 @@ export const FAQ_SEED = [
       'Em caso de contestação pelo convênio ou hospital, você receberá uma notificação. Acesse a plataforma web para ver os motivos detalhados e registrar uma resposta/recurso. O WhatsApp informa o status mas o processo de contestação deve ser tratado na plataforma web.',
   },
   {
-    question: 'Como faço para me cadastrar na INEXCI?',
+    question: 'Como faço para me cadastrar na Inexci?',
     answer:
-      'Para se cadastrar, acesse a plataforma web da INEXCI e clique em "Criar conta". Preencha seus dados profissionais (CRM para médicos) e aguarde a validação. Após ativação, você pode associar seu número de WhatsApp para usar o assistente.',
+      'Para se cadastrar, acesse a plataforma web da Inexci e clique em "Criar conta". Preencha seus dados profissionais (CRM para médicos) e aguarde a validação. Após ativação, você pode associar seu número de WhatsApp para usar o assistente.',
   },
   {
     question: 'Posso encerrar uma solicitação pelo WhatsApp?',
@@ -57,14 +57,14 @@ export const FAQ_SEED = [
   {
     question: 'O que é um convênio na plataforma?',
     answer:
-      'Convênio (plano de saúde) é a operadora responsável por autorizar e pagar o procedimento. Na INEXCI, cada solicitação está vinculada a um convênio específico que recebe as informações para análise e autorização.',
+      'Convênio (plano de saúde) é a operadora responsável por autorizar e pagar o procedimento. Na Inexci, cada solicitação está vinculada a um convênio específico que recebe as informações para análise e autorização.',
   },
 ];
 
 export const WORKFLOW_SEED = [
   {
     title: 'Fluxo de Autorização Cirúrgica — Visão Geral',
-    content: `O fluxo de autorização cirúrgica na INEXCI segue estas etapas:
+    content: `O fluxo de autorização cirúrgica na Inexci segue estas etapas:
 
 1. PENDENTE: Solicitação criada pelo médico. Deve ser preenchida com todos os dados obrigatórios.
 2. ENVIADA: Após preencher as pendências, o médico envia ao convênio.
@@ -134,7 +134,7 @@ CID: Classificação Internacional de Doenças — código diagnóstico internac
 
 OPME: Órteses, Próteses e Materiais Especiais — materiais cirúrgicos especiais (próteses de quadril, parafusos ósseos, stents, etc.).
 
-Protocolo: Número único da solicitação cirúrgica na INEXCI (formato SC-XXXX, ex: SC-0042).
+Protocolo: Número único da solicitação cirúrgica na Inexci (formato SC-XXXX, ex: SC-0042).
 
 Laudo: Documento médico descrevendo a indicação clínica do procedimento, histórico do paciente e justificativa cirúrgica.
 

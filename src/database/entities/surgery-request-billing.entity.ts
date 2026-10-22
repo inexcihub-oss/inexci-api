@@ -25,7 +25,7 @@ export class SurgeryRequestBilling {
   @Column({ name: 'invoice_protocol', type: 'varchar', length: 100 })
   invoiceProtocol: string;
 
-  @Column({ name: 'invoice_sent_at', type: 'timestamp' })
+  @Column({ name: 'invoice_sent_at', type: 'timestamptz' })
   invoiceSentAt: Date;
 
   @Column({
@@ -51,7 +51,7 @@ export class SurgeryRequestBilling {
   })
   receivedValue: number | null;
 
-  @Column({ name: 'received_at', type: 'timestamp', nullable: true })
+  @Column({ name: 'received_at', type: 'timestamptz', nullable: true })
   receivedAt: Date | null;
 
   @Column({ name: 'receipt_notes', type: 'text', nullable: true })
@@ -68,7 +68,7 @@ export class SurgeryRequestBilling {
 
   @Column({
     name: 'contested_received_at',
-    type: 'timestamp',
+    type: 'timestamptz',
     nullable: true,
   })
   contestedReceivedAt: Date | null;
@@ -76,10 +76,10 @@ export class SurgeryRequestBilling {
   @Column({ name: 'contested_receipt_notes', type: 'text', nullable: true })
   contestedReceiptNotes: string | null;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
   @OneToOne(() => SurgeryRequest, (request) => request.billing)

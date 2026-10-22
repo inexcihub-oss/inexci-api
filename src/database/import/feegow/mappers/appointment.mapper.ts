@@ -329,7 +329,7 @@ export function encaixarSobrepostas(
         profissional: origem.get(c.id)?.profissional ?? medico,
         inicio: c.scheduledAt.toISOString(),
         agendamentos: [anterior?.c?.id ?? null, c.id].map((id) =>
-          id ? (origem.get(id)?.agendamento ?? id) : 'já na INEXCI',
+          id ? (origem.get(id)?.agendamento ?? id) : 'já na Inexci',
         ),
       });
     };

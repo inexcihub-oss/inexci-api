@@ -154,13 +154,13 @@ export class SurgeryRequest {
   @Column({ name: 'selected_date_index', type: 'int', nullable: true })
   selectedDateIndex: number | null;
 
-  @Column({ name: 'surgery_date', type: 'timestamp', nullable: true })
+  @Column({ name: 'surgery_date', type: 'timestamptz', nullable: true })
   surgeryDate: Date | null;
 
-  @Column({ name: 'analysis_started_at', type: 'timestamp', nullable: true })
+  @Column({ name: 'analysis_started_at', type: 'timestamptz', nullable: true })
   analysisStartedAt: Date | null;
 
-  @Column({ name: 'date_call', type: 'timestamp', nullable: true })
+  @Column({ name: 'date_call', type: 'timestamptz', nullable: true })
   dateCall: Date | null;
 
   @Column({
@@ -171,24 +171,24 @@ export class SurgeryRequest {
   })
   hospitalProtocol: string | null;
 
-  @Column({ name: 'sent_at', type: 'timestamp', nullable: true })
+  @Column({ name: 'sent_at', type: 'timestamptz', nullable: true })
   sentAt: Date | null;
 
   @Column({ name: 'send_method', type: 'varchar', length: 20, nullable: true })
   sendMethod: string | null;
 
-  @Column({ name: 'surgery_performed_at', type: 'timestamp', nullable: true })
+  @Column({ name: 'surgery_performed_at', type: 'timestamptz', nullable: true })
   surgeryPerformedAt: Date | null;
 
   @Column({ name: 'closed_reason', type: 'text', nullable: true })
   closedReason: string | null;
 
-  @Column({ name: 'closed_at', type: 'timestamp', nullable: true })
+  @Column({ name: 'closed_at', type: 'timestamptz', nullable: true })
   closedAt: Date | null;
 
   @Column({
     name: 'last_status_changed_at',
-    type: 'timestamp',
+    type: 'timestamptz',
     nullable: true,
   })
   lastStatusChangedAt: Date | null;
@@ -196,10 +196,10 @@ export class SurgeryRequest {
   @Column({ name: 'last_activity_at', type: 'timestamptz', nullable: true })
   lastActivityAt: Date | null;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })

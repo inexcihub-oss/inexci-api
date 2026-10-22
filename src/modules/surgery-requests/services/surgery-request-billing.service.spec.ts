@@ -73,6 +73,53 @@ describe('SurgeryRequestBillingService', () => {
     );
   });
 
+  it.each([
+    ['só a data, como manda o assistente do WhatsApp', '2026-01-10'],
+    [
+      'meia-noite de Brasília em ISO, como manda a tela',
+      '2026-01-10T03:00:00.000Z',
+    ],
+  ])(
+    'grava o envio da fatura no dia certo (%s)',
+    async (_origem, invoiceSentAt) => {
+      repository.findOneForBilling.mockResolvedValue({
+        ...performed,
+        healthPlan: { defaultPaymentDays: 30 },
+      });
+
+      await service.invoiceRequest(
+        'sc-1',
+        { invoiceProtocol: 'F-1', invoiceSentAt, invoiceValue: 100 },
+        'user-1',
+      );
+
+      const gravado = billingRepo.save.mock.calls[0][0];
+      expect(gravado.invoiceSentAt.toISOString()).toBe(
+        '2026-01-10T12:00:00.000Z',
+      );
+      expect(gravado.paymentDeadline.toISOString()).toBe(
+        '2026-02-09T12:00:00.000Z',
+      );
+    },
+  );
+
+  it('grava a data do recebimento no dia informado, sem voltar para o dia anterior', async () => {
+    repository.findOneForBilling.mockResolvedValue({
+      id: 'sc-1',
+      status: SurgeryRequestStatus.INVOICED,
+      billing: { invoiceValue: '100.00' },
+    });
+
+    await service.confirmReceipt(
+      'sc-1',
+      { receivedValue: 100, receivedAt: '2026-02-01' },
+      'user-1',
+    );
+
+    const [, gravado] = billingRepo.update.mock.calls[0];
+    expect(gravado.receivedAt.toISOString()).toBe('2026-02-01T12:00:00.000Z');
+  });
+
   it('clique duplo no faturamento: 409 sem gravar segundo faturamento', async () => {
     repository.applyStatusTransition.mockResolvedValue(false);
 

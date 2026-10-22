@@ -1,6 +1,6 @@
-# INEXCI API
+# Inexci API
 
-Backend da aplicação INEXCI desenvolvido em NestJS com TypeORM e PostgreSQL.
+Backend da aplicação Inexci desenvolvido em NestJS com TypeORM e PostgreSQL.
 
 ## 🚀 Como Rodar
 

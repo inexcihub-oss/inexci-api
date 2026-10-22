@@ -2,13 +2,13 @@
 
 Diretrizes sobre a coleta, utilização, armazenamento e proteção de dados pessoais dos usuários das plataformas Inexci, em conformidade com a legislação vigente.
 
-A presente Política de Privacidade tem por finalidade demonstrar o compromisso da **RAIZE MEDICAL S.A.**, pessoa jurídica de direito privado, estabelecida à Rua Serra Negra, 10, Loja B, Bairro Tanque, CEP 22735-020, Rio de Janeiro/RJ, inscrita no CNPJ sob o nº **21.963.787/0001-67**, titular das plataformas, aplicativos e sites INEXCI, doravante denominada **INEXCI**, com a privacidade e a proteção dos dados pessoais coletados de seus USUÁRIOS.
+A presente Política de Privacidade tem por finalidade demonstrar o compromisso da **RAIZE MEDICAL S.A.**, pessoa jurídica de direito privado, estabelecida à Rua Serra Negra, 10, Loja B, Bairro Tanque, CEP 22735-020, Rio de Janeiro/RJ, inscrita no CNPJ sob o nº **21.963.787/0001-67**, titular das plataformas, aplicativos e sites Inexci, doravante denominada **Inexci**, com a privacidade e a proteção dos dados pessoais coletados de seus USUÁRIOS.
 
 Esta Política estabelece as regras sobre o tratamento de dados pessoais no escopo dos serviços e funcionalidades da Inexci, em conformidade com a Lei nº 13.709/2018 (Lei Geral de Proteção de Dados Pessoais — LGPD) e demais normas aplicáveis.
 
 Este documento deve ser lido em conjunto com os [Termos de Uso](/privacidade/termos) e o [Aviso de Uso de IA](/privacidade/ia).
 
-Como condição para acesso e uso das funcionalidades da INEXCI, o USUÁRIO declara que realizou a leitura completa e atenta desta Política de Privacidade, estando ciente de seus termos e manifestando sua concordância livre e expressa. Caso não concorde com estas diretrizes, o USUÁRIO deverá descontinuar o acesso.
+Como condição para acesso e uso das funcionalidades da Inexci, o USUÁRIO declara que realizou a leitura completa e atenta desta Política de Privacidade, estando ciente de seus termos e manifestando sua concordância livre e expressa. Caso não concorde com estas diretrizes, o USUÁRIO deverá descontinuar o acesso.
 
 ## 1. Definições
 
@@ -16,7 +16,7 @@ Para os fins deste documento, consideram-se as seguintes definições:
 
 - **COOKIES:** pequenos arquivos de computador ou pacotes de dados enviados por um site ao navegador do usuário quando o USUÁRIO visita o site.
 - **IP:** abreviatura de Internet Protocol; conjunto alfanumérico que identifica dispositivos dos USUÁRIOS na Internet.
-- **USUÁRIO:** qualquer pessoa física que acessa e/ou utiliza funcionalidades e/ou serviços da INEXCI.
+- **USUÁRIO:** qualquer pessoa física que acessa e/ou utiliza funcionalidades e/ou serviços da Inexci.
 
 ## 2. A quem esta Política se aplica
 
@@ -64,17 +64,17 @@ Os dados coletados a partir da submissão voluntária pelo USUÁRIO ou automatic
 
 ### 3.3 Demais disposições sobre coleta e veracidade
 
-Todos os dados pessoais poderão ser utilizados como meio probatório em casos de atos ilícitos ou contrários a esta Política de Privacidade ou qualquer outro documento legal disponibilizado pela INEXCI, bem como para cumprimento de ordem judicial ou de requisição administrativa.
+Todos os dados pessoais poderão ser utilizados como meio probatório em casos de atos ilícitos ou contrários a esta Política de Privacidade ou qualquer outro documento legal disponibilizado pela Inexci, bem como para cumprimento de ordem judicial ou de requisição administrativa.
 
-Cabe ao USUÁRIO configurar o seu dispositivo móvel caso deseje bloquear a coleta de cookies ou outros dados. Nesta hipótese, algumas funcionalidades da INEXCI poderão ser limitadas.
+Cabe ao USUÁRIO configurar o seu dispositivo móvel caso deseje bloquear a coleta de cookies ou outros dados. Nesta hipótese, algumas funcionalidades da Inexci poderão ser limitadas.
 
-A INEXCI não é responsável pela precisão, veracidade ou falta delas nas informações prestadas pelo USUÁRIO ou pela sua desatualização, sendo de responsabilidade do USUÁRIO prestá-las com exatidão e atualizá-las sempre que necessário.
+A Inexci não é responsável pela precisão, veracidade ou falta delas nas informações prestadas pelo USUÁRIO ou pela sua desatualização, sendo de responsabilidade do USUÁRIO prestá-las com exatidão e atualizá-las sempre que necessário.
 
-A base de dados formada por meio da coleta de dados na INEXCI é de propriedade e responsabilidade da INEXCI, sendo que seu uso, acesso e compartilhamento, quando necessários, serão feitos dentro dos limites e propósitos dos negócios da INEXCI e descritos nesta Política de Privacidade e Termos de Uso.
+A base de dados formada por meio da coleta de dados na Inexci é de propriedade e responsabilidade da Inexci, sendo que seu uso, acesso e compartilhamento, quando necessários, serão feitos dentro dos limites e propósitos dos negócios da Inexci e descritos nesta Política de Privacidade e Termos de Uso.
 
-O USUÁRIO é corresponsável pelo sigilo de seus dados pessoais. O compartilhamento de senhas e dados de acesso viola esta Política de Privacidade e os Termos de Uso da INEXCI.
+O USUÁRIO é corresponsável pelo sigilo de seus dados pessoais. O compartilhamento de senhas e dados de acesso viola esta Política de Privacidade e os Termos de Uso da Inexci.
 
-Internamente, os dados dos USUÁRIOS serão acessados somente por profissionais devidamente autorizados pela INEXCI, respeitando os princípios de proporcionalidade, necessidade e relevância para os objetivos da INEXCI, além do compromisso de confidencialidade e preservação da privacidade.
+Internamente, os dados dos USUÁRIOS serão acessados somente por profissionais devidamente autorizados pela Inexci, respeitando os princípios de proporcionalidade, necessidade e relevância para os objetivos da Inexci, além do compromisso de confidencialidade e preservação da privacidade.
 
 ## 4. Armazenamento, Transferência Internacional, Retenção e Eliminação dos Dados
 
@@ -82,13 +82,13 @@ Os dados coletados são armazenados em infraestrutura de nuvem (cloud computing)
 
 A transferência internacional será realizada somente para os agentes e finalidades descritas nesta Política de Privacidade, os quais aplicam as melhores práticas internacionais de proteção de dados pessoais e garantem proporcionar grau de proteção de dados pessoais adequado ao previsto na Lei nº 13.709/2018 (LGPD), conforme exigência do art. 33, inciso I da lei.
 
-Para funcionalidades de inteligência artificial e transcrição de áudio, a INEXCI poderá utilizar serviços de fornecedores especializados, incluindo a OpenAI, conforme a configuração técnica vigente da plataforma. Nesses casos, o tratamento observará os termos aplicáveis do fornecedor, as bases legais cabíveis e as salvaguardas contratuais para transferência internacional, quando necessária.
+Para funcionalidades de inteligência artificial e transcrição de áudio, a Inexci poderá utilizar serviços de fornecedores especializados, incluindo a OpenAI, conforme a configuração técnica vigente da plataforma. Nesses casos, o tratamento observará os termos aplicáveis do fornecedor, as bases legais cabíveis e as salvaguardas contratuais para transferência internacional, quando necessária.
 
-Todos os dados coletados pela INEXCI são armazenados em ambiente seguro, monitorado, com controle de falhas e backup distribuído. Todavia, na condição de prestadora de Software como Serviço (SaaS), a INEXCI não controla os dispositivos e estações utilizados pelo usuário/cliente. Assim, a segurança desses ambientes locais é de responsabilidade do usuário/cliente, na qualidade de controlador dos dados pessoais de seus clientes/pacientes. A INEXCI não se responsabiliza por danos decorrentes de acesso indevido causado por negligência do usuário/cliente, exceto nos casos em que haja dolo ou culpa comprovada da própria INEXCI.
+Todos os dados coletados pela Inexci são armazenados em ambiente seguro, monitorado, com controle de falhas e backup distribuído. Todavia, na condição de prestadora de Software como Serviço (SaaS), a Inexci não controla os dispositivos e estações utilizados pelo usuário/cliente. Assim, a segurança desses ambientes locais é de responsabilidade do usuário/cliente, na qualidade de controlador dos dados pessoais de seus clientes/pacientes. A Inexci não se responsabiliza por danos decorrentes de acesso indevido causado por negligência do usuário/cliente, exceto nos casos em que haja dolo ou culpa comprovada da própria Inexci.
 
-Para fins de auditoria, segurança, controle de fraudes, preservação de direitos e cumprimento de obrigação legal, a INEXCI poderá permanecer com o histórico de registros de acesso dos USUÁRIOS por prazo mínimo de 6 (seis) meses. A guarda dos dados relacionados ao prontuário do paciente é de responsabilidade integral da clínica, conforme a legislação específica do setor.
+Para fins de auditoria, segurança, controle de fraudes, preservação de direitos e cumprimento de obrigação legal, a Inexci poderá permanecer com o histórico de registros de acesso dos USUÁRIOS por prazo mínimo de 6 (seis) meses. A guarda dos dados relacionados ao prontuário do paciente é de responsabilidade integral da clínica, conforme a legislação específica do setor.
 
-Ao término do contrato entre USUÁRIO e INEXCI, o USUÁRIO Administrador da Conta é integralmente responsável por realizar a exportação de todos os dados inseridos em sua conta na plataforma INEXCI dentro do prazo de 60 (sessenta) dias a contar do término da assinatura.
+Ao término do contrato entre USUÁRIO e Inexci, o USUÁRIO Administrador da Conta é integralmente responsável por realizar a exportação de todos os dados inseridos em sua conta na plataforma Inexci dentro do prazo de 60 (sessenta) dias a contar do término da assinatura.
 
 Caso haja solicitação de eliminação dos dados pelo USUÁRIO, essa eliminação somente poderá ocorrer se já não houver mais finalidade de uso nem obrigação legal, regulatória ou judicial que justifique sua retenção.
 
@@ -100,7 +100,7 @@ Os dados coletados e as atividades registradas poderão ser compartilhados:
 
 1. Com autoridades judiciais, administrativas ou governamentais competentes, sempre que houver requisição legal ou ordem judicial;
 2. Em caso de movimentações societárias, como fusão, aquisição ou incorporação;
-3. Com provedores de serviços contratados pela INEXCI para viabilizar o site e a plataforma INEXCI, juntamente com suas funcionalidades e serviços;
+3. Com provedores de serviços contratados pela Inexci para viabilizar o site e a plataforma Inexci, juntamente com suas funcionalidades e serviços;
 4. Com pessoas jurídicas integrantes do grupo econômico da RAIZE, quando necessário à regular prestação de serviços e/ou fornecimento de produtos;
 5. Com parceiros comerciais e prestadores de serviços, quando necessário à execução dos serviços ofertados.
 
@@ -124,33 +124,33 @@ Caso ocorra incidente, auditoria ou solicitação de autoridade competente envol
 
 ## 7. Exibição, Retificação, Portabilidade, Limitação, Oposição e Eliminação de Dados
 
-O USUÁRIO poderá ter acesso aos seus dados (exibição) e realizar a retificação de seus dados pessoais por meio do ambiente logado na plataforma INEXCI ou pelos canais de atendimento disponibilizados pela INEXCI.
+O USUÁRIO poderá ter acesso aos seus dados (exibição) e realizar a retificação de seus dados pessoais por meio do ambiente logado na plataforma Inexci ou pelos canais de atendimento disponibilizados pela Inexci.
 
-Pelo canal de atendimento da INEXCI, o USUÁRIO poderá também requerer: (i) a limitação do uso de seus dados pessoais; (ii) manifestar sua oposição ao uso de seus dados pessoais; ou (iii) solicitar a eliminação de seus dados pessoais coletados pela INEXCI, desde que a eventual relação contratual entre o USUÁRIO e a INEXCI tenha terminado, não haja nenhuma finalidade de uso que legitime o tratamento e tenha decorrido o prazo legal mínimo relacionado à retenção dos dados.
+Pelo canal de atendimento da Inexci, o USUÁRIO poderá também requerer: (i) a limitação do uso de seus dados pessoais; (ii) manifestar sua oposição ao uso de seus dados pessoais; ou (iii) solicitar a eliminação de seus dados pessoais coletados pela Inexci, desde que a eventual relação contratual entre o USUÁRIO e a Inexci tenha terminado, não haja nenhuma finalidade de uso que legitime o tratamento e tenha decorrido o prazo legal mínimo relacionado à retenção dos dados.
 
-Tendo em vista o papel de Operador que a INEXCI desempenha em relação aos dados de pacientes, a portabilidade dos dados de prontuários médicos deverá ser solicitada pelo próprio paciente ao profissional de saúde que o atende ou à clínica em que realize tratamento de saúde, responsável pela guarda dos dados dos prontuários.
+Tendo em vista o papel de Operador que a Inexci desempenha em relação aos dados de pacientes, a portabilidade dos dados de prontuários médicos deverá ser solicitada pelo próprio paciente ao profissional de saúde que o atende ou à clínica em que realize tratamento de saúde, responsável pela guarda dos dados dos prontuários.
 
 ## 8. Segurança
 
-A INEXCI trata os dados pessoais de acordo com as melhores práticas de segurança da informação e os armazena em infraestrutura em nuvem com controles técnicos e administrativos compatíveis com o mercado.
+A Inexci trata os dados pessoais de acordo com as melhores práticas de segurança da informação e os armazena em infraestrutura em nuvem com controles técnicos e administrativos compatíveis com o mercado.
 
-A INEXCI adota medidas técnicas e administrativas aptas a proteger os dados pessoais de acessos não autorizados e de situações acidentais ou ilícitas de destruição, perda, alteração, comunicação ou difusão, observados a estrutura, a escala e o volume de suas operações, bem como a sensibilidade dos dados tratados e a probabilidade e a gravidade dos danos aos titulares. Dentre tais medidas, destacam-se: hash seguro de senhas, backup, segregação de dados por organização, monitoramento de ambiente e controle de acesso com base na necessidade e na permissão concedida pelo USUÁRIO.
+A Inexci adota medidas técnicas e administrativas aptas a proteger os dados pessoais de acessos não autorizados e de situações acidentais ou ilícitas de destruição, perda, alteração, comunicação ou difusão, observados a estrutura, a escala e o volume de suas operações, bem como a sensibilidade dos dados tratados e a probabilidade e a gravidade dos danos aos titulares. Dentre tais medidas, destacam-se: hash seguro de senhas, backup, segregação de dados por organização, monitoramento de ambiente e controle de acesso com base na necessidade e na permissão concedida pelo USUÁRIO.
 
 ## 9. Disposições Gerais
 
-A INEXCI não utiliza nenhum tipo de decisão automatizada que impacte o USUÁRIO.
+A Inexci não utiliza nenhum tipo de decisão automatizada que impacte o USUÁRIO.
 
-A INEXCI reserva a si o direito de alterar o teor desta Política de Privacidade a qualquer momento, conforme a finalidade ou necessidade, tal qual para adequação e conformidade legal de disposição de lei ou norma que tenha força jurídica equivalente, cabendo ao USUÁRIO verificá-la sempre que efetuar o acesso à INEXCI.
+A Inexci reserva a si o direito de alterar o teor desta Política de Privacidade a qualquer momento, conforme a finalidade ou necessidade, tal qual para adequação e conformidade legal de disposição de lei ou norma que tenha força jurídica equivalente, cabendo ao USUÁRIO verificá-la sempre que efetuar o acesso à Inexci.
 
-Ocorrendo atualizações neste documento e que necessariamente demandem nova coleta de consentimento, a INEXCI notificará o USUÁRIO pelos meios de contato por ele fornecidos.
+Ocorrendo atualizações neste documento e que necessariamente demandem nova coleta de consentimento, a Inexci notificará o USUÁRIO pelos meios de contato por ele fornecidos.
 
 Em caso de dúvida sobre as disposições desta Política de Privacidade, ou para contato com o Encarregado pelo Tratamento de Dados Pessoais (Data Protection Officer — DPO), o USUÁRIO poderá utilizar o canal de atendimento pelo e-mail: **contato@inexci.com.br**. As respostas serão enviadas entre segunda e sexta-feira, em horário comercial, exceto feriados.
 
-Caso empresas terceirizadas realizem o tratamento de quaisquer dados coletados pela INEXCI, deverão respeitar as condições aqui estipuladas e as melhores práticas de segurança da informação, obrigatoriamente.
+Caso empresas terceirizadas realizem o tratamento de quaisquer dados coletados pela Inexci, deverão respeitar as condições aqui estipuladas e as melhores práticas de segurança da informação, obrigatoriamente.
 
 Caso alguma disposição desta Política de Privacidade seja considerada ilegal ou ilegítima por autoridade da localidade em que o USUÁRIO resida, as demais condições permanecerão em pleno vigor e produção de efeitos.
 
-O USUÁRIO reconhece que toda comunicação realizada por qualquer forma eletrônica é válida como prova documental, sendo eficaz e suficiente para a divulgação de qualquer assunto a que se refira aos serviços prestados pela INEXCI, bem como às condições de sua prestação ou a qualquer outro assunto nele abordado, ressalvadas as disposições expressamente diversas previstas nesta Política de Privacidade.
+O USUÁRIO reconhece que toda comunicação realizada por qualquer forma eletrônica é válida como prova documental, sendo eficaz e suficiente para a divulgação de qualquer assunto a que se refira aos serviços prestados pela Inexci, bem como às condições de sua prestação ou a qualquer outro assunto nele abordado, ressalvadas as disposições expressamente diversas previstas nesta Política de Privacidade.
 
 ## 10. Lei Aplicável e Jurisdição
 

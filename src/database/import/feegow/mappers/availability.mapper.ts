@@ -350,7 +350,7 @@ export function planejarBloqueios(
         .filter(Boolean)
         .join(', ');
       const motivo = recorrente
-        ? `bloqueio recorrente sem data (${quando}) — a INEXCI não tem bloqueio recorrente: recriar manualmente`
+        ? `bloqueio recorrente sem data (${quando}) — a Inexci não tem bloqueio recorrente: recriar manualmente`
         : 'data inválida';
       rel.rejeitar('bloqueio', idOrigem, motivo);
       continue;
@@ -382,7 +382,7 @@ export function planejarBloqueios(
         rel.rejeitar(
           'bloqueio',
           idOrigem,
-          `janela de horário repetida por ${dias.length} dias (máximo ${MAX_DIAS_BLOQUEIO_POR_DIA}): recrie na INEXCI`,
+          `janela de horário repetida por ${dias.length} dias (máximo ${MAX_DIAS_BLOQUEIO_POR_DIA}): recrie na Inexci`,
         );
         continue;
       }

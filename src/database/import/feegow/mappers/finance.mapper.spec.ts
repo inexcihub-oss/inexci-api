@@ -412,7 +412,7 @@ describe('planejarFinanceiro — D2 (paciente fora do ledger)', () => {
     );
   });
 
-  it('consulta que já tem cobrança ativa na INEXCI não é reaproveitada', () => {
+  it('consulta que já tem cobrança ativa na Inexci não é reaproveitada', () => {
     const r = planejar(
       {},
       {

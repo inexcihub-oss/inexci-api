@@ -792,7 +792,7 @@ export function planejarFinanceiroDoExport(
       rel.avisar(
         'conta financeira',
         c.id,
-        `a conta "${c.nome}" já existe na INEXCI: reaproveitada`,
+        `a conta "${c.nome}" já existe na Inexci: reaproveitada`,
       );
       continue;
     }
