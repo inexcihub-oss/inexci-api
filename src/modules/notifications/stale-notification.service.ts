@@ -8,6 +8,7 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { canAdministrate } from 'src/shared/permissions';
 import { NotificationType } from 'src/database/entities/notification.entity';
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
+import { todayBR } from 'src/shared/utils';
 import {
   errorMessage,
   getStatusLabel,
@@ -103,9 +104,12 @@ export class StaleNotificationService {
 
     const title =
       tier.severity === 'critical'
-        ? '⚠️ Solicitação Parada — Ação Imediata'
+        ? 'Solicitação Parada — Ação Imediata'
         : 'Solicitação Parada';
-    const message = `A solicitação do paciente ${patientName} está há ${staleDays} dias no status "${statusLabel}"`;
+    const staleSince = request.lastStatusChangedAt ?? request.createdAt;
+    const message = staleSince
+      ? `A solicitação do paciente ${patientName} está no status "${statusLabel}" desde ${todayBR(new Date(staleSince))}, sem andamento.`
+      : `A solicitação do paciente ${patientName} está no status "${statusLabel}" sem andamento.`;
 
     await this.notificationsService.createNotificationForUsers(recipientIds, {
       type: NotificationType.SYSTEM,
@@ -115,6 +119,7 @@ export class StaleNotificationService {
       metadata: {
         surgeryRequestId: request.id,
         staleDays,
+        staleSince: staleSince ? new Date(staleSince).toISOString() : null,
         severity: tier.severity,
         currentStatus: request.status,
       },

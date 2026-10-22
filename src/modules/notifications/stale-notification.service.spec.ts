@@ -192,6 +192,31 @@ describe('StaleNotificationService', () => {
       expect(mockWhatsappService.sendTemplate).not.toHaveBeenCalled();
     });
 
+    it('mensagem cita a data em que parou, não uma contagem que envelhece', async () => {
+      const request = makeStaleRequest(14);
+      mockSurgeryRequestRepository.findStaleRequests.mockResolvedValue([
+        request,
+      ]);
+      mockStaleLogRepository.hasBeenNotified.mockResolvedValue(false);
+
+      await service.checkAndNotifyStaleRequests();
+
+      const [, payload] =
+        mockNotificationsService.createNotificationForUsers.mock.calls[0];
+      const desde = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      }).format(request.lastStatusChangedAt);
+      expect(payload.title).toBe('Solicitação Parada');
+      expect(payload.message).toContain(`desde ${desde}`);
+      expect(payload.message).not.toMatch(/há \d+ dias/);
+      expect(payload.metadata.staleSince).toBe(
+        request.lastStatusChangedAt.toISOString(),
+      );
+    });
+
     it('admin delegado (colaborador com ADMINISTRACAO) entra entre os destinatários', async () => {
       mockUserRepository.findByOwnerId.mockResolvedValue([
         {
