@@ -22,6 +22,7 @@ import {
 } from 'src/shared/state-machine/surgery-request-state-machine';
 
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
+import { parseCalendarDate } from 'src/shared/utils/date.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 
 import { InvoiceRequestDto } from '../dto/invoice-request.dto';
@@ -64,10 +65,10 @@ export class SurgeryRequestBillingService {
 
     let paymentDeadline: Date | null = null;
     if (dto.paymentDeadline) {
-      paymentDeadline = new Date(dto.paymentDeadline);
+      paymentDeadline = parseCalendarDate(dto.paymentDeadline);
     } else if (request.healthPlan?.defaultPaymentDays) {
-      const d = new Date(dto.invoiceSentAt);
-      d.setDate(d.getDate() + request.healthPlan.defaultPaymentDays);
+      const d = parseCalendarDate(dto.invoiceSentAt);
+      d.setUTCDate(d.getUTCDate() + request.healthPlan.defaultPaymentDays);
       paymentDeadline = d;
     }
 
@@ -87,7 +88,7 @@ export class SurgeryRequestBillingService {
           surgeryRequestId: id,
           createdById: userId,
           invoiceProtocol: dto.invoiceProtocol,
-          invoiceSentAt: new Date(dto.invoiceSentAt),
+          invoiceSentAt: parseCalendarDate(dto.invoiceSentAt),
           invoiceValue: dto.invoiceValue,
           invoiceNotes: dto.invoiceNotes?.trim() || null,
           paymentDeadline,
@@ -98,8 +99,8 @@ export class SurgeryRequestBillingService {
           request.healthPlanId &&
           dto.paymentDeadline
         ) {
-          const sentAt = new Date(dto.invoiceSentAt);
-          const deadline = new Date(dto.paymentDeadline);
+          const sentAt = parseCalendarDate(dto.invoiceSentAt);
+          const deadline = parseCalendarDate(dto.paymentDeadline);
           const days = Math.round(
             (deadline.getTime() - sentAt.getTime()) / (1000 * 60 * 60 * 24),
           );
@@ -154,7 +155,7 @@ export class SurgeryRequestBillingService {
           { surgeryRequestId: id },
           {
             receivedValue,
-            receivedAt: new Date(dto.receivedAt),
+            receivedAt: parseCalendarDate(dto.receivedAt),
             receiptNotes: dto.receiptNotes,
             contestedReceivedValue: hasDivergence ? receivedValue : null,
             contestedReceivedAt: hasDivergence ? new Date() : null,
@@ -239,7 +240,7 @@ export class SurgeryRequestBillingService {
       { surgeryRequestId: id },
       {
         receivedValue: dto.receivedValue,
-        receivedAt: new Date(dto.receivedAt),
+        receivedAt: parseCalendarDate(dto.receivedAt),
       },
     );
 
