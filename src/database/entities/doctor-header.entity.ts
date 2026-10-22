@@ -31,10 +31,10 @@ export class DoctorHeader {
   @Column({ name: 'content_html', type: 'text', nullable: true })
   contentHtml: string | null;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
   @OneToOne(() => DoctorProfile, { onDelete: 'CASCADE' })

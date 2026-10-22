@@ -20,7 +20,7 @@ export class SurgeryRequestAnalysis {
   @Column({ name: 'request_number', type: 'varchar', length: 100 })
   requestNumber: string;
 
-  @Column({ name: 'received_at', type: 'timestamp' })
+  @Column({ name: 'received_at', type: 'timestamptz' })
   receivedAt: Date;
 
   @Column({
@@ -33,7 +33,7 @@ export class SurgeryRequestAnalysis {
 
   @Column({
     name: 'quotation_1_received_at',
-    type: 'timestamp',
+    type: 'timestamptz',
     nullable: true,
   })
   quotation1ReceivedAt: Date | null;
@@ -48,7 +48,7 @@ export class SurgeryRequestAnalysis {
 
   @Column({
     name: 'quotation_2_received_at',
-    type: 'timestamp',
+    type: 'timestamptz',
     nullable: true,
   })
   quotation2ReceivedAt: Date | null;
@@ -63,7 +63,7 @@ export class SurgeryRequestAnalysis {
 
   @Column({
     name: 'quotation_3_received_at',
-    type: 'timestamp',
+    type: 'timestamptz',
     nullable: true,
   })
   quotation3ReceivedAt: Date | null;
@@ -71,10 +71,10 @@ export class SurgeryRequestAnalysis {
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
   @OneToOne(() => SurgeryRequest, (request) => request.analysis)

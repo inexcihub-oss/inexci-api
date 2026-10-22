@@ -35,6 +35,6 @@ export class PaymentGatewayEvent {
   @Column({ type: 'text', nullable: true })
   error: string | null;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

@@ -112,7 +112,7 @@ export class WhatsappConversation {
   @Column({ type: 'boolean', default: true })
   active: boolean;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })

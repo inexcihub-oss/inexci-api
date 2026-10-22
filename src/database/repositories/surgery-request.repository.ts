@@ -31,6 +31,13 @@ import { getStatusLabel } from 'src/shared/utils';
 
 const SURGERY_REQUEST_LIST_SORT_COLUMN = 'surgeryRequest.lastActivityAt';
 
+export const FUSO_DO_DASHBOARD = 'America/Sao_Paulo';
+
+const CRIADA_NO_FUSO_DO_DASHBOARD = `(surgeryRequest.createdAt AT TIME ZONE '${FUSO_DO_DASHBOARD}')`;
+const DIA_DE_CRIACAO = `(${CRIADA_NO_FUSO_DO_DASHBOARD})::date`;
+const MES_DE_CRIACAO = `TO_CHAR(${CRIADA_NO_FUSO_DO_DASHBOARD}, 'YYYY-MM')`;
+const ROTULO_DO_MES = `TO_CHAR(${CRIADA_NO_FUSO_DO_DASHBOARD}, 'Mon/YY')`;
+
 @Global()
 @Injectable()
 export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
@@ -795,7 +802,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     const queryBuilder = this.repository
       .createQueryBuilder('surgeryRequest')
       .leftJoin('surgeryRequest.billing', 'billing')
-      .select('DATE(surgeryRequest.createdAt)', 'date')
+      .select(DIA_DE_CRIACAO, 'date')
       .addSelect('COUNT(*)', 'count')
       .addSelect('SUM(billing.invoiceValue)', 'invoicedValue')
       .where(where)
@@ -803,8 +810,8 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
         startDate,
         endDate,
       })
-      .groupBy('DATE(surgeryRequest.createdAt)')
-      .orderBy('DATE(surgeryRequest.createdAt)', 'ASC');
+      .groupBy(DIA_DE_CRIACAO)
+      .orderBy(DIA_DE_CRIACAO, 'ASC');
 
     return await queryBuilder.getRawMany();
   }
@@ -818,14 +825,14 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
 
     const queryBuilder = this.repository
       .createQueryBuilder('surgeryRequest')
-      .select("TO_CHAR(surgeryRequest.createdAt, 'YYYY-MM')", 'monthKey')
-      .addSelect("TO_CHAR(surgeryRequest.createdAt, 'Mon/YY')", 'monthLabel')
+      .select(MES_DE_CRIACAO, 'monthKey')
+      .addSelect(ROTULO_DO_MES, 'monthLabel')
       .addSelect('COUNT(*)', 'count')
       .where(where)
       .andWhere('surgeryRequest.createdAt >= :startDate', { startDate })
-      .groupBy("TO_CHAR(surgeryRequest.createdAt, 'YYYY-MM')")
-      .addGroupBy("TO_CHAR(surgeryRequest.createdAt, 'Mon/YY')")
-      .orderBy("TO_CHAR(surgeryRequest.createdAt, 'YYYY-MM')", 'ASC');
+      .groupBy(MES_DE_CRIACAO)
+      .addGroupBy(ROTULO_DO_MES)
+      .orderBy(MES_DE_CRIACAO, 'ASC');
 
     return await queryBuilder.getRawMany();
   }

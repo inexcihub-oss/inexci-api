@@ -22,7 +22,7 @@ export class StaleNotificationLog {
   @Column({ type: 'varchar', length: 20, default: 'in_app' })
   channel: string;
 
-  @CreateDateColumn({ name: 'notified_at' })
+  @CreateDateColumn({ name: 'notified_at', type: 'timestamptz' })
   notifiedAt: Date;
 
   @ManyToOne(() => SurgeryRequest, { onDelete: 'CASCADE' })
