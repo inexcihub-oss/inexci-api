@@ -201,7 +201,7 @@ export function planejarFichas(
         'ficha',
         chave,
         ctx.consultasComFicha.has(appointmentId)
-          ? 'consulta já tem ficha na INEXCI: ficha sem consulta'
+          ? 'consulta já tem ficha na Inexci: ficha sem consulta'
           : 'segundo atendimento do mesmo agendamento: ficha sem consulta',
       );
       appointmentId = null;

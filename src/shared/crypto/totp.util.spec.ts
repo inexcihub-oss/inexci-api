@@ -107,13 +107,13 @@ describe('generateTotpSecret', () => {
 
 describe('buildOtpauthUri', () => {
   it('monta a URI com issuer, conta e parâmetros do TOTP', () => {
-    const uri = buildOtpauthUri('ABC', 'dr+ana@x.com', 'INEXCI');
-    expect(uri.startsWith('otpauth://totp/INEXCI:dr%2Bana%40x.com?')).toBe(
+    const uri = buildOtpauthUri('ABC', 'dr+ana@x.com', 'Inexci');
+    expect(uri.startsWith('otpauth://totp/Inexci:dr%2Bana%40x.com?')).toBe(
       true,
     );
     const params = new URL(uri).searchParams;
     expect(params.get('secret')).toBe('ABC');
-    expect(params.get('issuer')).toBe('INEXCI');
+    expect(params.get('issuer')).toBe('Inexci');
     expect(params.get('digits')).toBe('6');
     expect(params.get('period')).toBe('30');
     expect(params.get('algorithm')).toBe('SHA1');

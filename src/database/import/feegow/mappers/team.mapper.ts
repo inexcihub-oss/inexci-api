@@ -218,7 +218,7 @@ export function planejarEquipe(
       rel.rejeitar(
         rotulo,
         p.idOrigem,
-        'e-mail pertence a usuário excluído na INEXCI — cadastre com outro e-mail e use --mapear',
+        'e-mail pertence a usuário excluído na Inexci — cadastre com outro e-mail e use --mapear',
       );
       continue;
     }
@@ -227,7 +227,7 @@ export function planejarEquipe(
         rel.rejeitar(
           rotulo,
           p.idOrigem,
-          'e-mail já usado em outra conta da INEXCI — cadastre com outro e-mail e use --mapear',
+          'e-mail já usado em outra conta da Inexci — cadastre com outro e-mail e use --mapear',
         );
         continue;
       }
@@ -312,7 +312,7 @@ export function planejarEquipe(
         rel.avisar(
           rotulo,
           p.idOrigem,
-          `conselho ${p.conselhoDesconhecido} do Feegow não existe na INEXCI — entra como OUTRO; ajuste o conselho na tela de colaboradores`,
+          `conselho ${p.conselhoDesconhecido} do Feegow não existe na Inexci — entra como OUTRO; ajuste o conselho na tela de colaboradores`,
         );
       } else if (p.perfil.council === ProfessionalCouncil.OUTRO) {
         rel.avisar(

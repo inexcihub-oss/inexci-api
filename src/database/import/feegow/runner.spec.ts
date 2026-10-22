@@ -71,7 +71,7 @@ describe('interpretarArgumentos', () => {
     ]);
   });
 
-  it('lembretes: padrão é a INEXCI lembrar; --sem-lembretes desliga', () => {
+  it('lembretes: padrão é a Inexci lembrar; --sem-lembretes desliga', () => {
     expect(interpretarArgumentos(base).semLembretes).toBe(false);
     expect(
       interpretarArgumentos([...base, '--sem-lembretes']).semLembretes,

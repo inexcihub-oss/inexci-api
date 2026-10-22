@@ -100,7 +100,7 @@ describe('planejarFichas — vínculo com a consulta', () => {
     expect(ctx.relatorio.avisos).toContainEqual(
       expect.objectContaining({
         idOrigem: 'atd:a1',
-        aviso: 'consulta já tem ficha na INEXCI: ficha sem consulta',
+        aviso: 'consulta já tem ficha na Inexci: ficha sem consulta',
       }),
     );
   });

@@ -123,7 +123,7 @@ const USO = `Uso:
                  desta conta e deste banco (confira antes: ledger de outra
                  conta faz a carga apontar para pacientes alheios)
   --sem-lembretes  marca as consultas futuras importadas como já lembradas
-                 (padrão: a INEXCI envia o lembrete de 24 h delas)
+                 (padrão: a Inexci envia o lembrete de 24 h delas)
   --dono-nao-profissional  aceita que o dono da conta não case com nenhum
                  profissional do export (conta cujo dono não atende); sem
                  ela, a fase cadastro aborta e pede o --mapear do dono

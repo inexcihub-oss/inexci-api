@@ -154,7 +154,7 @@ describe('planejarEquipe — profissional sem conselho no Feegow', () => {
     ).toEqual([]);
   });
 
-  it('conselho do Feegow que a INEXCI não tem fica OUTRO, sem deduzir', () => {
+  it('conselho do Feegow que a Inexci não tem fica OUTRO, sem deduzir', () => {
     const ctx = contextoDeTeste();
     const { perfis } = planejarEquipe(
       exportSintetico({
@@ -246,7 +246,7 @@ describe('planejarEquipe — profissional sem conselho no Feegow', () => {
       expect(perfis[0].council).toBe(ProfessionalCouncil.CRM);
       expect(ctx.relatorio.avisos).not.toContainEqual(
         expect.objectContaining({
-          aviso: expect.stringContaining('não existe na INEXCI'),
+          aviso: expect.stringContaining('não existe na Inexci'),
         }),
       );
     },
@@ -322,7 +322,7 @@ describe('planejarEquipe — profissional sem conselho no Feegow', () => {
   });
 });
 
-describe('planejarEquipe — e-mail de usuário excluído na INEXCI', () => {
+describe('planejarEquipe — e-mail de usuário excluído na Inexci', () => {
   const exp = () =>
     exportSintetico({
       profissionais: [

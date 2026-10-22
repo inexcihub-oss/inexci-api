@@ -171,13 +171,13 @@ describe('MfaService', () => {
   }
 
   describe('setup', () => {
-    it('gera segredo pendente, chave formatada e URI otpauth com issuer INEXCI', async () => {
+    it('gera segredo pendente, chave formatada e URI otpauth com issuer Inexci', async () => {
       const result = await service.setup('user-1');
 
       expect(result.secret).toMatch(/^[A-Z2-7]{32}$/);
       expect(result.formattedSecret.replace(/ /g, '')).toBe(result.secret);
-      expect(result.otpauthUri).toContain('otpauth://totp/INEXCI:');
-      expect(result.otpauthUri).toContain('issuer=INEXCI');
+      expect(result.otpauthUri).toContain('otpauth://totp/Inexci:');
+      expect(result.otpauthUri).toContain('issuer=Inexci');
       expect(result.otpauthUri).toContain(encodeURIComponent('dr@inexci.com'));
       expect(estado.mfaPendingSecret).toBe(result.secret);
       expect(estado.mfaSecret).toBeNull();

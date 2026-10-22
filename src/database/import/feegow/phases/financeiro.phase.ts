@@ -84,7 +84,7 @@ export function planejarFinanceiro(
     ctx.relatorio.avisar(
       'financeiro',
       '-',
-      'sem banco: contas e formas já cadastradas na INEXCI e o CPF dos pacientes fora do ledger (D2) não foram conferidos',
+      'sem banco: contas e formas já cadastradas na Inexci e o CPF dos pacientes fora do ledger (D2) não foram conferidos',
     );
   }
   return {
@@ -263,7 +263,7 @@ async function gravarPrecos(
     plano.relatorio.avisar(
       'valor previsto da consulta',
       '-',
-      `${preservadas} consultas já tinham valor na INEXCI: preservado`,
+      `${preservadas} consultas já tinham valor na Inexci: preservado`,
     );
   }
 }

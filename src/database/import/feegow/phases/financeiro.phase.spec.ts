@@ -189,7 +189,7 @@ describe('gravarFinanceiro', () => {
     );
     expect(ctx.ledger.resolver(LEDGER_PRECO_DA_CONSULTA, 'ag-3')).toBeNull();
     expect(ctx.relatorio.avisos.map((a) => a.aviso)).toContain(
-      '1 consultas já tinham valor na INEXCI: preservado',
+      '1 consultas já tinham valor na Inexci: preservado',
     );
   });
 

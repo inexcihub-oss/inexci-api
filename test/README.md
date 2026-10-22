@@ -1,4 +1,4 @@
-# Testes E2E - INEXCI API
+# Testes E2E - Inexci API
 
 Testes end-to-end (e2e) para todas as rotas da API.
 

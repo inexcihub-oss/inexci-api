@@ -33,7 +33,7 @@ import {
   isRecoveryCodeFormat,
 } from './mfa-recovery-codes.util';
 
-export const MFA_ISSUER = 'INEXCI';
+export const MFA_ISSUER = 'Inexci';
 export const MFA_TOKEN_PURPOSE = 'mfa';
 export const MFA_TOKEN_TTL = '5m';
 export const MFA_AUDIENCE_SUFFIX = ':mfa';

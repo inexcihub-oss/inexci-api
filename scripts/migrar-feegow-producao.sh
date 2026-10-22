@@ -77,7 +77,7 @@ chmod 700 "$BASE" "$OUT_DIR"
 LOG="$OUT_DIR/execucao-$(date +%Y-%m-%d_%H%M%S).log"
 exec > >(tee -a "$LOG") 2>&1
 
-titulo "Migração Feegow → INEXCI (produção) — dono: $OWNER_EMAIL"
+titulo "Migração Feegow → Inexci (produção) — dono: $OWNER_EMAIL"
 echo "Log desta execução: $LOG"
 
 # ── 1. Conferências ──────────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ titulo "Pontos de atenção da simulação"
 echo "Banco de destino: ${BANCO:-?}"
 if grep -E 'dono da conta|já usado' "$SIMULACAO"; then
   echo
-  echo "↑ 'já usado' = a pessoa já tem conta na INEXCI e fica de fora da equipe importada."
+  echo "↑ 'já usado' = a pessoa já tem conta na Inexci e fica de fora da equipe importada."
   echo "  Aviso sobre o 'dono da conta' NÃO deveria aparecer: se aparecer, não siga."
 else
   echo "Nenhum conflito de e-mail/celular e nenhum aviso sobre o dono da conta."
@@ -181,7 +181,7 @@ Próximos passos (na tela, logado como $OWNER_EMAIL):
   3. Modelo de atestado: trocar "a contar de {{data}}" por "a contar de {{inicio}}".
   4. Recriar o bloqueio semanal de segunda, 12:00–12:30.
   5. Conferir por amostragem: agenda, pacientes com foto, fichas e anexos.
-  6. Desligar os lembretes do Feegow (a INEXCI passa a lembrar as consultas futuras).
+  6. Desligar os lembretes do Feegow (a Inexci passa a lembrar as consultas futuras).
 
 Depois, NA SUA MÁQUINA, traga o ledger, os relatórios e os logs:
   rsync -avP inexci-vps:feegow-import/carga-prod/ ~/inexci-carga-prod-$(date +%F)/
