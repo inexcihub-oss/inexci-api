@@ -4,6 +4,7 @@ import {
   HttpStatus,
   Post,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -14,18 +15,14 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import {
-  AuthenticatedUser,
-  CurrentUser,
-} from 'src/shared/decorators/current-user.decorator';
 import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
 import { Permission } from 'src/shared/permissions';
 import { limitesDeUpload } from 'src/shared/storage/limites-upload';
 import {
   ClinicalTranscriptionService,
   MAX_AUDIO_DITADO_BYTES,
-  UsuarioDoDitado,
 } from './clinical-transcription.service';
+import { DitadoLiberadoGuard } from './ditado-liberado.guard';
 
 @ApiTags('Ditado do prontuário')
 @ApiBearerAuth()
@@ -41,13 +38,11 @@ export class ClinicalTranscriptionController {
   @Throttle({ short: { ttl: 60000, limit: 20 } })
   @ApiOperation({ summary: 'Transcrever o ditado de uma seção da ficha' })
   @ApiConsumes('multipart/form-data')
+  @UseGuards(DitadoLiberadoGuard)
   @UseInterceptors(
     FileInterceptor('audio', limitesDeUpload(MAX_AUDIO_DITADO_BYTES)),
   )
-  transcribe(
-    @UploadedFile() file: Express.Multer.File | undefined,
-    @CurrentUser() user: AuthenticatedUser & UsuarioDoDitado,
-  ) {
-    return this.transcriptionService.transcribe(file, user);
+  transcribe(@UploadedFile() file: Express.Multer.File | undefined) {
+    return this.transcriptionService.transcribe(file);
   }
 }

@@ -17,6 +17,9 @@ const CLINICAL_FIELDS = [
   'cidCodes',
 ] as const;
 
+export const SOMENTE_PROPRIO_MODELO =
+  'Você só pode criar e alterar os seus próprios modelos de anamnese.';
+
 @Injectable()
 export class ClinicalRecordTemplatesService {
   constructor(
@@ -24,12 +27,10 @@ export class ClinicalRecordTemplatesService {
     private readonly accessControlService: AccessControlService,
   ) {}
 
-  async findMany(
-    userId: string,
-    doctorId?: string,
-  ): Promise<ClinicalRecordTemplate[]> {
+  async findMany(userId: string): Promise<ClinicalRecordTemplate[]> {
+    if (!(await this.accessControlService.isDoctor(userId))) return [];
     const ownerId = await this.accessControlService.getOwnerId(userId);
-    return this.templateRepository.findByOwner(ownerId, doctorId);
+    return this.templateRepository.findByOwner(ownerId, userId);
   }
 
   async create(
@@ -37,22 +38,14 @@ export class ClinicalRecordTemplatesService {
     userId: string,
   ): Promise<ClinicalRecordTemplate> {
     await this.accessControlService.assertIsDoctor(userId);
-    const ownerId = await this.accessControlService.getOwnerId(userId);
-
-    const doctorId =
-      data.doctorId ??
-      (await this.accessControlService.resolveDefaultDoctorId(userId));
-    const canAccess = await this.accessControlService.canAccessDoctor(
-      userId,
-      doctorId,
-    );
-    if (!canAccess) {
-      throw new ForbiddenException('Médico não acessível para esta operação.');
+    if (data.doctorId !== undefined && data.doctorId !== userId) {
+      throw new ForbiddenException(SOMENTE_PROPRIO_MODELO);
     }
+    const ownerId = await this.accessControlService.getOwnerId(userId);
 
     return this.templateRepository.create({
       ownerId,
-      doctorId,
+      doctorId: userId,
       name: data.name,
       specialty: data.specialty ?? null,
       anamnesis: data.anamnesis ?? null,
@@ -68,7 +61,7 @@ export class ClinicalRecordTemplatesService {
     data: UpdateClinicalRecordTemplateDto,
     userId: string,
   ): Promise<ClinicalRecordTemplate> {
-    await this.getEditable(id, userId);
+    await this.getProprio(id, userId);
 
     const updateData: Partial<ClinicalRecordTemplate> = {};
     if (data.name !== undefined) updateData.name = data.name;
@@ -83,39 +76,28 @@ export class ClinicalRecordTemplatesService {
   }
 
   async delete(id: string, userId: string): Promise<void> {
-    await this.getEditable(id, userId);
+    await this.getProprio(id, userId);
     await this.templateRepository.delete(id);
   }
 
   async apply(id: string, userId: string): Promise<ClinicalRecordTemplate> {
-    await this.accessControlService.assertIsDoctor(userId);
-    const template = await this.getOwned(id, userId);
+    const template = await this.getProprio(id, userId);
     await this.templateRepository.incrementUsage(id);
     return template;
   }
 
-  private async getOwned(
-    id: string,
-    userId: string,
-  ): Promise<ClinicalRecordTemplate> {
-    const template = await this.templateRepository.findOne({ id });
-    if (!template) throw new NotFoundException('Modelo não encontrado');
-    await this.accessControlService.assertSameOwner(userId, template.ownerId);
-    return template;
-  }
-
-  private async getEditable(
+  private async getProprio(
     id: string,
     userId: string,
   ): Promise<ClinicalRecordTemplate> {
     await this.accessControlService.assertIsDoctor(userId);
-    const template = await this.templateRepository.findOne({ id });
+    const ownerId = await this.accessControlService.getOwnerId(userId);
+    const template = await this.templateRepository.findOne({
+      id,
+      ownerId,
+      doctorId: userId,
+    });
     if (!template) throw new NotFoundException('Modelo não encontrado');
-    await this.accessControlService.assertCanAccessDoctorResource(
-      userId,
-      template.ownerId,
-      template.doctorId,
-    );
     return template;
   }
 }

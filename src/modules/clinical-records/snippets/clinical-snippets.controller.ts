@@ -9,7 +9,6 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
-  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
@@ -30,13 +29,9 @@ export class ClinicalSnippetsController {
   constructor(private readonly snippetsService: ClinicalSnippetsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Listar textos rápidos do médico' })
-  find(
-    @Query('doctorId', new ParseUUIDPipe({ optional: true }))
-    doctorId: string | undefined,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return this.snippetsService.findMany(user.userId, doctorId);
+  @ApiOperation({ summary: 'Listar os textos rápidos do próprio médico' })
+  find(@CurrentUser() user: AuthenticatedUser) {
+    return this.snippetsService.findMany(user.userId);
   }
 
   @Post()

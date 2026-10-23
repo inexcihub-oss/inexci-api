@@ -37,8 +37,8 @@ describe('ClinicalSnippetsController', () => {
   });
 
   it('delega com o usuário logado', () => {
-    void controller.find('d-1', user);
-    expect(snippets.findMany).toHaveBeenCalledWith('doc-1', 'd-1');
+    void controller.find(user);
+    expect(snippets.findMany).toHaveBeenCalledWith('doc-1');
     void controller.use('sn-1', user);
     expect(snippets.registerUse).toHaveBeenCalledWith('sn-1', 'doc-1');
   });

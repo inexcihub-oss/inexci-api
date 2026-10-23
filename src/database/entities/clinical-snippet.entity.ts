@@ -9,6 +9,7 @@ import {
   JoinColumn,
   Index,
 } from 'typeorm';
+import { encryptedTransformer } from '../../shared/crypto/encryption.util';
 import { User } from './user.entity';
 
 @Entity('clinical_snippets')
@@ -30,7 +31,7 @@ export class ClinicalSnippet {
   @Column({ type: 'varchar', length: 100 })
   title: string;
 
-  @Column({ type: 'text' })
+  @Column({ type: 'text', transformer: encryptedTransformer })
   content: string;
 
   @Column({ name: 'usage_count', type: 'int', default: 0 })

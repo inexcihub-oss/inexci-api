@@ -11,6 +11,8 @@ import { CreateClinicalSnippetDto } from './dto/create-clinical-snippet.dto';
 import { UpdateClinicalSnippetDto } from './dto/update-clinical-snippet.dto';
 
 const ATALHO_EM_USO = 'Já existe um texto rápido com esse atalho.';
+export const SOMENTE_PROPRIO_SNIPPET =
+  'Você só pode criar e alterar os seus próprios textos rápidos.';
 
 @Injectable()
 export class ClinicalSnippetsService {
@@ -19,13 +21,10 @@ export class ClinicalSnippetsService {
     private readonly accessControlService: AccessControlService,
   ) {}
 
-  async findMany(
-    userId: string,
-    doctorId?: string,
-  ): Promise<ClinicalSnippet[]> {
+  async findMany(userId: string): Promise<ClinicalSnippet[]> {
+    if (!(await this.accessControlService.isDoctor(userId))) return [];
     const ownerId = await this.accessControlService.getOwnerId(userId);
-    const alvo = await this.resolveDoctor(userId, doctorId);
-    return this.snippetRepository.findByDoctor(ownerId, alvo);
+    return this.snippetRepository.findByDoctor(ownerId, userId);
   }
 
   async create(
@@ -33,16 +32,18 @@ export class ClinicalSnippetsService {
     userId: string,
   ): Promise<ClinicalSnippet> {
     await this.accessControlService.assertIsDoctor(userId);
+    if (data.doctorId !== undefined && data.doctorId !== userId) {
+      throw new ForbiddenException(SOMENTE_PROPRIO_SNIPPET);
+    }
     const ownerId = await this.accessControlService.getOwnerId(userId);
-    const doctorId = await this.resolveDoctor(userId, data.doctorId);
 
-    if (await this.snippetRepository.shortcutInUse(doctorId, data.shortcut)) {
+    if (await this.snippetRepository.shortcutInUse(userId, data.shortcut)) {
       throw new ConflictException(ATALHO_EM_USO);
     }
 
     return this.snippetRepository.create({
       ownerId,
-      doctorId,
+      doctorId: userId,
       shortcut: data.shortcut,
       title: data.title.trim(),
       content: data.content,
@@ -54,16 +55,12 @@ export class ClinicalSnippetsService {
     data: UpdateClinicalSnippetDto,
     userId: string,
   ): Promise<ClinicalSnippet> {
-    const snippet = await this.getEditable(id, userId);
+    const snippet = await this.getProprio(id, userId);
 
     if (
       data.shortcut !== undefined &&
       data.shortcut !== snippet.shortcut &&
-      (await this.snippetRepository.shortcutInUse(
-        snippet.doctorId,
-        data.shortcut,
-        id,
-      ))
+      (await this.snippetRepository.shortcutInUse(userId, data.shortcut, id))
     ) {
       throw new ConflictException(ATALHO_EM_USO);
     }
@@ -77,45 +74,27 @@ export class ClinicalSnippetsService {
   }
 
   async delete(id: string, userId: string): Promise<void> {
-    await this.getEditable(id, userId);
+    await this.getProprio(id, userId);
     await this.snippetRepository.delete(id);
   }
 
   async registerUse(id: string, userId: string): Promise<void> {
-    await this.getEditable(id, userId);
+    await this.getProprio(id, userId);
     await this.snippetRepository.incrementUsage(id);
   }
 
-  private async resolveDoctor(
-    userId: string,
-    doctorId?: string,
-  ): Promise<string> {
-    const alvo =
-      doctorId ??
-      (await this.accessControlService.resolveDefaultDoctorId(userId));
-    const canAccess = await this.accessControlService.canAccessDoctor(
-      userId,
-      alvo,
-    );
-    if (!canAccess) {
-      throw new ForbiddenException('Médico não acessível para esta operação.');
-    }
-    return alvo;
-  }
-
-  private async getEditable(
+  private async getProprio(
     id: string,
     userId: string,
   ): Promise<ClinicalSnippet> {
     await this.accessControlService.assertIsDoctor(userId);
     const ownerId = await this.accessControlService.getOwnerId(userId);
-    const snippet = await this.snippetRepository.findOne({ id, ownerId });
+    const snippet = await this.snippetRepository.findOne({
+      id,
+      ownerId,
+      doctorId: userId,
+    });
     if (!snippet) throw new NotFoundException('Texto rápido não encontrado');
-    await this.accessControlService.assertCanAccessDoctorResource(
-      userId,
-      snippet.ownerId,
-      snippet.doctorId,
-    );
     return snippet;
   }
 }
