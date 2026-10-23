@@ -35,6 +35,15 @@ describe('TranscriptionService', () => {
     );
   });
 
+  it('diz se o áudio pode sair para a OpenAI (primário ou fallback)', () => {
+    expect(service.usesExternalProvider()).toBe(false);
+    configValues.AI_STT_ENABLE_FALLBACK = 'true';
+    expect(service.usesExternalProvider()).toBe(true);
+    configValues.AI_STT_ENABLE_FALLBACK = 'false';
+    configValues.AI_TRANSCRIPTION_PROVIDER = 'openai';
+    expect(service.usesExternalProvider()).toBe(true);
+  });
+
   it('deve usar provider primário configurado', async () => {
     fasterWhisperProviderMock.transcribe.mockResolvedValue({
       text: '  Olá   mundo  ',

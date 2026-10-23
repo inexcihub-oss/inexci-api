@@ -57,6 +57,12 @@ export class TranscriptionService {
     }
   }
 
+  usesExternalProvider(): boolean {
+    return (
+      this.getPrimaryProviderName() === 'openai' || this.isFallbackEnabled()
+    );
+  }
+
   private getPrimaryProviderName(): TranscriptionProviderName {
     const provider = this.configService
       .get<string>('AI_TRANSCRIPTION_PROVIDER', 'faster_whisper')
