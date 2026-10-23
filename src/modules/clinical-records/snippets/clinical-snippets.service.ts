@@ -82,10 +82,7 @@ export class ClinicalSnippetsService {
   }
 
   async registerUse(id: string, userId: string): Promise<void> {
-    await this.accessControlService.assertIsDoctor(userId);
-    const snippet = await this.snippetRepository.findOne({ id });
-    if (!snippet) throw new NotFoundException('Texto rápido não encontrado');
-    await this.accessControlService.assertSameOwner(userId, snippet.ownerId);
+    await this.getEditable(id, userId);
     await this.snippetRepository.incrementUsage(id);
   }
 
@@ -111,7 +108,8 @@ export class ClinicalSnippetsService {
     userId: string,
   ): Promise<ClinicalSnippet> {
     await this.accessControlService.assertIsDoctor(userId);
-    const snippet = await this.snippetRepository.findOne({ id });
+    const ownerId = await this.accessControlService.getOwnerId(userId);
+    const snippet = await this.snippetRepository.findOne({ id, ownerId });
     if (!snippet) throw new NotFoundException('Texto rápido não encontrado');
     await this.accessControlService.assertCanAccessDoctorResource(
       userId,

@@ -30,7 +30,6 @@ describe('ClinicalSnippetsService', () => {
     getOwnerId: jest.fn(),
     resolveDefaultDoctorId: jest.fn(),
     canAccessDoctor: jest.fn(),
-    assertSameOwner: jest.fn(),
     assertCanAccessDoctorResource: jest.fn(),
     assertIsDoctor: jest.fn(),
   };
@@ -46,7 +45,6 @@ describe('ClinicalSnippetsService', () => {
     accessControl.getOwnerId.mockResolvedValue('owner-1');
     accessControl.resolveDefaultDoctorId.mockResolvedValue('doctor-1');
     accessControl.canAccessDoctor.mockResolvedValue(true);
-    accessControl.assertSameOwner.mockResolvedValue(undefined);
     accessControl.assertCanAccessDoctorResource.mockResolvedValue(undefined);
     repository.findByDoctor.mockResolvedValue([snippet]);
     repository.findOne.mockResolvedValue(snippet);
@@ -173,6 +171,20 @@ describe('ClinicalSnippetsService', () => {
     });
   });
 
+  it('busca o texto só dentro da conta de quem pede (outra clínica vê 404)', async () => {
+    repository.findOne.mockResolvedValue(null);
+    accessControl.getOwnerId.mockResolvedValue('owner-2');
+
+    await expect(service.registerUse('sn-1', 'user-x')).rejects.toThrow(
+      NotFoundException,
+    );
+    expect(repository.findOne).toHaveBeenCalledWith({
+      id: 'sn-1',
+      ownerId: 'owner-2',
+    });
+    expect(repository.incrementUsage).not.toHaveBeenCalled();
+  });
+
   it('delete confere acesso antes de excluir', async () => {
     await service.delete('sn-1', 'user-1');
     expect(accessControl.assertCanAccessDoctorResource).toHaveBeenCalled();
@@ -180,18 +192,29 @@ describe('ClinicalSnippetsService', () => {
   });
 
   describe('registerUse', () => {
-    it('conta o uso de texto da mesma conta', async () => {
+    it('conta o uso conferindo o acesso ao médico dono do texto', async () => {
       await service.registerUse('sn-1', 'user-1');
-      expect(accessControl.assertSameOwner).toHaveBeenCalledWith(
+      expect(accessControl.assertCanAccessDoctorResource).toHaveBeenCalledWith(
         'user-1',
         'owner-1',
+        'doctor-1',
       );
       expect(repository.incrementUsage).toHaveBeenCalledWith('sn-1');
     });
 
-    it('não conta uso de texto de outra conta', async () => {
-      accessControl.assertSameOwner.mockRejectedValue(new ForbiddenException());
+    it('não conta uso sem vínculo com o médico, mesmo na mesma conta', async () => {
+      accessControl.assertCanAccessDoctorResource.mockRejectedValue(
+        new ForbiddenException(),
+      );
       await expect(service.registerUse('sn-1', 'user-1')).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(repository.incrementUsage).not.toHaveBeenCalled();
+    });
+
+    it('não conta uso de quem não é médico', async () => {
+      accessControl.assertIsDoctor.mockRejectedValue(new ForbiddenException());
+      await expect(service.registerUse('sn-1', 'sec-1')).rejects.toThrow(
         ForbiddenException,
       );
       expect(repository.incrementUsage).not.toHaveBeenCalled();
