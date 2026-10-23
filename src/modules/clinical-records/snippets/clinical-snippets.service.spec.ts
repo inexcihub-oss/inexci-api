@@ -112,6 +112,23 @@ describe('ClinicalSnippetsService', () => {
       expect(repository.create).not.toHaveBeenCalled();
     });
 
+    it('corrida com o mesmo atalho vira 409 pelo índice único', async () => {
+      repository.create.mockRejectedValue({
+        code: '23505',
+        constraint: 'uq_clinical_snippets_doctor_shortcut_active',
+      });
+      await expect(service.create(dto, 'doc-1')).rejects.toThrow(
+        ConflictException,
+      );
+    });
+
+    it('outro erro de gravação não vira 409', async () => {
+      repository.create.mockRejectedValue(new Error('falha no banco'));
+      await expect(service.create(dto, 'doc-1')).rejects.toThrow(
+        'falha no banco',
+      );
+    });
+
     it('é ato do médico', async () => {
       accessControl.assertIsDoctor.mockRejectedValue(
         new ForbiddenException('Apenas médicos podem realizar esta operação.'),
@@ -156,6 +173,16 @@ describe('ClinicalSnippetsService', () => {
         service.update('sn-1', { shortcut: 'outro' }, 'doc-1'),
       ).rejects.toThrow(ConflictException);
       expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('corrida ao trocar o atalho vira 409 pelo índice único', async () => {
+      repository.update.mockRejectedValue({
+        code: '23505',
+        constraint: 'uq_clinical_snippets_doctor_shortcut_active',
+      });
+      await expect(
+        service.update('sn-1', { shortcut: 'outro' }, 'doc-1'),
+      ).rejects.toThrow(ConflictException);
     });
 
     it('404 quando não existe', async () => {

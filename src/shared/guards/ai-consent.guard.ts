@@ -8,21 +8,25 @@ import {
 export const AI_CONSENT_REQUIRED_MESSAGE =
   'Esta função usa inteligência artificial. Autorize o uso de IA em Configurações > Privacidade para continuar.';
 
+export function exigirConsentimentoDeIa(
+  user: { aiConsentAcceptedAt?: Date | string | null } | undefined,
+): void {
+  if (!user?.aiConsentAcceptedAt) {
+    throw new ForbiddenException({
+      statusCode: 403,
+      error: 'AI_CONSENT_REQUIRED',
+      message: AI_CONSENT_REQUIRED_MESSAGE,
+    });
+  }
+}
+
 @Injectable()
 export class AiConsentGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const { user } = context.switchToHttp().getRequest<{
       user?: { aiConsentAcceptedAt?: Date | string | null };
     }>();
-
-    if (!user?.aiConsentAcceptedAt) {
-      throw new ForbiddenException({
-        statusCode: 403,
-        error: 'AI_CONSENT_REQUIRED',
-        message: AI_CONSENT_REQUIRED_MESSAGE,
-      });
-    }
-
+    exigirConsentimentoDeIa(user);
     return true;
   }
 }

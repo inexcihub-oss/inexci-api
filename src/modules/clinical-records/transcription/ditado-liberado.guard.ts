@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TranscriptionService } from 'src/shared/ai/transcription/transcription.service';
-import { AI_CONSENT_REQUIRED_MESSAGE } from 'src/shared/guards/ai-consent.guard';
+import { exigirConsentimentoDeIa } from 'src/shared/guards/ai-consent.guard';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 
 export interface UsuarioDoDitado {
@@ -45,15 +45,8 @@ export class DitadoLiberadoGuard implements CanActivate {
       throw new ServiceUnavailableException('Ditado por voz desativado.');
     }
 
-    if (
-      this.transcriptionService.usesExternalProvider() &&
-      !user.aiConsentAcceptedAt
-    ) {
-      throw new ForbiddenException({
-        statusCode: 403,
-        error: 'AI_CONSENT_REQUIRED',
-        message: AI_CONSENT_REQUIRED_MESSAGE,
-      });
+    if (this.transcriptionService.usesExternalProvider()) {
+      exigirConsentimentoDeIa(user);
     }
 
     return true;

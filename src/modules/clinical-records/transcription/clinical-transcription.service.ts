@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   Logger,
+  PayloadTooLargeException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -28,6 +29,11 @@ export class ClinicalTranscriptionService {
     if (!file?.buffer?.length) {
       throw new BadRequestException('Envie o áudio do ditado.');
     }
+    if (file.size > this.maxBytes()) {
+      throw new PayloadTooLargeException(
+        'O áudio passou do tamanho máximo. Dite em trechos menores.',
+      );
+    }
 
     const { mime, ext } = await validarTipoArquivo(file, this.mimesAceitos());
 
@@ -47,6 +53,18 @@ export class ClinicalTranscriptionService {
         'Não foi possível transcrever o áudio. Fale perto do microfone e tente de novo.',
       );
     }
+  }
+
+  private maxBytes(): number {
+    const configurado = Number(
+      this.configService.get<number>(
+        'AI_AUDIO_MAX_BYTES',
+        MAX_AUDIO_DITADO_BYTES,
+      ),
+    );
+    return Number.isFinite(configurado) && configurado > 0
+      ? Math.min(configurado, MAX_AUDIO_DITADO_BYTES)
+      : MAX_AUDIO_DITADO_BYTES;
   }
 
   private mimesAceitos(): string[] {

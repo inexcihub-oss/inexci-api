@@ -61,6 +61,22 @@ describe('ClinicalTranscriptionService', () => {
     });
   });
 
+  it('respeita o limite de tamanho configurado em AI_AUDIO_MAX_BYTES', async () => {
+    config.AI_AUDIO_MAX_BYTES = String(WEBM.length - 1);
+    await expect(service.transcribe(arquivo(WEBM))).rejects.toMatchObject({
+      status: 413,
+    });
+    expect(transcription.transcribe).not.toHaveBeenCalled();
+  });
+
+  it('nunca passa do teto do upload, mesmo com limite configurado maior', async () => {
+    config.AI_AUDIO_MAX_BYTES = String(100 * 1024 * 1024);
+    const grande = { ...arquivo(WEBM), size: 16 * 1024 * 1024 };
+    await expect(service.transcribe(grande)).rejects.toMatchObject({
+      status: 413,
+    });
+  });
+
   it('recusa requisição sem áudio', async () => {
     await expect(service.transcribe(undefined)).rejects.toThrow(
       BadRequestException,

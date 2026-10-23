@@ -20,6 +20,14 @@ const QUE_FALAM_COM_O_BANCO = [
   'seed',
   'seed:prices',
   'import:feegow',
+  'test:e2e:prepare',
+  'test:e2e',
+  'test:e2e:fast',
+  'test:e2e:changed',
+  'test:e2e:watch',
+  'test:e2e:cov',
+  'check:pgvector',
+  'migration:preflight',
 ];
 
 describe('fuso dos scripts que falam com o banco', () => {

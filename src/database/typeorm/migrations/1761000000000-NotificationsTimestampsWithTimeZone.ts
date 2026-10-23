@@ -1,9 +1,11 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { exigirBancoEmUtc } from '../preflight/banco-em-utc';
 
 export class NotificationsTimestampsWithTimeZone1761000000000 implements MigrationInterface {
   name = 'NotificationsTimestampsWithTimeZone1761000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    await exigirBancoEmUtc(queryRunner, this.name);
     await queryRunner.query(`
       ALTER TABLE "notifications"
         ALTER COLUMN "created_at" TYPE TIMESTAMP WITH TIME ZONE

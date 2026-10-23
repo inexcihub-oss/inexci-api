@@ -4,8 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ClinicalSnippet } from 'src/database/entities/clinical-snippet.entity';
+import {
+  ClinicalSnippet,
+  SNIPPET_ATALHO_UNICO,
+} from 'src/database/entities/clinical-snippet.entity';
 import { ClinicalSnippetRepository } from 'src/database/repositories/clinical-snippet.repository';
+import { violouIndice } from 'src/database/repositories/unique-violation.util';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { CreateClinicalSnippetDto } from './dto/create-clinical-snippet.dto';
 import { UpdateClinicalSnippetDto } from './dto/update-clinical-snippet.dto';
@@ -41,13 +45,15 @@ export class ClinicalSnippetsService {
       throw new ConflictException(ATALHO_EM_USO);
     }
 
-    return this.snippetRepository.create({
-      ownerId,
-      doctorId: userId,
-      shortcut: data.shortcut,
-      title: data.title.trim(),
-      content: data.content,
-    });
+    return this.semAtalhoRepetido(() =>
+      this.snippetRepository.create({
+        ownerId,
+        doctorId: userId,
+        shortcut: data.shortcut,
+        title: data.title.trim(),
+        content: data.content,
+      }),
+    );
   }
 
   async update(
@@ -70,7 +76,9 @@ export class ClinicalSnippetsService {
     if (data.title !== undefined) updateData.title = data.title.trim();
     if (data.content !== undefined) updateData.content = data.content;
 
-    return (await this.snippetRepository.update(id, updateData))!;
+    return (await this.semAtalhoRepetido(() =>
+      this.snippetRepository.update(id, updateData),
+    ))!;
   }
 
   async delete(id: string, userId: string): Promise<void> {
@@ -81,6 +89,17 @@ export class ClinicalSnippetsService {
   async registerUse(id: string, userId: string): Promise<void> {
     await this.getProprio(id, userId);
     await this.snippetRepository.incrementUsage(id);
+  }
+
+  private async semAtalhoRepetido<T>(gravar: () => Promise<T>): Promise<T> {
+    try {
+      return await gravar();
+    } catch (erro) {
+      if (violouIndice(erro, SNIPPET_ATALHO_UNICO)) {
+        throw new ConflictException(ATALHO_EM_USO);
+      }
+      throw erro;
+    }
   }
 
   private async getProprio(

@@ -1,4 +1,5 @@
 import { QueryRunner } from 'typeorm';
+import { CONSULTA_FUSO_DO_BANCO } from './preflight/banco-em-utc';
 import { BillingAnalysisContestationTimestampsWithTimeZone1761000200000 } from './migrations/1761000200000-BillingAnalysisContestationTimestampsWithTimeZone';
 
 const COLUNAS: Record<string, string[]> = {
@@ -22,10 +23,14 @@ const COLUNAS: Record<string, string[]> = {
 
 describe('BillingAnalysisContestationTimestampsWithTimeZone1761000200000', () => {
   function executar(sentido: 'up' | 'down') {
-    const query = jest.fn().mockResolvedValue(undefined);
+    const query = jest.fn((sql: string) =>
+      Promise.resolve(
+        sql === CONSULTA_FUSO_DO_BANCO ? [{ fuso: 'UTC' }] : undefined,
+      ),
+    );
     return new BillingAnalysisContestationTimestampsWithTimeZone1761000200000()
       [sentido]({ query } as unknown as QueryRunner)
-      .then(() => query.mock.calls.map(([s]) => s as string));
+      .then(() => query.mock.calls.map(([s]) => s));
   }
 
   it('up converte cada coluna para timestamptz preservando o instante gravado', async () => {
