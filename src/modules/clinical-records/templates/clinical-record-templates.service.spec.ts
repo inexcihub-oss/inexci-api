@@ -10,7 +10,7 @@ describe('ClinicalRecordTemplatesService', () => {
   const template = {
     id: 'tpl-1',
     ownerId: 'owner-1',
-    doctorId: 'doctor-1',
+    doctorId: 'user-1',
     name: 'Primeira consulta — ortopedia',
     specialty: 'Ortopedia',
     anamnesis: '<p>Queixa principal:</p>',
@@ -32,28 +32,24 @@ describe('ClinicalRecordTemplatesService', () => {
 
   const accessControlService = {
     getOwnerId: jest.fn(),
-    resolveDefaultDoctorId: jest.fn(),
-    canAccessDoctor: jest.fn(),
-    assertSameOwner: jest.fn(),
-    assertCanAccessDoctorResource: jest.fn(),
+    isDoctor: jest.fn(),
     assertIsDoctor: jest.fn(),
   };
 
-  const naoEhMedico = () =>
+  const naoEhMedico = () => {
+    accessControlService.isDoctor.mockResolvedValue(false);
     accessControlService.assertIsDoctor.mockRejectedValue(
       new ForbiddenException('Apenas médicos podem realizar esta operação.'),
     );
+  };
+
+  const deOutroMedico = () => repository.findOne.mockResolvedValue(null);
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    accessControlService.isDoctor.mockResolvedValue(true);
     accessControlService.assertIsDoctor.mockResolvedValue(undefined);
     accessControlService.getOwnerId.mockResolvedValue('owner-1');
-    accessControlService.resolveDefaultDoctorId.mockResolvedValue('doctor-1');
-    accessControlService.canAccessDoctor.mockResolvedValue(true);
-    accessControlService.assertSameOwner.mockResolvedValue(undefined);
-    accessControlService.assertCanAccessDoctorResource.mockResolvedValue(
-      undefined,
-    );
     repository.findByOwner.mockResolvedValue([template]);
     repository.findOne.mockResolvedValue(template);
     repository.create.mockImplementation((data: any) =>
@@ -78,25 +74,16 @@ describe('ClinicalRecordTemplatesService', () => {
   });
 
   describe('listagem', () => {
-    it('lista os modelos da clínica do usuário', async () => {
+    it('lista só os modelos do próprio médico, na conta dele', async () => {
       const result = await service.findMany('user-1');
 
-      expect(repository.findByOwner).toHaveBeenCalledWith('owner-1', undefined);
+      expect(repository.findByOwner).toHaveBeenCalledWith('owner-1', 'user-1');
       expect(result).toHaveLength(1);
-    });
-
-    it('filtra pelos modelos de um médico específico', async () => {
-      await service.findMany('user-1', 'doctor-2');
-
-      expect(repository.findByOwner).toHaveBeenCalledWith(
-        'owner-1',
-        'doctor-2',
-      );
     });
   });
 
   describe('criação', () => {
-    it('grava o modelo na clínica do usuário e no médico resolvido', async () => {
+    it('grava o modelo na clínica e no próprio médico', async () => {
       const created = await service.create(
         { name: 'Retorno', anamnesis: '<p>Evolução:</p>' },
         'user-1',
@@ -105,7 +92,7 @@ describe('ClinicalRecordTemplatesService', () => {
       expect(repository.create).toHaveBeenCalledWith(
         expect.objectContaining({
           ownerId: 'owner-1',
-          doctorId: 'doctor-1',
+          doctorId: 'user-1',
           name: 'Retorno',
           anamnesis: '<p>Evolução:</p>',
         }),
@@ -113,26 +100,17 @@ describe('ClinicalRecordTemplatesService', () => {
       expect(created.id).toBe('tpl-novo');
     });
 
-    it('usa o médico informado quando o usuário tem acesso a ele', async () => {
-      await service.create({ name: 'Retorno', doctorId: 'doctor-2' }, 'user-1');
+    it('aceita doctorId igual ao próprio usuário', async () => {
+      await service.create({ name: 'Retorno', doctorId: 'user-1' }, 'user-1');
 
-      expect(accessControlService.canAccessDoctor).toHaveBeenCalledWith(
-        'user-1',
-        'doctor-2',
-      );
       expect(repository.create).toHaveBeenCalledWith(
-        expect.objectContaining({ doctorId: 'doctor-2' }),
+        expect.objectContaining({ doctorId: 'user-1' }),
       );
     });
 
-    it('recusa criar modelo para médico fora do acesso do usuário', async () => {
-      accessControlService.canAccessDoctor.mockResolvedValue(false);
-
+    it('recusa criar modelo para outro médico, mesmo com vínculo', async () => {
       await expect(
-        service.create(
-          { name: 'Retorno', doctorId: 'alheio' } as any,
-          'user-1',
-        ),
+        service.create({ name: 'Retorno', doctorId: 'doctor-2' }, 'user-1'),
       ).rejects.toThrow(ForbiddenException);
 
       expect(repository.create).not.toHaveBeenCalled();
@@ -140,6 +118,16 @@ describe('ClinicalRecordTemplatesService', () => {
   });
 
   describe('edição e exclusão', () => {
+    it('busca o modelo só entre os do próprio médico', async () => {
+      await service.update('tpl-1', { name: 'Novo nome' }, 'user-1');
+
+      expect(repository.findOne).toHaveBeenCalledWith({
+        id: 'tpl-1',
+        ownerId: 'owner-1',
+        doctorId: 'user-1',
+      });
+    });
+
     it('atualiza apenas os campos enviados', async () => {
       await service.update('tpl-1', { name: 'Novo nome' }, 'user-1');
 
@@ -156,78 +144,46 @@ describe('ClinicalRecordTemplatesService', () => {
       });
     });
 
-    it('recusa editar modelo de outra clínica', async () => {
-      accessControlService.assertCanAccessDoctorResource.mockRejectedValue(
-        new ForbiddenException(),
-      );
+    it('recusa editar modelo de outro médico', async () => {
+      deOutroMedico();
 
       await expect(
-        service.update('tpl-1', { name: 'x' } as any, 'intruso'),
-      ).rejects.toThrow(ForbiddenException);
+        service.update('tpl-1', { name: 'x' }, 'doctor-2'),
+      ).rejects.toThrow(NotFoundException);
 
       expect(repository.update).not.toHaveBeenCalled();
     });
 
-    it('recusa editar modelo de médico fora do acesso do usuário', async () => {
-      accessControlService.assertCanAccessDoctorResource.mockRejectedValue(
-        new ForbiddenException(),
-      );
+    it('recusa excluir modelo de outro médico', async () => {
+      deOutroMedico();
 
-      await expect(
-        service.update('tpl-1', { name: 'x' } as any, 'colaborador'),
-      ).rejects.toThrow(ForbiddenException);
-
-      expect(
-        accessControlService.assertCanAccessDoctorResource,
-      ).toHaveBeenCalledWith('colaborador', 'owner-1', 'doctor-1');
-      expect(repository.update).not.toHaveBeenCalled();
-    });
-
-    it('recusa excluir modelo de médico fora do acesso do usuário', async () => {
-      accessControlService.assertCanAccessDoctorResource.mockRejectedValue(
-        new ForbiddenException(),
-      );
-
-      await expect(service.delete('tpl-1', 'colaborador')).rejects.toThrow(
-        ForbiddenException,
+      await expect(service.delete('tpl-1', 'doctor-2')).rejects.toThrow(
+        NotFoundException,
       );
 
       expect(repository.delete).not.toHaveBeenCalled();
     });
 
-    it('falha quando o modelo não existe', async () => {
-      repository.findOne.mockResolvedValue(null);
-
-      await expect(
-        service.update('sumido', { name: 'x' } as any, 'user-1'),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('exclui o modelo depois de validar tenant e acesso ao médico', async () => {
+    it('exclui o próprio modelo', async () => {
       await service.delete('tpl-1', 'user-1');
 
-      expect(
-        accessControlService.assertCanAccessDoctorResource,
-      ).toHaveBeenCalledWith('user-1', 'owner-1', 'doctor-1');
       expect(repository.delete).toHaveBeenCalledWith('tpl-1');
     });
   });
 
   describe('aplicação', () => {
-    it('conta o uso ao aplicar o modelo na ficha', async () => {
+    it('conta o uso ao aplicar o próprio modelo na ficha', async () => {
       const applied = await service.apply('tpl-1', 'user-1');
 
       expect(repository.incrementUsage).toHaveBeenCalledWith('tpl-1');
       expect(applied.anamnesis).toBe('<p>Queixa principal:</p>');
     });
 
-    it('não aplica modelo de outra clínica', async () => {
-      accessControlService.assertSameOwner.mockRejectedValue(
-        new ForbiddenException(),
-      );
+    it('não aplica modelo de outro médico', async () => {
+      deOutroMedico();
 
-      await expect(service.apply('tpl-1', 'intruso')).rejects.toThrow(
-        ForbiddenException,
+      await expect(service.apply('tpl-1', 'doctor-2')).rejects.toThrow(
+        NotFoundException,
       );
 
       expect(repository.incrementUsage).not.toHaveBeenCalled();
@@ -239,7 +195,7 @@ describe('ClinicalRecordTemplatesService', () => {
       naoEhMedico();
 
       await expect(
-        service.create({ name: 'Retorno' } as any, 'secretaria'),
+        service.create({ name: 'Retorno' }, 'secretaria'),
       ).rejects.toThrow(ForbiddenException);
 
       expect(accessControlService.assertIsDoctor).toHaveBeenCalledWith(
@@ -252,7 +208,7 @@ describe('ClinicalRecordTemplatesService', () => {
       naoEhMedico();
 
       await expect(
-        service.update('tpl-1', { name: 'Renomeado' } as any, 'secretaria'),
+        service.update('tpl-1', { name: 'Renomeado' }, 'secretaria'),
       ).rejects.toThrow(ForbiddenException);
 
       expect(repository.update).not.toHaveBeenCalled();
@@ -278,13 +234,13 @@ describe('ClinicalRecordTemplatesService', () => {
       expect(repository.incrementUsage).not.toHaveBeenCalled();
     });
 
-    it('mantém a listagem liberada para quem não é médico', async () => {
+    it('quem não é médico não tem modelos para listar', async () => {
       naoEhMedico();
 
       const result = await service.findMany('secretaria');
 
-      expect(result).toHaveLength(1);
-      expect(accessControlService.assertIsDoctor).not.toHaveBeenCalled();
+      expect(result).toEqual([]);
+      expect(repository.findByOwner).not.toHaveBeenCalled();
     });
 
     it('exige ser médico ANTES de aceitar o médico informado no corpo', async () => {
@@ -292,12 +248,12 @@ describe('ClinicalRecordTemplatesService', () => {
 
       await expect(
         service.create(
-          { name: 'Retorno', doctorId: 'doctor-1' } as any,
+          { name: 'Retorno', doctorId: 'secretaria' },
           'secretaria',
         ),
       ).rejects.toThrow(ForbiddenException);
 
-      expect(accessControlService.canAccessDoctor).not.toHaveBeenCalled();
+      expect(repository.create).not.toHaveBeenCalled();
     });
   });
 });

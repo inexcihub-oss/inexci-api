@@ -53,6 +53,8 @@ const MIME_EQUIVALENTE: Readonly<Record<string, string>> = {
 
 const DETECCAO_ACEITA_PARA: Readonly<Record<string, readonly string[]>> = {
   [MIME_DOC]: ['application/x-cfb'],
+  'audio/webm': ['video/webm'],
+  'audio/mp4': ['video/mp4', 'audio/x-m4a'],
 };
 
 const MIME_GENERICOS = ['', 'application/octet-stream'];

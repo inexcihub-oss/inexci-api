@@ -103,6 +103,7 @@ export const envValidationSchema = Joi.object({
   AI_RAG_MIN_SCORE: Joi.number().default(0.65),
 
   AI_AUDIO_ENABLED: Joi.string().allow('').default('true'),
+  CLINICAL_DICTATION_ENABLED: Joi.string().allow('').default('false'),
   AI_AUDIO_DOWNLOAD_TIMEOUT_MS: Joi.number().default(15000),
   AI_AUDIO_MAX_BYTES: Joi.number().default(15 * 1024 * 1024),
   AI_AUDIO_MAX_DURATION_SECONDS: Joi.number().default(300),

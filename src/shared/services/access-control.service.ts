@@ -184,9 +184,13 @@ export class AccessControlService {
     }
   }
 
-  async assertIsDoctor(userId: string): Promise<void> {
+  async isDoctor(userId: string): Promise<boolean> {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
-    if (!user?.doctorProfile) {
+    return !!user?.doctorProfile;
+  }
+
+  async assertIsDoctor(userId: string): Promise<void> {
+    if (!(await this.isDoctor(userId))) {
       throw new ForbiddenException(
         'Apenas médicos podem realizar esta operação.',
       );

@@ -17,6 +17,10 @@ export const COLUNAS_CLINICAS_CIFRADAS: readonly ColunaCifrada[] = [
   { tabela: 'clinical_records', coluna: 'conduct' },
 ];
 
+export const COLUNAS_TEXTOS_RAPIDOS_CIFRADAS: readonly ColunaCifrada[] = [
+  { tabela: 'clinical_snippets', coluna: 'content' },
+];
+
 export type ExecutarSql = (
   sql: string,
   parametros?: unknown[],
@@ -67,9 +71,10 @@ async function percorrer(
 export async function cifrarTextoClinicoLegado(
   executar: ExecutarSql,
   lote = LOTE_PADRAO,
+  colunas: readonly ColunaCifrada[] = COLUNAS_CLINICAS_CIFRADAS,
 ): Promise<number> {
   let total = 0;
-  for (const alvo of COLUNAS_CLINICAS_CIFRADAS) {
+  for (const alvo of colunas) {
     total += await percorrer(
       executar,
       alvo,
@@ -84,9 +89,10 @@ export async function cifrarTextoClinicoLegado(
 export async function decifrarTextoClinico(
   executar: ExecutarSql,
   lote = LOTE_PADRAO,
+  colunas: readonly ColunaCifrada[] = COLUNAS_CLINICAS_CIFRADAS,
 ): Promise<number> {
   let total = 0;
-  for (const alvo of COLUNAS_CLINICAS_CIFRADAS) {
+  for (const alvo of colunas) {
     total += await percorrer(
       executar,
       alvo,

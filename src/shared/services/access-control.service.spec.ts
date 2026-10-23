@@ -610,6 +610,27 @@ describe('AccessControlService', () => {
     });
   });
 
+  describe('isDoctor', () => {
+    it('diz sim para quem tem doctorProfile e não para os demais', async () => {
+      userRepository.findOneWithProfile.mockResolvedValueOnce({
+        id: 'doctor-id',
+        role: UserRole.COLLABORATOR,
+        doctorProfile: { id: 'profile-1' },
+      } as any);
+      await expect(service.isDoctor('doctor-id')).resolves.toBe(true);
+
+      userRepository.findOneWithProfile.mockResolvedValueOnce({
+        id: 'assistant-id',
+        role: UserRole.COLLABORATOR,
+        doctorProfile: null,
+      } as any);
+      await expect(service.isDoctor('assistant-id')).resolves.toBe(false);
+
+      userRepository.findOneWithProfile.mockResolvedValueOnce(null);
+      await expect(service.isDoctor('sumido')).resolves.toBe(false);
+    });
+  });
+
   describe('assertIsDoctor', () => {
     it('libera quem tem doctorProfile', async () => {
       userRepository.findOneWithProfile.mockResolvedValue({

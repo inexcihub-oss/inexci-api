@@ -398,6 +398,29 @@ export const EMAIL_REPETIDO_SEM_MAIUSCULAS: VerificacaoPreMigration = {
     })),
 };
 
+export const TEXTO_RAPIDO_COM_ATALHO_REPETIDO: VerificacaoPreMigration = {
+  migration: 'AddUniqueClinicalSnippetShortcut1761000700000',
+  descricao:
+    'textos rápidos vivos do mesmo médico com o mesmo atalho em "clinical_snippets"',
+  sql: `SELECT cs."doctor_id" AS doctor_id,
+               cs."shortcut" AS atalho,
+               string_agg(cs."id"::text, ', ' ORDER BY cs."created_at") AS ids
+          FROM "clinical_snippets" cs
+         WHERE cs."deleted_at" IS NULL
+         GROUP BY cs."doctor_id", cs."shortcut"
+        HAVING count(*) > 1
+         ORDER BY 1, 2`,
+  comoResolver:
+    'Para cada grupo, mantenha o texto rápido mais usado e troque o atalho dos demais (ou exclua-os pela tela de Configurações > Textos rápidos) antes de repetir o deploy.',
+  inspecionar:
+    'SELECT id, doctor_id, shortcut, title, usage_count, created_at FROM clinical_snippets WHERE id IN (...);',
+  mapear: (linhas) =>
+    linhas.map((linha) => ({
+      chave: `médico ${texto(linha.doctor_id)}: /${texto(linha.atalho)}`,
+      ids: texto(linha.ids),
+    })),
+};
+
 function tabelasQueAMigrationCria(
   migration: string,
   tabelas: readonly string[],
@@ -457,6 +480,7 @@ export const VERIFICACOES_PRE_MIGRATION: VerificacaoPreMigration[] = [
   TABELAS_DA_FUNDACAO_FINANCEIRA,
   TABELA_DE_CAIXA,
   TABELAS_DE_COBRANCA,
+  TEXTO_RAPIDO_COM_ATALHO_REPETIDO,
 ];
 
 export function montarDiagnostico(

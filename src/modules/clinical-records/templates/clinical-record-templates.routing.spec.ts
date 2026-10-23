@@ -79,18 +79,18 @@ describe('Modelos de anamnese (rotas)', () => {
       .get('/clinical-records/templates')
       .expect(200);
 
-    expect(templatesService.findMany).toHaveBeenCalledWith('user-1', undefined);
+    expect(templatesService.findMany).toHaveBeenCalledWith('user-1');
     expect(recordsService.findOne).not.toHaveBeenCalled();
   });
 
-  it('GET /clinical-records/templates?doctorId filtra por médico', async () => {
+  it('GET /clinical-records/templates?doctorId ignora o médico pedido e lista só os do usuário', async () => {
     const doctorId = '55555555-5555-4555-8555-555555555555';
 
     await request(app.getHttpServer())
       .get(`/clinical-records/templates?doctorId=${doctorId}`)
       .expect(200);
 
-    expect(templatesService.findMany).toHaveBeenCalledWith('user-1', doctorId);
+    expect(templatesService.findMany).toHaveBeenCalledWith('user-1');
   });
 
   it('POST /clinical-records/templates cria o modelo', async () => {

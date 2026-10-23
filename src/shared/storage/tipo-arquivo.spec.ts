@@ -11,6 +11,8 @@ const detectarTipo = (buf: Buffer) => {
     return Promise.resolve({ ext: 'pdf', mime: 'application/pdf' });
   if (hex.startsWith('d0cf11e0a1b11ae1'))
     return Promise.resolve({ ext: 'cfb', mime: 'application/x-cfb' });
+  if (hex.startsWith('1a45dfa3'))
+    return Promise.resolve({ ext: 'webm', mime: 'video/webm' });
   if (inicio === 'DOCX')
     return Promise.resolve({
       ext: 'docx',
@@ -265,5 +267,21 @@ describe('tipo-arquivo', () => {
         'attachment; filename="a___X__y.txt"',
       );
     });
+  });
+
+  it('aceita áudio gravado no navegador: webm detectado como video/webm', async () => {
+    const webm = Buffer.from('1a45dfa3000000000000', 'hex');
+    await expect(
+      validarTipoArquivo({ mimetype: 'audio/webm;codecs=opus', buffer: webm }, [
+        'audio/webm',
+        'audio/ogg',
+      ]),
+    ).resolves.toEqual({ mime: 'audio/webm', ext: 'webm' });
+    await expect(
+      validarTipoArquivo({ mimetype: 'audio/ogg', buffer: webm }, [
+        'audio/webm',
+        'audio/ogg',
+      ]),
+    ).rejects.toThrow(BadRequestException);
   });
 });

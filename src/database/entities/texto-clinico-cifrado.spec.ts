@@ -1,6 +1,7 @@
 import { getMetadataArgsStorage } from 'typeorm';
 import { Patient } from './patient.entity';
 import { ClinicalRecord } from './clinical-record.entity';
+import { ClinicalSnippet } from './clinical-snippet.entity';
 import { WhatsappConversationMessage } from './whatsapp-conversation-message.entity';
 import { encryptedTransformer } from '../../shared/crypto/encryption.util';
 
@@ -19,6 +20,7 @@ describe('texto clínico cifrado em repouso', () => {
     [ClinicalRecord, 'diagnosis'],
     [ClinicalRecord, 'conduct'],
     [WhatsappConversationMessage, 'content'],
+    [ClinicalSnippet, 'content'],
   ])('%p.%s usa o encryptedTransformer', (entidade, propriedade) => {
     expect(transformerDe(entidade, propriedade)).toBe(encryptedTransformer);
   });
@@ -27,7 +29,7 @@ describe('texto clínico cifrado em repouso', () => {
     const colunas = getMetadataArgsStorage().columns.filter(
       (c) => c.options.transformer === encryptedTransformer,
     );
-    expect(colunas.length).toBeGreaterThanOrEqual(6);
+    expect(colunas.length).toBeGreaterThanOrEqual(7);
     for (const c of colunas) {
       expect(c.options.type).toBe('text');
     }

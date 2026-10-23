@@ -1,12 +1,14 @@
 import * as crypto from 'crypto';
 import {
   COLUNAS_CLINICAS_CIFRADAS,
+  COLUNAS_TEXTOS_RAPIDOS_CIFRADAS,
   cifrarTextoClinicoLegado,
   decifrarTextoClinico,
   ExecutarSql,
 } from './backfill/cifrar-texto-clinico';
 import { decrypt, isEncrypted } from 'src/shared/crypto/encryption.util';
 import { EncryptClinicalFreeText1755802310000 } from './migrations/1755802310000-EncryptClinicalFreeText';
+import { EncryptClinicalSnippetContent1761000600000 } from './migrations/1761000600000-EncryptClinicalSnippetContent';
 
 type Tabelas = Record<string, Array<Record<string, string | null>>>;
 
@@ -137,5 +139,54 @@ describe('cifragem do texto clínico legado', () => {
     } as never);
 
     expect(isEncrypted(tabelas.clinical_records[2].conduct)).toBe(true);
+  });
+
+  describe('textos rápidos', () => {
+    function textos(): Tabelas {
+      return {
+        clinical_snippets: [
+          { id: 's1', content: '<p>Paciente refere dor no joelho.</p>' },
+          { id: 's2', content: '<p>Bom estado geral.</p>' },
+        ],
+        clinical_records: [{ id: 'c1', anamnesis: 'Queixa' }],
+      };
+    }
+
+    it('cobre o conteúdo dos textos rápidos', () => {
+      expect(COLUNAS_TEXTOS_RAPIDOS_CIFRADAS).toEqual([
+        { tabela: 'clinical_snippets', coluna: 'content' },
+      ]);
+    });
+
+    it('migration cifra só os textos rápidos e o down devolve em claro', async () => {
+      const tabelas = textos();
+      const banco = bancoFalso(tabelas);
+      const migration = new EncryptClinicalSnippetContent1761000600000();
+
+      await migration.up({ query: banco.executar } as never);
+
+      expect(isEncrypted(tabelas.clinical_snippets[0].content)).toBe(true);
+      expect(decrypt(tabelas.clinical_snippets[1].content as string)).toBe(
+        '<p>Bom estado geral.</p>',
+      );
+      expect(tabelas.clinical_records[0].anamnesis).toBe('Queixa');
+
+      await migration.down({ query: banco.executar } as never);
+
+      expect(tabelas.clinical_snippets[0].content).toBe(
+        '<p>Paciente refere dor no joelho.</p>',
+      );
+    });
+
+    it('migration não faz nada sem DB_ENCRYPTION_KEY', async () => {
+      delete process.env.DB_ENCRYPTION_KEY;
+      const query = jest.fn();
+
+      await new EncryptClinicalSnippetContent1761000600000().up({
+        query,
+      } as never);
+
+      expect(query).not.toHaveBeenCalled();
+    });
   });
 });

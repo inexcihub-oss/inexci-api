@@ -7,6 +7,7 @@ export { AppointmentRepository } from './appointment.repository';
 export { ClinicalRecordRepository } from './clinical-record.repository';
 export { ClinicalRecordTemplateRepository } from './clinical-record-template.repository';
 export { ClinicalDocumentTemplateRepository } from './clinical-document-template.repository';
+export { ClinicalSnippetRepository } from './clinical-snippet.repository';
 export { DoctorScheduleRepository } from './doctor-schedule.repository';
 export { ScheduleBlockRepository } from './schedule-block.repository';
 export { HolidayRepository } from './holiday.repository';

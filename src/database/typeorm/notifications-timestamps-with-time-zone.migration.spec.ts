@@ -1,9 +1,14 @@
 import { QueryRunner } from 'typeorm';
+import { CONSULTA_FUSO_DO_BANCO } from './preflight/banco-em-utc';
 import { NotificationsTimestampsWithTimeZone1761000000000 } from './migrations/1761000000000-NotificationsTimestampsWithTimeZone';
 
 describe('NotificationsTimestampsWithTimeZone1761000000000', () => {
   function criarQueryRunner() {
-    const query = jest.fn().mockResolvedValue(undefined);
+    const query = jest.fn((sql: string) =>
+      Promise.resolve(
+        sql === CONSULTA_FUSO_DO_BANCO ? [{ fuso: 'UTC' }] : undefined,
+      ),
+    );
     return { queryRunner: { query } as unknown as QueryRunner, query };
   }
 
@@ -14,7 +19,7 @@ describe('NotificationsTimestampsWithTimeZone1761000000000', () => {
       queryRunner,
     );
 
-    const sql = query.mock.calls.map(([s]) => s as string).join('\n');
+    const sql = query.mock.calls.map(([s]) => s).join('\n');
     for (const coluna of ['created_at', 'updated_at']) {
       expect(sql).toContain(
         `ALTER COLUMN "${coluna}" TYPE TIMESTAMP WITH TIME ZONE`,
@@ -33,7 +38,7 @@ describe('NotificationsTimestampsWithTimeZone1761000000000', () => {
       queryRunner,
     );
 
-    const sql = query.mock.calls.map(([s]) => s as string).join('\n');
+    const sql = query.mock.calls.map(([s]) => s).join('\n');
     expect(sql).toContain('TYPE TIMESTAMP WITHOUT TIME ZONE');
   });
 });

@@ -42,9 +42,7 @@ import { OperationDraftService } from './services/operation-draft.service';
 import { WhatsappDocumentDispatcherService } from './services/whatsapp-document-dispatcher.service';
 import { WhatsappDocumentProcessorService } from './services/whatsapp-document-processor.service';
 import { AiMessageProcessor } from './ai-message.processor';
-import { TranscriptionService } from './transcription/transcription.service';
-import { FasterWhisperProvider } from './transcription/providers/faster-whisper.provider';
-import { OpenaiWhisperProvider } from './transcription/providers/openai-whisper.provider';
+import { TranscriptionModule } from './transcription/transcription.module';
 import { ResponseNormalizerService } from './services/orchestrator/response-normalizer.service';
 import { PhoneNormalizerService } from './services/orchestrator/phone-normalizer.service';
 import { ClearContextDetectorService } from './services/orchestrator/clear-context-detector.service';
@@ -73,6 +71,7 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
     WhatsappModule,
     AccessControlModule,
     OcrModule,
+    TranscriptionModule,
     SurgeryRequestsModule,
     PendenciesModule,
     TussModule,
@@ -99,9 +98,6 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
     ToolRegistryService,
     ToolExecutorService,
     ToolConfirmationGateService,
-    TranscriptionService,
-    FasterWhisperProvider,
-    OpenaiWhisperProvider,
     AiOrchestratorService,
     UserAnonymizationService,
     AiRedisService,

@@ -7,7 +7,6 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
-  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
@@ -30,12 +29,9 @@ export class ClinicalRecordTemplatesController {
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'Listar modelos de anamnese da clínica' })
-  find(
-    @Query('doctorId') doctorId: string | undefined,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return this.templatesService.findMany(user.userId, doctorId);
+  @ApiOperation({ summary: 'Listar os modelos de anamnese do próprio médico' })
+  find(@CurrentUser() user: AuthenticatedUser) {
+    return this.templatesService.findMany(user.userId);
   }
 
   @Post()

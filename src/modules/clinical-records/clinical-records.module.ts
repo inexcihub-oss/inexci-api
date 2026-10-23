@@ -11,6 +11,11 @@ import { ClinicalRecordTemplatesController } from './templates/clinical-record-t
 import { ClinicalRecordTemplatesService } from './templates/clinical-record-templates.service';
 import { ClinicalDocumentTemplatesController } from './document-templates/clinical-document-templates.controller';
 import { ClinicalDocumentTemplatesService } from './document-templates/clinical-document-templates.service';
+import { ClinicalSnippetsController } from './snippets/clinical-snippets.controller';
+import { ClinicalSnippetsService } from './snippets/clinical-snippets.service';
+import { ClinicalTranscriptionController } from './transcription/clinical-transcription.controller';
+import { ClinicalTranscriptionService } from './transcription/clinical-transcription.service';
+import { TranscriptionModule } from 'src/shared/ai/transcription/transcription.module';
 import { PdfModule } from 'src/shared/pdf/pdf.module';
 import { SurgicalIndicationService } from './surgical-indication/surgical-indication.service';
 import { IndicationDocumentsService } from './surgical-indication/indication-documents.service';
@@ -27,11 +32,14 @@ import { SurgeryRequestRealtimeModule } from 'src/modules/surgery-requests/realt
     SurgeryRequestRealtimeModule,
     PdfModule,
     QueuesModule,
+    TranscriptionModule,
   ],
   controllers: [
     ClinicalDocumentsController,
     ClinicalRecordTemplatesController,
     ClinicalDocumentTemplatesController,
+    ClinicalSnippetsController,
+    ClinicalTranscriptionController,
     ClinicalRecordsController,
   ],
   providers: [
@@ -40,6 +48,8 @@ import { SurgeryRequestRealtimeModule } from 'src/modules/surgery-requests/realt
     ClinicalDocumentGenerationService,
     ClinicalRecordTemplatesService,
     ClinicalDocumentTemplatesService,
+    ClinicalSnippetsService,
+    ClinicalTranscriptionService,
     SurgicalIndicationService,
     IndicationDocumentsService,
     IndicationDocumentsJobsService,
