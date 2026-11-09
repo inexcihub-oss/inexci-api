@@ -10,6 +10,8 @@ import {
   NotificationSendType,
 } from 'src/database/entities/notification-send-log.entity';
 import { getRequestContext } from 'src/shared/logging/request-context';
+import { AccountStatusService } from 'src/shared/account-status/account-status.service';
+import { CONTA_DESATIVADA_MENSAGEM } from 'src/modules/auth/account-deactivation';
 
 describe('WhatsappProcessor', () => {
   let processor: WhatsappProcessor;
@@ -17,6 +19,7 @@ describe('WhatsappProcessor', () => {
     create: jest.Mock;
     save: jest.Mock;
   };
+  let accountStatus: { isDeactivated: jest.Mock };
 
   beforeEach(async () => {
     delete process.env.TWILIO_ACCOUNT_SID;
@@ -26,6 +29,7 @@ describe('WhatsappProcessor', () => {
       create: jest.fn().mockImplementation((data) => ({ ...data })),
       save: jest.fn().mockResolvedValue(undefined),
     };
+    accountStatus = { isDeactivated: jest.fn().mockResolvedValue(false) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -34,6 +38,7 @@ describe('WhatsappProcessor', () => {
           provide: getRepositoryToken(NotificationSendLog),
           useValue: mockSendLogRepository,
         },
+        { provide: AccountStatusService, useValue: accountStatus },
         {
           provide: ConfigService,
           useValue: {
@@ -86,6 +91,24 @@ describe('WhatsappProcessor', () => {
       expect(created.to).not.toBe('+5511999999999');
       expect(created.to).toContain('*');
       expect(mockSendLogRepository.save).toHaveBeenCalled();
+    });
+
+    it('não envia mensagem de conta desativada e registra o motivo', async () => {
+      accountStatus.isDeactivated.mockResolvedValue(true);
+      const job = {
+        data: { to: '+5511999999999', body: 'Lembrete', tenantId: 'owner-1' },
+        id: '9',
+        attemptsMade: 0,
+      } as any;
+
+      await processor.handleSendWhatsapp(job);
+
+      expect(accountStatus.isDeactivated).toHaveBeenCalledWith('owner-1');
+      const savedLog = mockSendLogRepository.save.mock.calls[0][0];
+      expect(savedLog.status).toBe(NotificationSendStatus.FAILED);
+      expect(savedLog.errorMessage).toBe(CONTA_DESATIVADA_MENSAGEM);
+      expect(savedLog.sentAt).toBeNull();
+      expect(savedLog.ownerId).toBe('owner-1');
     });
 
     it('deve marcar status como SENT quando sucesso no modo dev', async () => {
@@ -179,6 +202,9 @@ describe('WhatsappProcessor', () => {
       expect(capturedUserId).toBe('user-55');
       expect(capturedTenantId).toBe('tenant-55');
       expect(getRequestContext()).toBeUndefined();
+      expect(mockSendLogRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ ownerId: 'tenant-55', userId: 'user-55' }),
+      );
     });
 
     it('deve normalizar telefone BR para E.164 (mascarado no log)', async () => {

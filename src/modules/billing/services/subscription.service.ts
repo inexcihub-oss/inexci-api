@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -27,11 +28,18 @@ import {
   GatewaySubscription,
   GatewaySubscriptionStatus,
 } from 'src/shared/payment-gateway/payment-gateway.types';
+import {
+  PAST_DUE_GRACE_DAYS,
+  ceilDaysUntil,
+  suspensionDateFor as suspensionDateOf,
+} from '../billing-days';
+import { discountColumnsFrom } from '../subscription-discount';
 
 const TRIAL_END_ANTECEDENCIA_MINIMA_MS = 48 * 60 * 60 * 1000;
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const SEM_COBRANCA_NO_ACESSO_INTERNO =
+  'Conta com acesso interno não tem cobrança.';
 
-export const PAST_DUE_GRACE_DAYS = 7;
+export { PAST_DUE_GRACE_DAYS };
 
 @Injectable()
 export class SubscriptionService {
@@ -133,12 +141,7 @@ export class SubscriptionService {
       subscription.status === SubscriptionStatus.TRIALING &&
       subscription.trialEndsAt
     ) {
-      daysLeftInTrial = Math.max(
-        0,
-        Math.ceil(
-          (subscription.trialEndsAt.getTime() - now.getTime()) / MS_PER_DAY,
-        ),
-      );
+      daysLeftInTrial = ceilDaysUntil(subscription.trialEndsAt, now);
     }
 
     let daysUntilSuspension: number | null = null;
@@ -147,10 +150,7 @@ export class SubscriptionService {
       subscription.pastDueSince
     ) {
       const suspensionDate = this.suspensionDateFor(subscription.pastDueSince);
-      daysUntilSuspension = Math.max(
-        0,
-        Math.ceil((suspensionDate.getTime() - now.getTime()) / MS_PER_DAY),
-      );
+      daysUntilSuspension = ceilDaysUntil(suspensionDate, now);
     }
 
     return { subscription, daysLeftInTrial, daysUntilSuspension };
@@ -159,6 +159,9 @@ export class SubscriptionService {
   private async reconcileWithGatewayOnRead(
     subscription: Subscription,
   ): Promise<Subscription> {
+    if (subscription.status === SubscriptionStatus.INTERNAL) {
+      return subscription;
+    }
     if (subscription.gatewayProvider !== this.gateway.providerId) {
       return subscription;
     }
@@ -191,9 +194,16 @@ export class SubscriptionService {
         gatewaySubLatestByCustomer,
       );
 
+      if (
+        subscription.status === SubscriptionStatus.TRIALING &&
+        (!gatewaySub || this.isDeadGatewaySubscription(gatewaySub))
+      ) {
+        return subscription;
+      }
+
       if (!gatewaySub) {
         if (subscription.status !== SubscriptionStatus.CANCELED) {
-          await this.subscriptionRepo.update(subscription.id, {
+          await this.subscriptionRepo.updateUnlessInternal(subscription.id, {
             status: SubscriptionStatus.CANCELED,
             canceledAt: new Date(),
             cancelAtPeriodEnd: false,
@@ -252,11 +262,12 @@ export class SubscriptionService {
     if (!sub) return;
     if (
       sub.status === SubscriptionStatus.PAST_DUE ||
-      sub.status === SubscriptionStatus.SUSPENDED
+      sub.status === SubscriptionStatus.SUSPENDED ||
+      sub.status === SubscriptionStatus.INTERNAL
     ) {
       return;
     }
-    await this.subscriptionRepo.update(subscriptionId, {
+    await this.subscriptionRepo.updateUnlessInternal(subscriptionId, {
       status: SubscriptionStatus.PAST_DUE,
       pastDueSince: at,
     });
@@ -264,18 +275,18 @@ export class SubscriptionService {
 
   async markActive(subscriptionId: string): Promise<void> {
     const sub = await this.subscriptionRepo.findOne({ id: subscriptionId });
-    if (!sub) return;
-    await this.subscriptionRepo.update(subscriptionId, {
+    if (!sub || sub.status === SubscriptionStatus.INTERNAL) return;
+    await this.subscriptionRepo.updateUnlessInternal(subscriptionId, {
       status: SubscriptionStatus.ACTIVE,
       pastDueSince: null,
       suspendedAt: null,
     });
   }
 
-  async suspend(subscriptionId: string, at: Date): Promise<void> {
+  async suspend(subscriptionId: string, at: Date): Promise<boolean> {
     const sub = await this.subscriptionRepo.findOne({ id: subscriptionId });
-    if (!sub) return;
-    await this.subscriptionRepo.update(subscriptionId, {
+    if (!sub || sub.status === SubscriptionStatus.INTERNAL) return false;
+    return this.subscriptionRepo.updateUnlessInternal(subscriptionId, {
       status: SubscriptionStatus.SUSPENDED,
       suspendedAt: at,
     });
@@ -305,14 +316,14 @@ export class SubscriptionService {
 
     for (const sub of pastDue) {
       try {
+        if (sub.status === SubscriptionStatus.INTERNAL) continue;
         if (!sub.pastDueSince) {
           await this.subscriptionRepo.update(sub.id, { pastDueSince: now });
           continue;
         }
         if (this.suspensionDateFor(sub.pastDueSince) > now) continue;
 
-        await this.suspend(sub.id, now);
-        suspended++;
+        if (await this.suspend(sub.id, now)) suspended++;
       } catch (err) {
         this.logger.warn(
           `[suspension] falha ao suspender subscription=${sub.id}: ${
@@ -326,13 +337,13 @@ export class SubscriptionService {
   }
 
   private suspensionDateFor(pastDueSince: Date): Date {
-    return this.addDays(pastDueSince, PAST_DUE_GRACE_DAYS);
+    return suspensionDateOf(pastDueSince);
   }
 
   async cancelImmediately(subscriptionId: string): Promise<void> {
     const sub = await this.subscriptionRepo.findOne({ id: subscriptionId });
-    if (!sub) return;
-    await this.subscriptionRepo.update(subscriptionId, {
+    if (!sub || sub.status === SubscriptionStatus.INTERNAL) return;
+    await this.subscriptionRepo.updateUnlessInternal(subscriptionId, {
       status: SubscriptionStatus.CANCELED,
       canceledAt: new Date(),
       cancelAtPeriodEnd: false,
@@ -344,6 +355,8 @@ export class SubscriptionService {
     planId: string,
   ): Promise<{ url: string }> {
     const owner = await this.assertOwner(userId);
+    const sub = await this.subscriptionRepo.findByOwnerId(owner.id);
+    this.assertHasBilling(sub);
 
     const plan = await this.planRepo.findOne({ id: planId });
     if (!plan || !plan.isActive) {
@@ -356,7 +369,6 @@ export class SubscriptionService {
     }
 
     const customerId = await this.ensureGatewayCustomer(owner.id);
-    const sub = await this.subscriptionRepo.findByOwnerId(owner.id);
 
     const dashboardUrl = this.config.get<string>('DASHBOARD_URL', '');
     const session = await this.gateway.createCheckoutSession({
@@ -383,6 +395,7 @@ export class SubscriptionService {
     planId?: string,
   ): Promise<{ url: string }> {
     const owner = await this.assertOwner(userId);
+    this.assertHasBilling(await this.subscriptionRepo.findByOwnerId(owner.id));
 
     const customerId = await this.ensureGatewayCustomer(owner.id);
 
@@ -446,6 +459,31 @@ export class SubscriptionService {
       );
       return;
     }
+    if (local.status === SubscriptionStatus.INTERNAL) {
+      this.logger.warn(
+        `[sync] subscription=${local.id} tem acesso interno — evento do gateway ${gatewaySub.id} ignorado`,
+      );
+      return;
+    }
+    if (
+      local.status === SubscriptionStatus.TRIALING &&
+      this.isDeadGatewaySubscription(gatewaySub)
+    ) {
+      this.logger.warn(
+        `[sync] subscription=${local.id} em trial local — assinatura ${gatewaySub.id} encerrada no gateway não rebaixa o trial`,
+      );
+      return;
+    }
+    if (
+      (local.status === SubscriptionStatus.TRIALING ||
+        local.status === SubscriptionStatus.CANCELED) &&
+      this.isAwaitingFirstPayment(gatewaySub)
+    ) {
+      this.logger.warn(
+        `[sync] subscription=${local.id} em ${local.status} — assinatura ${gatewaySub.id} aguardando o primeiro pagamento no gateway não muda o status`,
+      );
+      return;
+    }
 
     const statusMap: Record<GatewaySubscriptionStatus, SubscriptionStatus> = {
       active: SubscriptionStatus.ACTIVE,
@@ -472,7 +510,7 @@ export class SubscriptionService {
 
     const prevPeriodStart = local.currentPeriodStart;
 
-    await this.subscriptionRepo.update(local.id, {
+    const applied = await this.subscriptionRepo.updateUnlessInternal(local.id, {
       status: newStatus,
       ...(newPlanId ? { planId: newPlanId } : {}),
       ...(gatewaySub.currentPeriodStart
@@ -483,6 +521,9 @@ export class SubscriptionService {
         : {}),
       trialEndsAt: gatewaySub.trialEndsAt,
       cancelAtPeriodEnd: gatewaySub.cancelAtPeriodEnd,
+      ...(gatewaySub.discount !== undefined
+        ? discountColumnsFrom(gatewaySub.discount)
+        : {}),
       ...(gatewaySub.canceledAt ? { canceledAt: gatewaySub.canceledAt } : {}),
       ...(newStatus === SubscriptionStatus.ACTIVE
         ? { pastDueSince: null, suspendedAt: null }
@@ -491,6 +532,12 @@ export class SubscriptionService {
         ? { pastDueSince: new Date() }
         : {}),
     });
+    if (!applied) {
+      this.logger.warn(
+        `[sync] subscription=${local.id} virou acesso interno antes da gravação — evento ${gatewaySub.id} descartado`,
+      );
+      return;
+    }
 
     const periodAdvanced =
       gatewaySub.currentPeriodStart !== null &&
@@ -538,6 +585,25 @@ export class SubscriptionService {
           `[sync] cota do período atual ajustada para subscription=${local.id} novoLimite=${planForQuota.surgeryRequestQuota}`,
         );
       }
+    }
+  }
+
+  private isAwaitingFirstPayment(sub: GatewaySubscription): boolean {
+    return sub.status === 'incomplete' && sub.providerStatus === 'incomplete';
+  }
+
+  private isDeadGatewaySubscription(sub: GatewaySubscription): boolean {
+    return (
+      sub.status === 'canceled' ||
+      sub.status === 'expired' ||
+      sub.providerStatus === 'canceled' ||
+      sub.providerStatus === 'incomplete_expired'
+    );
+  }
+
+  private assertHasBilling(sub: Subscription | null): void {
+    if (sub?.status === SubscriptionStatus.INTERNAL) {
+      throw new ConflictException(SEM_COBRANCA_NO_ACESSO_INTERNO);
     }
   }
 

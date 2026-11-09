@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { runWithTenantContext } from 'src/shared/logging/request-context';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { AppointmentRepository } from 'src/database/repositories/appointment.repository';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
@@ -54,10 +55,19 @@ export class AppointmentReminderService {
     const due = await this.appointmentRepository.findDueForReminder(now, until);
 
     const lembreteLigado = new Map<string, Promise<boolean>>();
+    const contaDesativada = new Map<string, Promise<boolean>>();
 
     let sent = 0;
     for (const appt of due) {
       try {
+        if (!contaDesativada.has(appt.ownerId)) {
+          contaDesativada.set(
+            appt.ownerId,
+            this.userRepository.isAccountDeactivated(appt.ownerId),
+          );
+        }
+        if (await contaDesativada.get(appt.ownerId)) continue;
+
         if (!lembreteLigado.has(appt.ownerId)) {
           lembreteLigado.set(
             appt.ownerId,
@@ -69,7 +79,10 @@ export class AppointmentReminderService {
         }
         if (!(await lembreteLigado.get(appt.ownerId))) continue;
 
-        const outcome = await this.notify(appt);
+        const outcome = await runWithTenantContext(
+          { tenantId: appt.ownerId },
+          () => this.notify(appt),
+        );
 
         if (outcome.attempted && !outcome.delivered) {
           this.logger.warn(

@@ -52,16 +52,21 @@ describe('Isolamento do token da segunda etapa (MFA)', () => {
     },
   });
 
+  const usuario = {
+    id: 'user-1',
+    ownerId: 'user-1',
+    role: UserRole.ADMIN,
+    status: UserStatus.ACTIVE,
+    tokenVersion: 0,
+    permissions: [],
+    doctorProfile: null,
+  };
   const userRepository = {
-    findOneWithProfile: jest.fn().mockResolvedValue({
-      id: 'user-1',
-      ownerId: 'user-1',
-      role: UserRole.ADMIN,
-      status: UserStatus.ACTIVE,
-      tokenVersion: 0,
-      permissions: [],
-      doctorProfile: null,
-    }),
+    findOneWithProfile: jest.fn().mockResolvedValue(usuario),
+    findSessionUser: jest
+      .fn()
+      .mockResolvedValue({ user: usuario, accountDeactivated: false }),
+    isAccountDeactivated: jest.fn().mockResolvedValue(false),
   };
 
   const strategy = new JwtStrategy(
@@ -87,10 +92,10 @@ describe('Isolamento do token da segunda etapa (MFA)', () => {
       id: 'user-1',
       tokenVersion: 0,
     });
-    userRepository.findOneWithProfile.mockClear();
+    userRepository.findSessionUser.mockClear();
     const resultado = await autenticar(strategy, token);
     expect(resultado.tipo).toBe('fail');
-    expect(userRepository.findOneWithProfile).not.toHaveBeenCalled();
+    expect(userRepository.findSessionUser).not.toHaveBeenCalled();
   });
 
   it('mesmo com audience igual, payload com propósito é recusado pelo validate', async () => {

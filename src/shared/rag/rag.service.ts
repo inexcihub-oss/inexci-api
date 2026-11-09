@@ -23,6 +23,7 @@ export interface RagSearchOptions {
   topK?: number;
   minScore?: number;
   category?: string;
+  usage?: { ownerId: string; userId?: string | null };
 }
 
 @Injectable()
@@ -49,7 +50,16 @@ export class RagService {
       span.setAttribute('rag.minScore', minScore);
       if (category) span.setAttribute('rag.category', category);
       try {
-        const queryEmbedding = await this.embeddingService.generate(query);
+        const queryEmbedding = await this.embeddingService.generate(
+          query,
+          opts.usage
+            ? {
+                source: 'rag_embedding',
+                ownerId: opts.usage.ownerId,
+                userId: opts.usage.userId ?? null,
+              }
+            : undefined,
+        );
         const vectorStr = this.embeddingService.toSqlVector(queryEmbedding);
 
         const sql = category

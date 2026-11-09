@@ -7,6 +7,11 @@ import { StorageService } from 'src/shared/storage/storage.service';
 import { STORAGE_FOLDERS } from 'src/config/storage.config';
 import { FotosPacienteOrfasService } from './fotos-paciente-orfas.service';
 import { errorMessage } from 'src/shared/utils/error-message.util';
+import { DistributedLockService } from 'src/shared/locks/distributed-lock.service';
+import {
+  SystemJobKey,
+  systemJobLockKey,
+} from 'src/modules/admin/system/system-jobs';
 
 @Injectable()
 export class CronService {
@@ -18,15 +23,46 @@ export class CronService {
     private readonly storageService: StorageService,
     private readonly configService: ConfigService,
     private readonly fotosPacienteOrfasService: FotosPacienteOrfasService,
+    private readonly lock: DistributedLockService,
   ) {}
+
+  private async withJobLock(
+    key: SystemJobKey,
+    run: () => Promise<void>,
+  ): Promise<void> {
+    const lockKey = systemJobLockKey(key);
+    let token: string | null;
+    try {
+      token = await this.lock.acquire(lockKey);
+    } catch (err) {
+      this.logger.warn(
+        `Trava da tarefa ${key} indisponível, executando sem ela: ${errorMessage(err)}`,
+      );
+      await run();
+      return;
+    }
+    if (!token) {
+      this.logger.warn(`Tarefa ${key} já está em execução; pulando.`);
+      return;
+    }
+    try {
+      await run();
+    } finally {
+      await this.lock.release(lockKey, token);
+    }
+  }
 
   @Cron('0 7 * * *', { timeZone: 'America/Sao_Paulo' })
   async handleStaleNotifications() {
     this.logger.log('Iniciando verificação de solicitações paradas (stale)...');
     try {
-      const count =
-        await this.staleNotificationService.checkAndNotifyStaleRequests();
-      this.logger.log(`Stale check finalizado: ${count} notificações enviadas`);
+      await this.withJobLock('stale_requests', async () => {
+        const count =
+          await this.staleNotificationService.checkAndNotifyStaleRequests();
+        this.logger.log(
+          `Stale check finalizado: ${count} notificações enviadas`,
+        );
+      });
     } catch (err) {
       this.logger.error(`Erro no cron de stale: ${errorMessage(err)}`);
     }
@@ -36,11 +72,13 @@ export class CronService {
   async handleWeeklySummary() {
     this.logger.log('Iniciando geração de resumo semanal...');
     try {
-      const count =
-        await this.weeklySummaryService.sendWeeklySummariesForAllUsers();
-      this.logger.log(
-        `Resumo semanal finalizado: ${count} e-mails enfileirados`,
-      );
+      await this.withJobLock('weekly_summary', async () => {
+        const count =
+          await this.weeklySummaryService.sendWeeklySummariesForAllUsers();
+        this.logger.log(
+          `Resumo semanal finalizado: ${count} e-mails enfileirados`,
+        );
+      });
     } catch (err) {
       this.logger.error(`Erro no cron de resumo semanal: ${errorMessage(err)}`);
     }

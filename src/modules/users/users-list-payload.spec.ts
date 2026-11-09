@@ -46,7 +46,6 @@ describe('UsersService — listagens de equipe não devolvem dado pessoal', () =
     ownerId: 'dono-1',
     avatarUrl: null,
     permissions: [],
-    isPlatformAdmin: false,
     cpf: '123.456.789-00',
     cep: '01234-567',
     address: 'Rua das Flores',
@@ -149,13 +148,12 @@ describe('UsersService — listagens de equipe não devolvem dado pessoal', () =
       semDadoPessoal(records[0]);
     });
 
-    it('não devolve a coluna crua de permissões nem o flag de admin da plataforma', async () => {
+    it('não devolve a coluna crua de permissões nem flag de admin da plataforma', async () => {
       userRepository.findDoctorsByOwnerId.mockResolvedValue([
         linhaCompleta({
           id: 'medico-1',
           doctorProfile: { id: 'dp-1', council: 'CRM' },
           permissions: ['administracao'],
-          isPlatformAdmin: true,
         }),
       ]);
 

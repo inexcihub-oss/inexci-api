@@ -49,7 +49,7 @@ export class AiEfficiencyService {
   }): Promise<AiEfficiencyReport> {
     const { from, to } = params;
 
-    const where: string[] = [];
+    const where: string[] = ["log.source = 'whatsapp'"];
     const args: Record<string, unknown> = {};
     if (from) {
       where.push('log.created_at >= :from');

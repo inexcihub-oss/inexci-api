@@ -85,6 +85,7 @@ export class SurgeryRequestFromDocumentService {
       intent: 'create_sc',
       maxOcrPages: scMaxPages,
       detokenizeExtracted: true,
+      usageContext: { ownerId, userId },
     });
 
     if (!result.classification) {

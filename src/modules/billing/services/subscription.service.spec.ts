@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
@@ -32,8 +33,15 @@ describe('SubscriptionService', () => {
       findOne: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateUnlessInternal: jest.fn(),
       findPastDue: jest.fn().mockResolvedValue([]),
     };
+    subscriptionRepo.updateUnlessInternal.mockImplementation(
+      async (id: string, data: unknown) => {
+        await subscriptionRepo.update(id, data);
+        return true;
+      },
+    );
     planRepo = {
       findOne: jest.fn(),
       findBySlug: jest.fn(),
@@ -1123,6 +1131,556 @@ describe('SubscriptionService', () => {
         service.syncFromGatewaySubscription(buildGatewaySub()),
       ).resolves.toBeUndefined();
       expect(subscriptionRepo.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('syncFromGatewaySubscription grava o desconto vigente', () => {
+    const local = {
+      id: 'sub-1',
+      planId: 'plan-1',
+      status: SubscriptionStatus.ACTIVE,
+      currentPeriodStart: new Date('2026-02-01'),
+      currentPeriodEnd: new Date('2026-03-01'),
+    };
+    const gwSub = (overrides: Record<string, unknown> = {}) => ({
+      id: 'gw-sub-1',
+      customerId: 'cus_abc',
+      status: 'active' as const,
+      cycle: 'MONTHLY' as const,
+      amountCents: 5000,
+      nextDueDate: null,
+      priceId: null,
+      currentPeriodStart: new Date('2026-02-01'),
+      currentPeriodEnd: new Date('2026-03-01'),
+      trialEndsAt: null,
+      cancelAtPeriodEnd: false,
+      canceledAt: null,
+      ...overrides,
+    });
+
+    beforeEach(() => {
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue(local);
+      planRepo.findOne.mockResolvedValue(null);
+    });
+
+    it('cupom conhecido vira as colunas de desconto', async () => {
+      await service.syncFromGatewaySubscription(
+        gwSub({
+          discount: {
+            name: 'Parceiro',
+            percentOff: 12.5,
+            amountOffCents: null,
+            duration: 'repeating',
+            endsAt: new Date('2027-01-01T00:00:00Z'),
+          },
+        }),
+      );
+
+      expect(subscriptionRepo.updateUnlessInternal).toHaveBeenCalledWith(
+        'sub-1',
+        expect.objectContaining({
+          discountPercentOff: 12.5,
+          discountAmountOffCents: null,
+          discountDuration: 'repeating',
+          discountEndsAt: new Date('2027-01-01T00:00:00Z'),
+        }),
+      );
+    });
+
+    it('assinatura sem desconto na Stripe limpa as colunas', async () => {
+      await service.syncFromGatewaySubscription(gwSub({ discount: null }));
+
+      expect(subscriptionRepo.updateUnlessInternal).toHaveBeenCalledWith(
+        'sub-1',
+        expect.objectContaining({
+          discountPercentOff: null,
+          discountAmountOffCents: null,
+          discountDuration: null,
+          discountEndsAt: null,
+        }),
+      );
+    });
+
+    it('desconto desconhecido (sem expand) não mexe nas colunas', async () => {
+      await service.syncFromGatewaySubscription(gwSub());
+
+      const data = subscriptionRepo.updateUnlessInternal.mock.calls[0][1];
+      expect(data).not.toHaveProperty('discountPercentOff');
+      expect(data).not.toHaveProperty('discountDuration');
+    });
+
+    it('acesso interno continua sem escrita, mesmo com desconto', async () => {
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({
+        ...local,
+        status: SubscriptionStatus.INTERNAL,
+      });
+
+      await service.syncFromGatewaySubscription(
+        gwSub({
+          discount: {
+            name: null,
+            percentOff: 10,
+            amountOffCents: null,
+            duration: 'forever',
+            endsAt: null,
+          },
+        }),
+      );
+
+      expect(subscriptionRepo.updateUnlessInternal).not.toHaveBeenCalled();
+      expect(subscriptionRepo.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('acesso interno sobrevive ao billing', () => {
+    const internalSub = (overrides: Record<string, unknown> = {}) => ({
+      id: 'sub-1',
+      ownerId: 'owner-1',
+      planId: 'plan-1',
+      status: SubscriptionStatus.INTERNAL,
+      gatewayProvider: 'stripe',
+      gatewayCustomerId: 'cus-1',
+      gatewaySubscriptionId: 'gw-sub-1',
+      trialEndsAt: null,
+      pastDueSince: null,
+      currentPeriodStart: new Date('2026-01-01'),
+      currentPeriodEnd: new Date('2026-02-01'),
+      internalAccessGrantedAt: new Date('2026-10-01'),
+      ...overrides,
+    });
+
+    const canceledGatewaySub = {
+      id: 'gw-sub-1',
+      customerId: 'cus-1',
+      status: 'canceled',
+      cycle: 'MONTHLY',
+      amountCents: 1000,
+      nextDueDate: null,
+      priceId: 'price_1',
+      currentPeriodStart: new Date('2026-01-01'),
+      currentPeriodEnd: new Date('2026-02-01'),
+      trialEndsAt: null,
+      cancelAtPeriodEnd: false,
+      canceledAt: new Date('2026-01-15'),
+    };
+
+    it('getMySubscription não reconcilia e devolve internal sem daysLeftInTrial', async () => {
+      userRepo.findOne.mockResolvedValue(buildOwner());
+      subscriptionRepo.findByOwnerId.mockResolvedValue(
+        internalSub({ trialEndsAt: new Date(Date.now() + 86400000 * 5) }),
+      );
+      gateway.getSubscription.mockResolvedValue(canceledGatewaySub);
+      gateway.getLatestSubscriptionByCustomer.mockResolvedValue(null);
+
+      const result = await service.getMySubscription('owner-1');
+
+      expect(gateway.getSubscription).not.toHaveBeenCalled();
+      expect(gateway.getLatestSubscriptionByCustomer).not.toHaveBeenCalled();
+      expect(subscriptionRepo.update).not.toHaveBeenCalled();
+      expect(result.subscription.status).toBe(SubscriptionStatus.INTERNAL);
+      expect(result.daysLeftInTrial).toBeNull();
+      expect(result.daysUntilSuspension).toBeNull();
+    });
+
+    it('syncFromGatewaySubscription não transforma internal em CANCELED (evento antigo)', async () => {
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue(
+        internalSub(),
+      );
+      planRepo.findOne.mockResolvedValue({
+        id: 'plan-1',
+        surgeryRequestQuota: 10,
+      });
+
+      await service.syncFromGatewaySubscription(canceledGatewaySub as never);
+
+      expect(subscriptionRepo.update).not.toHaveBeenCalled();
+      expect(quotaPeriodRepo.create).not.toHaveBeenCalled();
+      expect(quotaPeriodRepo.update).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [
+        'markPastDue',
+        (svc: SubscriptionService) => svc.markPastDue('sub-1', new Date()),
+      ],
+      ['markActive', (svc: SubscriptionService) => svc.markActive('sub-1')],
+      [
+        'suspend',
+        (svc: SubscriptionService) => svc.suspend('sub-1', new Date()),
+      ],
+      [
+        'cancelImmediately',
+        (svc: SubscriptionService) => svc.cancelImmediately('sub-1'),
+      ],
+    ])('%s ignora internal', async (_name, run) => {
+      subscriptionRepo.findOne.mockResolvedValue(internalSub());
+
+      await run(service);
+
+      expect(subscriptionRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('suspendOverduePastDue não suspende quem virou internal depois da listagem', async () => {
+      subscriptionRepo.findPastDue.mockResolvedValue([
+        {
+          id: 'sub-1',
+          status: SubscriptionStatus.PAST_DUE,
+          pastDueSince: new Date('2026-01-01'),
+        },
+      ]);
+      subscriptionRepo.findOne.mockResolvedValue(internalSub());
+
+      const count = await service.suspendOverduePastDue(new Date('2026-03-01'));
+
+      expect(count).toBe(0);
+      expect(subscriptionRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('suspendOverduePastDue ignora linha internal', async () => {
+      subscriptionRepo.findPastDue.mockResolvedValue([
+        internalSub({ pastDueSince: null }),
+      ]);
+
+      const count = await service.suspendOverduePastDue(new Date('2026-03-01'));
+
+      expect(count).toBe(0);
+      expect(subscriptionRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('startCheckout devolve 409 sem criar cliente na Stripe', async () => {
+      userRepo.findOne.mockResolvedValue(buildOwner());
+      subscriptionRepo.findByOwnerId.mockResolvedValue(
+        internalSub({ gatewayCustomerId: null }),
+      );
+      planRepo.findOne.mockResolvedValue({
+        id: 'plan-1',
+        isActive: true,
+        gatewayPriceId: 'price_1',
+      });
+
+      await expect(service.startCheckout('owner-1', 'plan-1')).rejects.toThrow(
+        new ConflictException('Conta com acesso interno não tem cobrança.'),
+      );
+      expect(gateway.createCustomer).not.toHaveBeenCalled();
+      expect(gateway.createCheckoutSession).not.toHaveBeenCalled();
+    });
+
+    it('openBillingPortal devolve 409 sem falar com a Stripe', async () => {
+      userRepo.findOne.mockResolvedValue(buildOwner());
+      subscriptionRepo.findByOwnerId.mockResolvedValue(internalSub());
+
+      await expect(service.openBillingPortal('owner-1')).rejects.toThrow(
+        ConflictException,
+      );
+      expect(gateway.getCustomer).not.toHaveBeenCalled();
+      expect(gateway.createBillingPortalSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('acesso interno no momento da escrita (corrida com o grant)', () => {
+    const gwSub = (overrides: Record<string, unknown> = {}) => ({
+      id: 'gw-sub-1',
+      customerId: 'cus-1',
+      status: 'active',
+      cycle: 'MONTHLY',
+      amountCents: 1000,
+      nextDueDate: null,
+      priceId: 'price_1',
+      currentPeriodStart: new Date('2026-03-01'),
+      currentPeriodEnd: new Date('2026-04-01'),
+      trialEndsAt: null,
+      cancelAtPeriodEnd: false,
+      canceledAt: null,
+      ...overrides,
+    });
+
+    it.each([
+      [
+        'markPastDue',
+        (svc: SubscriptionService) => svc.markPastDue('sub-1', new Date()),
+        SubscriptionStatus.PAST_DUE,
+      ],
+      [
+        'markActive',
+        (svc: SubscriptionService) => svc.markActive('sub-1'),
+        SubscriptionStatus.ACTIVE,
+      ],
+      [
+        'suspend',
+        (svc: SubscriptionService) => svc.suspend('sub-1', new Date()),
+        SubscriptionStatus.SUSPENDED,
+      ],
+      [
+        'cancelImmediately',
+        (svc: SubscriptionService) => svc.cancelImmediately('sub-1'),
+        SubscriptionStatus.CANCELED,
+      ],
+    ])(
+      '%s usa UPDATE condicional (status <> internal)',
+      async (_n, run, status) => {
+        subscriptionRepo.findOne.mockResolvedValue({
+          id: 'sub-1',
+          status: SubscriptionStatus.ACTIVE,
+        });
+        subscriptionRepo.updateUnlessInternal.mockResolvedValue(false);
+
+        await run(service);
+
+        expect(subscriptionRepo.updateUnlessInternal).toHaveBeenCalledWith(
+          'sub-1',
+          expect.objectContaining({ status }),
+        );
+        expect(subscriptionRepo.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it('suspendOverduePastDue não conta quem virou internal entre a leitura e o UPDATE', async () => {
+      subscriptionRepo.findPastDue.mockResolvedValue([
+        {
+          id: 'sub-1',
+          status: SubscriptionStatus.PAST_DUE,
+          pastDueSince: new Date('2026-01-01'),
+        },
+      ]);
+      subscriptionRepo.findOne.mockResolvedValue({
+        id: 'sub-1',
+        status: SubscriptionStatus.PAST_DUE,
+      });
+      subscriptionRepo.updateUnlessInternal.mockResolvedValue(false);
+
+      const count = await service.suspendOverduePastDue(new Date('2026-03-01'));
+
+      expect(count).toBe(0);
+    });
+
+    it('sync não renova cota quando a linha virou internal antes do UPDATE', async () => {
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({
+        id: 'sub-1',
+        planId: 'plan-1',
+        status: SubscriptionStatus.ACTIVE,
+        pastDueSince: null,
+        currentPeriodStart: new Date('2026-02-01'),
+      });
+      planRepo.findOne.mockResolvedValue({
+        id: 'plan-1',
+        surgeryRequestQuota: 10,
+      });
+      subscriptionRepo.updateUnlessInternal.mockResolvedValue(false);
+
+      await service.syncFromGatewaySubscription(gwSub() as never);
+
+      expect(subscriptionRepo.updateUnlessInternal).toHaveBeenCalled();
+      expect(quotaPeriodRepo.create).not.toHaveBeenCalled();
+      expect(quotaPeriodRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('reconciliação que cancela também usa UPDATE condicional', async () => {
+      userRepo.findOne.mockResolvedValue(buildOwner());
+      subscriptionRepo.findByOwnerId.mockResolvedValue({
+        id: 'sub-1',
+        ownerId: 'owner-1',
+        gatewayProvider: 'stripe',
+        gatewaySubscriptionId: 'gw-sub-1',
+        status: SubscriptionStatus.ACTIVE,
+      });
+      gateway.getSubscription.mockResolvedValue(null);
+      subscriptionRepo.updateUnlessInternal.mockResolvedValue(false);
+
+      await service.getMySubscription('owner-1');
+
+      expect(subscriptionRepo.updateUnlessInternal).toHaveBeenCalledWith(
+        'sub-1',
+        expect.objectContaining({ status: SubscriptionStatus.CANCELED }),
+      );
+      expect(subscriptionRepo.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('trial local não é rebaixado por Stripe sem assinatura viva', () => {
+    const localTrial = (overrides: Record<string, unknown> = {}) => ({
+      id: 'sub-1',
+      ownerId: 'owner-1',
+      planId: 'plan-1',
+      status: SubscriptionStatus.TRIALING,
+      gatewayProvider: 'stripe',
+      gatewayCustomerId: 'cus-1',
+      gatewaySubscriptionId: null,
+      trialEndsAt: new Date(Date.now() + 10 * 86400000),
+      pastDueSince: null,
+      currentPeriodStart: new Date('2026-10-01'),
+      currentPeriodEnd: new Date(Date.now() + 10 * 86400000),
+      ...overrides,
+    });
+    const deadSub = (overrides: Record<string, unknown> = {}) => ({
+      id: 'gw-old',
+      customerId: 'cus-1',
+      status: 'canceled',
+      providerStatus: 'canceled',
+      cycle: 'MONTHLY',
+      amountCents: 1000,
+      nextDueDate: null,
+      priceId: 'price_1',
+      currentPeriodStart: new Date('2026-01-01'),
+      currentPeriodEnd: new Date('2026-02-01'),
+      trialEndsAt: null,
+      cancelAtPeriodEnd: false,
+      canceledAt: new Date('2026-02-01'),
+      ...overrides,
+    });
+
+    beforeEach(() => {
+      userRepo.findOne.mockResolvedValue(buildOwner());
+    });
+
+    it('cliente na Stripe sem nenhuma assinatura mantém TRIALING', async () => {
+      subscriptionRepo.findByOwnerId.mockResolvedValue(localTrial());
+      gateway.getLatestSubscriptionByCustomer.mockResolvedValue(null);
+
+      const result = await service.getMySubscription('owner-1');
+
+      expect(result.subscription.status).toBe(SubscriptionStatus.TRIALING);
+      expect(result.daysLeftInTrial).toBeGreaterThan(0);
+      expect(subscriptionRepo.update).not.toHaveBeenCalled();
+      expect(subscriptionRepo.updateUnlessInternal).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['canceled', { status: 'canceled', providerStatus: 'canceled' }],
+      [
+        'incomplete_expired',
+        { status: 'incomplete', providerStatus: 'incomplete_expired' },
+      ],
+      ['expired', { status: 'expired', providerStatus: undefined }],
+    ])('só assinatura %s na Stripe mantém TRIALING', async (_n, over) => {
+      subscriptionRepo.findByOwnerId.mockResolvedValue(
+        localTrial({ gatewaySubscriptionId: 'gw-old' }),
+      );
+      gateway.getSubscription.mockResolvedValue(deadSub(over));
+      gateway.getLatestSubscriptionByCustomer.mockResolvedValue(deadSub(over));
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue(
+        localTrial({ gatewaySubscriptionId: 'gw-old' }),
+      );
+
+      const result = await service.getMySubscription('owner-1');
+
+      expect(result.subscription.status).toBe(SubscriptionStatus.TRIALING);
+      expect(subscriptionRepo.update).not.toHaveBeenCalled();
+      expect(subscriptionRepo.updateUnlessInternal).not.toHaveBeenCalled();
+    });
+
+    it('sync de evento com assinatura morta não rebaixa trial local', async () => {
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue(
+        localTrial({ gatewaySubscriptionId: 'gw-old' }),
+      );
+
+      await service.syncFromGatewaySubscription(deadSub() as never);
+
+      expect(subscriptionRepo.update).not.toHaveBeenCalled();
+      expect(subscriptionRepo.updateUnlessInternal).not.toHaveBeenCalled();
+    });
+
+    it.each([SubscriptionStatus.TRIALING, SubscriptionStatus.CANCELED])(
+      'checkout incomplete na Stripe não tira %s do lugar (não vira PAST_DUE)',
+      async (status) => {
+        subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue(
+          localTrial({ status, gatewaySubscriptionId: 'gw-new' }),
+        );
+
+        await service.syncFromGatewaySubscription(
+          deadSub({
+            id: 'gw-new',
+            status: 'incomplete',
+            providerStatus: 'incomplete',
+            canceledAt: null,
+          }) as never,
+        );
+
+        expect(subscriptionRepo.update).not.toHaveBeenCalled();
+        expect(subscriptionRepo.updateUnlessInternal).not.toHaveBeenCalled();
+      },
+    );
+
+    it('ACTIVE local com assinatura incomplete na Stripe continua virando PAST_DUE', async () => {
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue(
+        localTrial({
+          status: SubscriptionStatus.ACTIVE,
+          gatewaySubscriptionId: 'gw-new',
+        }),
+      );
+      planRepo.findOne.mockResolvedValue(null);
+
+      await service.syncFromGatewaySubscription(
+        deadSub({
+          id: 'gw-new',
+          status: 'incomplete',
+          providerStatus: 'incomplete',
+          canceledAt: null,
+        }) as never,
+      );
+
+      expect(subscriptionRepo.updateUnlessInternal).toHaveBeenCalledWith(
+        'sub-1',
+        expect.objectContaining({ status: SubscriptionStatus.PAST_DUE }),
+      );
+    });
+
+    it('trial local com assinatura viva na Stripe continua sincronizando (vira ACTIVE)', async () => {
+      subscriptionRepo.findByOwnerId.mockResolvedValue(
+        localTrial({ gatewaySubscriptionId: 'gw-new' }),
+      );
+      gateway.getSubscription.mockResolvedValue(
+        deadSub({
+          id: 'gw-new',
+          status: 'active',
+          providerStatus: 'trialing',
+          canceledAt: null,
+        }),
+      );
+      gateway.getLatestSubscriptionByCustomer.mockResolvedValue(null);
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue(
+        localTrial({ gatewaySubscriptionId: 'gw-new' }),
+      );
+      planRepo.findOne.mockResolvedValue(null);
+
+      await service.getMySubscription('owner-1');
+
+      expect(subscriptionRepo.updateUnlessInternal).toHaveBeenCalledWith(
+        'sub-1',
+        expect.objectContaining({ status: SubscriptionStatus.ACTIVE }),
+      );
+    });
+
+    it('regressão: ACTIVE local com assinatura cancelada na Stripe vira CANCELED', async () => {
+      const active = localTrial({
+        status: SubscriptionStatus.ACTIVE,
+        gatewaySubscriptionId: 'gw-old',
+      });
+      subscriptionRepo.findByOwnerId.mockResolvedValue(active);
+      gateway.getSubscription.mockResolvedValue(deadSub());
+      gateway.getLatestSubscriptionByCustomer.mockResolvedValue(deadSub());
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue(active);
+      planRepo.findOne.mockResolvedValue(null);
+
+      await service.getMySubscription('owner-1');
+
+      expect(subscriptionRepo.updateUnlessInternal).toHaveBeenCalledWith(
+        'sub-1',
+        expect.objectContaining({ status: SubscriptionStatus.CANCELED }),
+      );
+    });
+
+    it('regressão: ACTIVE local sem assinatura na Stripe vira CANCELED', async () => {
+      subscriptionRepo.findByOwnerId.mockResolvedValue(
+        localTrial({ status: SubscriptionStatus.ACTIVE }),
+      );
+      gateway.getLatestSubscriptionByCustomer.mockResolvedValue(null);
+
+      await service.getMySubscription('owner-1');
+
+      expect(subscriptionRepo.updateUnlessInternal).toHaveBeenCalledWith(
+        'sub-1',
+        expect.objectContaining({ status: SubscriptionStatus.CANCELED }),
+      );
     });
   });
 });

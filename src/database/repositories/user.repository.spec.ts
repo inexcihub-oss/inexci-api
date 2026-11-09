@@ -154,4 +154,159 @@ describe('UserRepository', () => {
       });
     });
   });
+
+  describe('desativação da conta', () => {
+    function queryBuilder(raw: unknown) {
+      const qb = {
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        withDeleted: jest.fn().mockReturnThis(),
+        setLock: jest.fn().mockReturnThis(),
+        getRawOne: jest.fn().mockResolvedValue(raw),
+        getOne: jest.fn().mockResolvedValue(raw),
+      };
+      return qb;
+    }
+
+    it('isAccountDeactivated lê a marca no dono da conta', async () => {
+      const qb = queryBuilder({ deactivatedAt: new Date() });
+      const repo = new UserRepository({
+        createQueryBuilder: jest.fn(() => qb),
+      } as never);
+
+      await expect(repo.isAccountDeactivated('owner-1')).resolves.toBe(true);
+      expect(qb.where).toHaveBeenCalledWith('u.id = :ownerId', {
+        ownerId: 'owner-1',
+      });
+    });
+
+    it('isAccountDeactivated é falso sem marca ou sem dono', async () => {
+      const semMarca = new UserRepository({
+        createQueryBuilder: jest.fn(() =>
+          queryBuilder({ deactivatedAt: null }),
+        ),
+      } as never);
+      const semDono = new UserRepository({
+        createQueryBuilder: jest.fn(() => queryBuilder(undefined)),
+      } as never);
+
+      await expect(semMarca.isAccountDeactivated('o')).resolves.toBe(false);
+      await expect(semDono.isAccountDeactivated('o')).resolves.toBe(false);
+    });
+
+    it('findSessionUser lê a marca do dono no mesmo findOne, sem consulta extra', async () => {
+      const qb = queryBuilder({ deactivatedAt: null });
+      const findOne = jest.fn().mockResolvedValue({
+        id: 'u-1',
+        ownerId: 'owner-1',
+        owner: { id: 'owner-1', accountDeactivatedAt: new Date() },
+      });
+      const createQueryBuilder = jest.fn(() => qb);
+      const repo = new UserRepository({ findOne, createQueryBuilder } as never);
+
+      const result = await repo.findSessionUser('u-1');
+
+      expect(result?.accountDeactivated).toBe(true);
+      expect(createQueryBuilder).not.toHaveBeenCalled();
+      const call = findOne.mock.calls[0][0];
+      expect(call.where).toEqual({ id: 'u-1' });
+      expect(call.relations).toEqual({ doctorProfile: true, owner: true });
+      expect(call.select).toMatchObject({
+        permissions: true,
+        tokenVersion: true,
+        accountDeactivatedAt: true,
+        owner: { id: true, accountDeactivatedAt: true },
+      });
+    });
+
+    it('findSessionUser usa a marca do próprio usuário quando ele é o dono', async () => {
+      const createQueryBuilder = jest.fn();
+      const repo = new UserRepository({
+        findOne: jest.fn().mockResolvedValue({
+          id: 'owner-1',
+          ownerId: 'owner-1',
+          accountDeactivatedAt: new Date(),
+          owner: null,
+        }),
+        createQueryBuilder,
+      } as never);
+
+      await expect(repo.findSessionUser('owner-1')).resolves.toMatchObject({
+        accountDeactivated: true,
+      });
+      expect(createQueryBuilder).not.toHaveBeenCalled();
+    });
+
+    it('findSessionUser cai na consulta com withDeleted quando o dono não veio no join', async () => {
+      const qb = queryBuilder({ deactivatedAt: new Date() });
+      const repo = new UserRepository({
+        findOne: jest.fn().mockResolvedValue({
+          id: 'u-1',
+          ownerId: 'owner-1',
+          owner: null,
+        }),
+        createQueryBuilder: jest.fn(() => qb),
+      } as never);
+
+      await expect(repo.findSessionUser('u-1')).resolves.toMatchObject({
+        accountDeactivated: true,
+      });
+      expect(qb.withDeleted).toHaveBeenCalled();
+    });
+
+    it('findSessionUser devolve null quando o usuário não existe', async () => {
+      const repo = new UserRepository({
+        findOne: jest.fn().mockResolvedValue(null),
+      } as never);
+
+      await expect(repo.findSessionUser('ghost')).resolves.toBeNull();
+    });
+
+    it('findAccountMembers inclui membros removidos (soft delete) para derrubar todas as sessões', async () => {
+      const find = jest.fn().mockResolvedValue([]);
+      const repo = new UserRepository({ find } as never);
+
+      await repo.findAccountMembers('owner-1');
+
+      expect(find).toHaveBeenCalledWith({
+        where: { ownerId: 'owner-1' },
+        select: { id: true, phone: true },
+        withDeleted: true,
+      });
+    });
+
+    it('lockAccountOwner trava só o dono (id = owner_id) para escrita', async () => {
+      const qb = queryBuilder({ id: 'owner-1' });
+      const manager = {
+        getRepository: jest.fn(() => ({ createQueryBuilder: () => qb })),
+      };
+      const repo = new UserRepository({} as never);
+
+      await repo.lockAccountOwner('owner-1', manager as never);
+
+      expect(qb.where).toHaveBeenCalledWith(
+        'u.id = :ownerId AND u.ownerId = :ownerId',
+        { ownerId: 'owner-1' },
+      );
+      expect(qb.setLock).toHaveBeenCalledWith('pessimistic_write');
+    });
+
+    it('setAccountDeactivation grava data e autor no dono pelo manager', async () => {
+      const update = jest.fn().mockResolvedValue(undefined);
+      const manager = { getRepository: jest.fn(() => ({ update })) };
+      const repo = new UserRepository({} as never);
+      const at = new Date('2026-10-28T12:00:00Z');
+
+      await repo.setAccountDeactivation(
+        'owner-1',
+        { at, byId: 'adm-1' },
+        manager as never,
+      );
+
+      expect(update).toHaveBeenCalledWith(
+        { id: 'owner-1' },
+        { accountDeactivatedAt: at, accountDeactivatedById: 'adm-1' },
+      );
+    });
+  });
 });

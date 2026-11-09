@@ -1,46 +1,23 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { PlatformAdminGuard } from '../../shared/guards/platform-admin.guard';
-import { AiUsageService, AiUsageReportRow } from './ai-usage.service';
+import { Controller, Get, Query } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiOkResponse } from '@nestjs/swagger';
+import { AiUsageService } from './ai-usage.service';
+import { AiUsageQueryDto, AiUsageReportRowDto } from './dto/ai-usage.dto';
 import {
   AiEfficiencyService,
   AiEfficiencyReport,
 } from './ai-efficiency.service';
+import { AiEfficiencyQueryDto } from './dto/ai-efficiency-query.dto';
+import { NotificationLogsService } from './notification-logs.service';
 import {
-  NotificationLogsService,
-  NotificationLogQuery,
-  NotificationLogStatsRow,
-} from './notification-logs.service';
-import {
-  NotificationChannel,
-  NotificationSendLog,
-  NotificationSendStatus,
-} from '../../database/entities/notification-send-log.entity';
-
-class AiUsageQueryDto {
-  from?: string;
-  to?: string;
-  groupBy?: 'user' | 'model' | 'day';
-}
-
-class AiEfficiencyQueryDto {
-  from?: string;
-  to?: string;
-}
-
-class NotificationLogsQueryDto {
-  channel?: NotificationChannel;
-  status?: NotificationSendStatus;
-  ownerId?: string;
-  from?: string;
-  to?: string;
-  limit?: number;
-  offset?: number;
-}
+  NotificationLogListResponseDto,
+  NotificationLogsQueryDto,
+  NotificationLogsStatsQueryDto,
+  NotificationLogStatsRowDto,
+} from './envios/dto/notification-logs.dto';
+import { PlatformAdminOnly } from './auth/platform-admin-only.decorator';
 
 @ApiTags('Admin')
-@ApiBearerAuth()
-@UseGuards(PlatformAdminGuard)
+@PlatformAdminOnly()
 @Controller('admin')
 export class AdminController {
   constructor(
@@ -51,16 +28,14 @@ export class AdminController {
 
   @Get('ai-usage/report')
   @ApiOperation({
-    summary: 'Relatório de uso de IA (custo por usuário/mês/modelo)',
+    summary:
+      'Relatório de uso de IA (por usuário, conta, modelo ou dia), custo em US$',
   })
+  @ApiOkResponse({ type: [AiUsageReportRowDto] })
   async getAiUsageReport(
     @Query() query: AiUsageQueryDto,
-  ): Promise<AiUsageReportRow[]> {
-    return this.aiUsageService.getReport({
-      from: query.from,
-      to: query.to,
-      groupBy: query.groupBy,
-    });
+  ): Promise<AiUsageReportRowDto[]> {
+    return this.aiUsageService.getReport(query);
   }
 
   @Get('ai-efficiency/report')
@@ -79,25 +54,24 @@ export class AdminController {
 
   @Get('notification-logs')
   @ApiOperation({
-    summary: 'Lista logs de envio (e-mail + WhatsApp) — somente admin',
+    summary:
+      'Lista logs de envio (e-mail + WhatsApp) sem conteúdo e com destinatário mascarado',
   })
-  async listNotificationLogs(
+  @ApiOkResponse({ type: NotificationLogListResponseDto })
+  listNotificationLogs(
     @Query() query: NotificationLogsQueryDto,
-  ): Promise<{ items: NotificationSendLog[]; total: number }> {
-    const limit = query.limit ? Number(query.limit) : undefined;
-    const offset = query.offset ? Number(query.offset) : undefined;
-    const params: NotificationLogQuery = { ...query, limit, offset };
-    return this.notificationLogsService.list(params);
+  ): Promise<NotificationLogListResponseDto> {
+    return this.notificationLogsService.list(query);
   }
 
   @Get('notification-logs/stats')
   @ApiOperation({
     summary: 'Estatísticas agregadas de envio por canal e status',
   })
-  async notificationLogsStats(
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-  ): Promise<NotificationLogStatsRow[]> {
-    return this.notificationLogsService.stats(from, to);
+  @ApiOkResponse({ type: [NotificationLogStatsRowDto] })
+  notificationLogsStats(
+    @Query() query: NotificationLogsStatsQueryDto,
+  ): Promise<NotificationLogStatsRowDto[]> {
+    return this.notificationLogsService.stats(query);
   }
 }

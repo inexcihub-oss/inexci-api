@@ -26,7 +26,10 @@ export class IngestionService {
     );
 
     for (const [index, chunk] of chunks.entries()) {
-      const embedding = await this.embeddingService.generate(chunk);
+      const embedding = await this.embeddingService.generate(chunk, {
+        source: 'rag_ingestion',
+        ownerId: null,
+      });
       const vectorStr = this.embeddingService.toSqlVector(embedding);
 
       await this.knowledgeRepo.create({

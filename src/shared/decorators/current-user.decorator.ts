@@ -6,7 +6,6 @@ export interface AuthenticatedUser {
   userId: string;
   ownerId: string | null;
   role: UserRole;
-  isPlatformAdmin?: boolean;
   permissions: Permission[];
 }
 

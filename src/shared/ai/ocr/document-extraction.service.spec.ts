@@ -3,6 +3,7 @@ import { OcrService } from './ocr.service';
 import { DocumentClassifierService } from './document-classifier.service';
 import { DocumentVisionFallbackService } from './document-vision-fallback.service';
 import { PiiVaultService } from '../services/pii-vault.service';
+import { AiUsageRecorder } from '../usage/ai-usage.recorder';
 
 const buildClassification = (overrides: Record<string, unknown> = {}) => ({
   kind: 'medical_report' as const,
@@ -437,6 +438,114 @@ describe('DocumentExtractionService', () => {
           model: 'gpt-4o-mini',
         }),
       ).toBe(false);
+    });
+  });
+
+  describe('registro de uso de IA', () => {
+    let recorder: { record: jest.Mock };
+    const baseInput = {
+      buffer: Buffer.from('img'),
+      mimeType: 'image/png',
+      sessionId: 'sess-usage',
+      intent: 'create_sc' as const,
+    };
+
+    beforeEach(() => {
+      recorder = { record: jest.fn().mockResolvedValue(undefined) };
+      service = new DocumentExtractionService(
+        ocr as OcrService,
+        classifier as DocumentClassifierService,
+        visionFallback as DocumentVisionFallbackService,
+        piiVault as PiiVaultService,
+        recorder as unknown as AiUsageRecorder,
+      );
+    });
+
+    it('grava uma linha document_extraction para o classificador quando há usageContext', async () => {
+      await service.extractFromBuffer({
+        ...baseInput,
+        usageContext: { ownerId: 'owner-1', userId: 'user-1' },
+      });
+
+      expect(recorder.record).toHaveBeenCalledTimes(1);
+      expect(recorder.record).toHaveBeenCalledWith({
+        source: 'document_extraction',
+        ownerId: 'owner-1',
+        userId: 'user-1',
+        model: 'gpt-4o-mini',
+        promptTokens: 320,
+        completionTokens: 110,
+        latencyMs: 50,
+        stage: 'doc_classifier',
+      });
+    });
+
+    it('grava também a linha do vision fallback quando ele é usado', async () => {
+      (classifier.classifyWithUsage as jest.Mock).mockResolvedValue({
+        classification: buildClassification({ confidence: 0.2 }),
+        usage: {
+          promptTokens: 100,
+          completionTokens: 10,
+          totalTokens: 110,
+          model: 'gpt-4o-mini',
+          latencyMs: 20,
+        },
+      });
+      (visionFallback.classifyImage as jest.Mock).mockResolvedValue({
+        classification: buildClassification(),
+        usage: {
+          promptTokens: 900,
+          completionTokens: 200,
+          totalTokens: 1100,
+          model: 'gpt-4o',
+          latencyMs: 700,
+        },
+      });
+
+      await service.extractFromBuffer({
+        ...baseInput,
+        intent: undefined,
+        usageContext: { ownerId: 'owner-1', userId: 'user-1' },
+      });
+
+      const stages = recorder.record.mock.calls.map(
+        ([arg]: [{ stage: string }]) => arg.stage,
+      );
+      expect(stages).toEqual(['doc_classifier', 'doc_vision_fallback']);
+      expect(recorder.record).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          source: 'document_extraction',
+          model: 'gpt-4o',
+          promptTokens: 900,
+        }),
+      );
+    });
+
+    it('não grava nada sem usageContext (fluxo do WhatsApp grava por conta própria)', async () => {
+      await service.extractFromBuffer(baseInput);
+
+      expect(recorder.record).not.toHaveBeenCalled();
+    });
+
+    it('falha do recorder não quebra a extração', async () => {
+      const real = new AiUsageRecorder({
+        create: jest.fn().mockRejectedValue(new Error('banco fora')),
+      } as never);
+      service = new DocumentExtractionService(
+        ocr as OcrService,
+        classifier as DocumentClassifierService,
+        visionFallback as DocumentVisionFallbackService,
+        piiVault as PiiVaultService,
+        real,
+      );
+
+      const result = await service.extractFromBuffer({
+        ...baseInput,
+        usageContext: { ownerId: 'owner-1', userId: 'user-1' },
+      });
+
+      expect(result.status).toBe('ok');
+      expect(result.classification).not.toBeNull();
     });
   });
 });

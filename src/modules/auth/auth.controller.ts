@@ -29,6 +29,7 @@ import { CheckPhoneDto } from './dto/check-phone.dto';
 import { AuthService } from './auth.service';
 import { JsonOnlyGuard } from './json-only.guard';
 import { TrustedOriginGuard } from './trusted-origin.guard';
+import { refreshCookieFlags } from './refresh-cookie.options';
 import { Public } from 'src/shared/decorators/is-public.decorator';
 import { SkipConsentCheck } from 'src/shared/decorators/skip-consent-check.decorator';
 import { validationCodeDto } from './dto/validation-code.dto';
@@ -62,37 +63,13 @@ export class AuthController {
   ) {}
 
   private getRefreshCookieOptions(): CookieOptions {
-    const configuredSameSite =
-      process.env.AUTH_REFRESH_COOKIE_SAMESITE?.trim().toLowerCase();
-    const sameSite: CookieOptions['sameSite'] =
-      configuredSameSite === 'lax' ||
-      configuredSameSite === 'strict' ||
-      configuredSameSite === 'none'
-        ? configuredSameSite
-        : process.env.NODE_ENV === 'production'
-          ? 'lax'
-          : 'strict';
-
     const configuredPath = process.env.AUTH_REFRESH_COOKIE_PATH?.trim();
     const path = configuredPath || REFRESH_COOKIE_DEFAULT_PATH;
 
-    const secureFromEnv = process.env.AUTH_REFRESH_COOKIE_SECURE?.trim();
-    const secure =
-      secureFromEnv === 'true'
-        ? true
-        : secureFromEnv === 'false'
-          ? false
-          : process.env.NODE_ENV === 'production' || sameSite === 'none';
-
-    const domain = process.env.AUTH_REFRESH_COOKIE_DOMAIN?.trim();
-
     return {
-      httpOnly: true,
-      secure,
-      sameSite,
+      ...refreshCookieFlags(),
       path,
       maxAge: this.REFRESH_COOKIE_MAX_AGE,
-      ...(domain ? { domain } : {}),
     };
   }
 

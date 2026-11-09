@@ -44,6 +44,7 @@ import { MAX_RESPONSE_LENGTH } from '../constants/ai.constants';
 import { User } from '../../../database/entities/user.entity';
 import { WhatsappConversation } from '../../../database/entities/whatsapp-conversation.entity';
 import { errorMessage } from '../../utils/error-message.util';
+import { reportPlatformError } from 'src/shared/observability/platform-errors/platform-error-sink';
 
 interface TurnTiming {
   startedAt: number;
@@ -275,6 +276,11 @@ export class AiOrchestratorService {
             `Erro ao processar mensagem de ${maskedPhone}: ${errorMessage(error)}`,
             error instanceof Error ? error.stack : undefined,
           );
+          reportPlatformError({
+            source: 'ai',
+            route: 'whatsapp.processMessage',
+            error,
+          });
           const { code, name } = (
             typeof error === 'object' && error !== null ? error : {}
           ) as { code?: unknown; name?: unknown };

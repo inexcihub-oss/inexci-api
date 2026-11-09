@@ -4,7 +4,7 @@ import { AiTokenUsageLogRepository } from '../../../../database/repositories/ai-
 import { hashPhone } from '../../../crypto/phone-hash.util';
 import { ContextStrategy } from '../conversation-context.service';
 import { OperationDraftType } from '../../drafts/operation-draft.types';
-import { MODEL_COST_PER_1K } from '../../constants/ai.constants';
+import { estimateCostCents } from '../../usage/ai-usage-cost.util';
 import { PhoneNormalizerService } from './phone-normalizer.service';
 import { PiiVaultService } from '../pii-vault.service';
 import { errorMessage } from '../../../utils/error-message.util';
@@ -182,17 +182,7 @@ export class OrchestratorTelemetryService {
   }
 
   estimateCostCents(snapshots: CompletionUsageSnapshot[]): number | null {
-    let total = 0;
-    let hasPricing = false;
-    for (const s of snapshots) {
-      const pricing = s.model ? MODEL_COST_PER_1K[s.model] : undefined;
-      if (!pricing) continue;
-      hasPricing = true;
-      total +=
-        (s.promptTokens / 1000) * pricing.input +
-        (s.completionTokens / 1000) * pricing.output;
-    }
-    return hasPricing ? Math.round(total) : null;
+    return estimateCostCents(snapshots);
   }
 
   logPiiVaultUsage(messageSid: string, conversationId: string): void {

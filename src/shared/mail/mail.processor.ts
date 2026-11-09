@@ -23,6 +23,8 @@ import {
 import { requestContextStorage } from 'src/shared/logging/request-context';
 import { randomUUID } from 'crypto';
 import { errorMessage } from 'src/shared/utils/error-message.util';
+import { AccountStatusService } from 'src/shared/account-status/account-status.service';
+import { CONTA_DESATIVADA_MENSAGEM } from 'src/modules/auth/account-deactivation';
 
 @Injectable()
 @Processor('mail')
@@ -35,6 +37,7 @@ export class MailProcessor implements OnModuleInit {
     private readonly mail: ConfigType<typeof mailConfig>,
     @InjectRepository(NotificationSendLog)
     private readonly sendLogRepository: Repository<NotificationSendLog>,
+    private readonly accountStatus: AccountStatusService,
   ) {
     this.transporter = nodemailer.createTransport({
       host: this.mail.host,
@@ -132,7 +135,26 @@ export class MailProcessor implements OnModuleInit {
       template: template ?? 'raw_html',
       jobId: String(job.id),
       attempts: job.attemptsMade,
+      ownerId: job.data.tenantId ?? null,
+      userId: job.data.userId ?? null,
     });
+
+    if (await this.accountStatus.isDeactivated(job.data.tenantId)) {
+      sendLog.status = NotificationSendStatus.FAILED;
+      sendLog.errorMessage = CONTA_DESATIVADA_MENSAGEM;
+      sendLog.attempts = job.attemptsMade + 1;
+      this.logger.warn(
+        JSON.stringify({
+          event: 'email_skipped_account_deactivated',
+          template: template ?? 'raw_html',
+          to: maskedTo,
+          jobId: job.id,
+          tenantId: job.data.tenantId,
+        }),
+      );
+      await this.saveSendLog(sendLog);
+      return;
+    }
 
     try {
       if (!rawHtml && !template) {
@@ -202,13 +224,17 @@ export class MailProcessor implements OnModuleInit {
         }),
       );
     } finally {
-      try {
-        await this.sendLogRepository.save(sendLog);
-      } catch (logErr) {
-        this.logger.error(
-          `Falha ao salvar send log de email: ${errorMessage(logErr)}`,
-        );
-      }
+      await this.saveSendLog(sendLog);
+    }
+  }
+
+  private async saveSendLog(sendLog: NotificationSendLog): Promise<void> {
+    try {
+      await this.sendLogRepository.save(sendLog);
+    } catch (logErr) {
+      this.logger.error(
+        `Falha ao salvar send log de email: ${errorMessage(logErr)}`,
+      );
     }
   }
 

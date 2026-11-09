@@ -7,6 +7,7 @@ import { MailModule } from '../mail/mail.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { StorageModule } from '../storage/storage.module';
 import { NotificationsModule } from 'src/modules/notifications/notifications.module';
+import { AdminModule } from 'src/modules/admin/admin.module';
 import { StaleNotificationService } from 'src/modules/notifications/stale-notification.service';
 import { StaleNotificationLog } from 'src/database/entities/stale-notification-log.entity';
 import { StaleNotificationLogRepository } from 'src/database/repositories/stale-notification-log.repository';
@@ -16,6 +17,7 @@ import { AiPiiRedactionLog } from 'src/database/entities/ai-pii-redaction-log.en
 import { User } from 'src/database/entities/user.entity';
 import { Patient } from 'src/database/entities/patient.entity';
 import { FotosPacienteOrfasService } from './fotos-paciente-orfas.service';
+import { DistributedLockModule } from '../locks/distributed-lock.module';
 
 @Module({
   imports: [
@@ -31,6 +33,8 @@ import { FotosPacienteOrfasService } from './fotos-paciente-orfas.service';
     WhatsappModule,
     NotificationsModule,
     StorageModule,
+    AdminModule,
+    DistributedLockModule,
   ],
   controllers: [CronController],
   providers: [

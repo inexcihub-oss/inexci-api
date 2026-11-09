@@ -1,3 +1,13 @@
+const reportPlatformErrorMock = jest.fn();
+
+jest.mock(
+  'src/shared/observability/platform-errors/platform-error-sink',
+  () => ({
+    reportPlatformError: (...args: unknown[]) =>
+      reportPlatformErrorMock(...args),
+  }),
+);
+
 import OpenAI from 'openai';
 import { ToolRegistryService } from './tool-registry.service';
 import { TOOL_DISPLAY_LABELS } from './orchestrator/confirmation-manager.service';
@@ -62,7 +72,10 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     sendMessage: jest.fn(),
     sendTemplate: jest.fn(),
   };
-  const userRepositoryMock = { findManyByPhones: jest.fn() };
+  const userRepositoryMock = {
+    findManyByPhones: jest.fn(),
+    isAccountDeactivated: jest.fn().mockResolvedValue(false),
+  };
   const accessControlMock = {
     getAccessibleDoctorIds: jest.fn(),
     invalidateAccessibleDoctors: jest.fn(),
@@ -245,6 +258,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         piiVault,
         new PhoneNormalizerService(userRepositoryMock as any),
         new ResponseNormalizerService(),
+        userRepositoryMock as any,
       ),
       documentIntakeMock as any,
       new AudioIntakeService(
@@ -547,6 +561,25 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       'Resposta final',
     );
     expect(whatsappServiceMock.sendTemplate).not.toHaveBeenCalled();
+  });
+
+  it('falha no processamento da mensagem é registrada como erro da plataforma (origem ai)', async () => {
+    reportPlatformErrorMock.mockClear();
+    const erro = new Error('openai fora');
+    openaiServiceMock.chatCompletion.mockRejectedValueOnce(erro);
+
+    await service.processMessage({
+      from: 'whatsapp:+5511999999999',
+      body: 'oi',
+      messageSid: 'SM-ERR',
+      mediaUrl: null,
+    });
+
+    expect(reportPlatformErrorMock).toHaveBeenCalledWith({
+      source: 'ai',
+      route: 'whatsapp.processMessage',
+      error: erro,
+    });
   });
 
   it('deriva `permissions` do toolContext localmente (sem chamar accessControlService.getEffectivePermissions)', async () => {
@@ -1313,6 +1346,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
           piiVault,
           new PhoneNormalizerService(userRepositoryMock as any),
           new ResponseNormalizerService(),
+          userRepositoryMock as any,
         ),
         documentIntakeMock as any,
         new AudioIntakeService(
@@ -1501,6 +1535,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
           piiVault,
           new PhoneNormalizerService(userRepositoryMock as any),
           new ResponseNormalizerService(),
+          userRepositoryMock as any,
         ),
         documentIntakeMock as any,
         new AudioIntakeService(

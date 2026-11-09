@@ -3,7 +3,10 @@ import { EntityManager } from 'typeorm';
 
 import { SubscriptionRepository } from 'src/database/repositories/subscription.repository';
 import { SubscriptionQuotaPeriodRepository } from 'src/database/repositories/subscription-quota-period.repository';
-import { SubscriptionStatus } from 'src/database/entities/subscription.entity';
+import {
+  Subscription,
+  SubscriptionStatus,
+} from 'src/database/entities/subscription.entity';
 import { SubscriptionQuotaPeriod } from 'src/database/entities/subscription-quota-period.entity';
 import { BillingRequiredException } from '../billing.exceptions';
 
@@ -43,6 +46,8 @@ export class QuotaService {
         'Assinatura n\u00e3o encontrada. Contate o suporte.',
       );
     }
+
+    if (subscription.status === SubscriptionStatus.INTERNAL) return;
 
     if (subscription.status === SubscriptionStatus.SUSPENDED) {
       throw new BillingRequiredException(
@@ -91,6 +96,10 @@ export class QuotaService {
       throw new NotFoundException('Assinatura n\u00e3o encontrada');
     }
 
+    if (subscription.status === SubscriptionStatus.INTERNAL) {
+      return this.internalSnapshot(subscription);
+    }
+
     const period = await this.quotaPeriodRepo.findCurrentForSubscription(
       subscription.id,
       new Date(),
@@ -121,6 +130,10 @@ export class QuotaService {
     const subscription = await this.subscriptionRepo.findByOwnerId(ownerId);
     if (!subscription) return null;
 
+    if (subscription.status === SubscriptionStatus.INTERNAL) {
+      return this.internalSnapshot(subscription);
+    }
+
     const period = await this.quotaPeriodRepo.findCurrentForSubscription(
       subscription.id,
       new Date(),
@@ -140,6 +153,18 @@ export class QuotaService {
       remaining: snapshot.isUnlimited ? null : snapshot.remaining,
       periodStart: snapshot.periodStart,
       periodEnd: snapshot.periodEnd,
+    };
+  }
+
+  private internalSnapshot(subscription: Subscription): QuotaSnapshot {
+    return {
+      used: 0,
+      limit: -1,
+      isUnlimited: true,
+      remaining: Number.POSITIVE_INFINITY,
+      periodStart:
+        subscription.internalAccessGrantedAt ?? subscription.currentPeriodStart,
+      periodEnd: subscription.currentPeriodEnd,
     };
   }
 

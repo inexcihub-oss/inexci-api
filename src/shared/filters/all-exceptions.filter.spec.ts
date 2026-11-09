@@ -6,6 +6,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+const reportPlatformErrorMock = jest.fn();
+
+jest.mock('../observability/platform-errors/platform-error-sink', () => ({
+  reportPlatformError: (...args: unknown[]) => reportPlatformErrorMock(...args),
+}));
+
 import { AllExceptionsFilter } from './all-exceptions.filter';
 import { BillingRequiredException } from '../../modules/billing/billing.exceptions';
 import { PaymentGatewayError } from '../payment-gateway/payment-gateway.interface';
@@ -330,6 +336,59 @@ describe('AllExceptionsFilter', () => {
       );
 
       expect(capturado.status).toBe(HttpStatus.PAYLOAD_TOO_LARGE);
+    });
+  });
+
+  describe('registro de erros da plataforma', () => {
+    beforeEach(() => reportPlatformErrorMock.mockClear());
+
+    it('erro inesperado (500) é registrado com método e rota do Express', () => {
+      const { host: base } = criarHost('/surgery-requests/abc/send', 'POST');
+      const request = {
+        url: '/surgery-requests/abc/send',
+        method: 'POST',
+        baseUrl: '/surgery-requests',
+        route: { path: '/:id/send' },
+      };
+      const host = {
+        switchToHttp: () => ({
+          getResponse: () => base.switchToHttp().getResponse(),
+          getRequest: () => request,
+        }),
+      } as unknown as ArgumentsHost;
+      const erro = new Error('quebrou');
+      jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+      filter.catch(erro, host);
+
+      expect(reportPlatformErrorMock).toHaveBeenCalledWith({
+        source: 'http',
+        route: 'POST /surgery-requests/:id/send',
+        error: erro,
+      });
+    });
+
+    it('sem rota resolvida usa a URL', () => {
+      const { host } = criarHost('/x/1', 'GET');
+      jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      filter.catch(new Error('x'), host);
+      expect(reportPlatformErrorMock).toHaveBeenCalledWith(
+        expect.objectContaining({ route: 'GET /x/1' }),
+      );
+    });
+
+    it('erros 4xx não são registrados', () => {
+      const { host } = criarHost();
+      filter.catch(new BadRequestException('dado inválido'), host);
+      filter.catch(new NotFoundException(), host);
+      expect(reportPlatformErrorMock).not.toHaveBeenCalled();
+    });
+
+    it('502 do gateway de pagamento é registrado', () => {
+      const { host } = criarHost();
+      jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      filter.catch(new PaymentGatewayError('stripe fora', 'api_error'), host);
+      expect(reportPlatformErrorMock).toHaveBeenCalledTimes(1);
     });
   });
 });

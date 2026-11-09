@@ -187,8 +187,7 @@ export class UsersService {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    const { permissions, isPlatformAdmin, onboardingState, ...comCredenciais } =
-      user;
+    const { permissions, onboardingState, ...comCredenciais } = user;
     const userWithoutPassword = omitUserSecrets(comCredenciais);
 
     const profile = userWithoutPassword.doctorProfile;
@@ -533,12 +532,8 @@ export class UsersService {
     });
     if (!updated) throw new NotFoundException('Usuário alvo não encontrado');
 
-    const {
-      permissions,
-      isPlatformAdmin,
-      onboardingState,
-      ...updatedWithoutInternalFields
-    } = updated;
+    const { permissions, onboardingState, ...updatedWithoutInternalFields } =
+      updated;
     return updatedWithoutInternalFields;
   }
 
@@ -681,8 +676,7 @@ export class UsersService {
     await this.vincularAoMedicoQueConvidou(newUser.id, admin);
     await this.enviarConviteDeColaborador(newUser, admin);
 
-    const { permissions, isPlatformAdmin, ...newUserWithoutInternalFields } =
-      newUser;
+    const { permissions, ...newUserWithoutInternalFields } = newUser;
 
     return {
       ...omitUserSecrets(newUserWithoutInternalFields),
@@ -1235,8 +1229,7 @@ export class UsersService {
     const accesses =
       await this.userDoctorAccessRepository.findAllByUserId(collaboratorId);
 
-    const { permissions, isPlatformAdmin, onboardingState, ...comCredenciais } =
-      collaborator;
+    const { permissions, onboardingState, ...comCredenciais } = collaborator;
     const userWithoutPassword = omitUserSecrets(comCredenciais);
 
     const [avatarUrl, signatureUrl] = await Promise.all([

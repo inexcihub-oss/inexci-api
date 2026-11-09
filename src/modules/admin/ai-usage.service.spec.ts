@@ -1,106 +1,47 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import { AiUsageService } from './ai-usage.service';
-import { AiTokenUsageLog } from '../../database/entities/ai-token-usage-log.entity';
+import { AiTokenUsageLogRepository } from '../../database/repositories/ai-token-usage-log.repository';
 
 describe('AiUsageService', () => {
+  const repo = { report: jest.fn() };
   let service: AiUsageService;
 
-  const mockQueryBuilder = {
-    select: jest.fn().mockReturnThis(),
-    addSelect: jest.fn().mockReturnThis(),
-    groupBy: jest.fn().mockReturnThis(),
-    orderBy: jest.fn().mockReturnThis(),
-    andWhere: jest.fn().mockReturnThis(),
-    getRawMany: jest.fn(),
-  };
-
-  const mockRepo = {
-    createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
-  };
-
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        AiUsageService,
-        {
-          provide: getRepositoryToken(AiTokenUsageLog),
-          useValue: mockRepo,
-        },
-      ],
-    }).compile();
-
-    service = module.get<AiUsageService>(AiUsageService);
+  beforeEach(() => {
     jest.clearAllMocks();
-    mockRepo.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+    service = new AiUsageService(repo as unknown as AiTokenUsageLogRepository);
   });
 
-  it('deve retornar relatório agrupado por dia (padrão)', async () => {
-    mockQueryBuilder.getRawMany.mockResolvedValue([
+  it('repassa agrupamento e filtros ao repositório', async () => {
+    const rows = [
       {
-        groupKey: '2026-05-07',
-        totalPromptTokens: '1200',
-        totalCompletionTokens: '800',
-        totalTokens: '2000',
-        totalCalls: '5',
-        totalCostCents: '3',
-        avgLatencyMs: '450',
+        groupKey: 'o1',
+        name: 'Dr. A',
+        email: 'a@x.com',
+        totalPromptTokens: 1,
+        totalCompletionTokens: 2,
+        totalTokens: 3,
+        totalCalls: 1,
+        totalRecords: 1,
+        costUsdCents: 4,
+        avgLatencyMs: 10,
       },
-    ]);
+    ];
+    repo.report.mockResolvedValue(rows);
+    const query = {
+      groupBy: 'owner' as const,
+      ownerId: '11111111-1111-1111-1111-111111111111',
+      source: 'whatsapp' as const,
+      from: '2026-10-01',
+    };
 
-    const result = await service.getReport({});
-
-    expect(result).toEqual([
-      {
-        groupKey: '2026-05-07',
-        totalPromptTokens: 1200,
-        totalCompletionTokens: 800,
-        totalTokens: 2000,
-        totalCalls: 5,
-        totalCostCents: 3,
-        avgLatencyMs: 450,
-      },
-    ]);
-    expect(mockQueryBuilder.groupBy).toHaveBeenCalled();
+    await expect(service.getReport(query)).resolves.toBe(rows);
+    expect(repo.report).toHaveBeenCalledWith(query);
   });
 
-  it('deve aplicar filtros from/to quando fornecidos', async () => {
-    mockQueryBuilder.getRawMany.mockResolvedValue([]);
+  it('usa todas as origens quando source não é informado', async () => {
+    repo.report.mockResolvedValue([]);
 
-    await service.getReport({
-      from: '2026-05-01',
-      to: '2026-05-31',
-      groupBy: 'user',
-    });
+    await service.getReport({ groupBy: 'day' });
 
-    expect(mockQueryBuilder.andWhere).toHaveBeenCalledTimes(2);
-    expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
-      'log.createdAt >= :from',
-      { from: '2026-05-01' },
-    );
-    expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
-      'log.createdAt <= :to',
-      { to: '2026-05-31' },
-    );
-  });
-
-  it('deve agrupar por modelo quando solicitado', async () => {
-    mockQueryBuilder.getRawMany.mockResolvedValue([
-      {
-        groupKey: 'gpt-4o',
-        totalPromptTokens: '5000',
-        totalCompletionTokens: '3000',
-        totalTokens: '8000',
-        totalCalls: '20',
-        totalCostCents: null,
-        avgLatencyMs: null,
-      },
-    ]);
-
-    const result = await service.getReport({ groupBy: 'model' });
-
-    expect(result[0].groupKey).toBe('gpt-4o');
-    expect(result[0].totalCostCents).toBeNull();
-    expect(result[0].avgLatencyMs).toBeNull();
+    expect(repo.report).toHaveBeenCalledWith({ groupBy: 'day' });
   });
 });

@@ -6,10 +6,11 @@ import { RagService } from './rag.service';
 import { EmbeddingService } from './embedding.service';
 import { IngestionService } from './ingestion.service';
 import { OpenaiService } from '../ai/services/openai.service';
+import { AiUsageModule } from '../ai/usage/ai-usage.module';
 import { RagBootstrapService } from './rag-bootstrap.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([AiKnowledgeChunk])],
+  imports: [TypeOrmModule.forFeature([AiKnowledgeChunk]), AiUsageModule],
   providers: [
     AiKnowledgeChunkRepository,
     OpenaiService,

@@ -6,7 +6,10 @@ import { DocumentClassifierService } from './document-classifier.service';
 import { DocumentVisionFallbackService } from './document-vision-fallback.service';
 import { DocumentExtractionService } from './document-extraction.service';
 
+import { AiUsageModule } from '../usage/ai-usage.module';
+
 @Module({
+  imports: [AiUsageModule],
   providers: [
     OpenaiService,
     PiiVaultService,

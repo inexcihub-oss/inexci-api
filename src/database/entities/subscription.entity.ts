@@ -20,7 +20,10 @@ export enum SubscriptionStatus {
   PAST_DUE = 'past_due',
   SUSPENDED = 'suspended',
   CANCELED = 'canceled',
+  INTERNAL = 'internal',
 }
+
+export type SubscriptionDiscountDuration = 'once' | 'repeating' | 'forever';
 
 @Entity('subscriptions')
 @Index('idx_subscriptions_owner_id', ['ownerId'])
@@ -82,6 +85,43 @@ export class Subscription {
     nullable: true,
   })
   gatewaySubscriptionId: string | null;
+
+  @Column({ name: 'internal_access_granted_by', type: 'uuid', nullable: true })
+  internalAccessGrantedBy: string | null;
+
+  @Column({
+    name: 'internal_access_granted_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  internalAccessGrantedAt: Date | null;
+
+  @Column({
+    name: 'discount_percent_off',
+    type: 'numeric',
+    precision: 6,
+    scale: 2,
+    nullable: true,
+    transformer: {
+      to: (value: number | null | undefined) => value,
+      from: (value: string | null) => (value === null ? null : Number(value)),
+    },
+  })
+  discountPercentOff: number | null;
+
+  @Column({ name: 'discount_amount_off_cents', type: 'int', nullable: true })
+  discountAmountOffCents: number | null;
+
+  @Column({
+    name: 'discount_duration',
+    type: 'varchar',
+    length: 20,
+    nullable: true,
+  })
+  discountDuration: SubscriptionDiscountDuration | null;
+
+  @Column({ name: 'discount_ends_at', type: 'timestamptz', nullable: true })
+  discountEndsAt: Date | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

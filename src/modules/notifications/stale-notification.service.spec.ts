@@ -12,6 +12,7 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 import { UserRole } from 'src/database/entities/user.entity';
 import { Permission } from 'src/shared/permissions';
+import { getRequestContext } from 'src/shared/logging/request-context';
 
 jest.mock('src/shared/whatsapp/whatsapp-templates.constants', () => ({
   WHATSAPP_TEMPLATES: {
@@ -52,6 +53,7 @@ describe('StaleNotificationService', () => {
   const mockUserRepository = {
     findOne: jest.fn(),
     findByOwnerId: jest.fn(),
+    isAccountDeactivated: jest.fn(),
   };
 
   const makeStaleRequest = (
@@ -64,6 +66,7 @@ describe('StaleNotificationService', () => {
       id: `req-${daysAgo}`,
       protocol: `SC-${String(daysAgo).padStart(6, '0')}`,
       doctorId: 'doctor-1',
+      ownerId: 'acc-1',
       createdById: 'creator-1',
       status,
       lastStatusChangedAt: lastChanged,
@@ -75,6 +78,7 @@ describe('StaleNotificationService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
 
+    mockUserRepository.isAccountDeactivated.mockResolvedValue(false);
     mockUserRepository.findByOwnerId.mockResolvedValue([
       {
         id: 'admin-1',
@@ -176,6 +180,25 @@ describe('StaleNotificationService', () => {
   });
 
   describe('checkAndNotifyStaleRequests', () => {
+    it('conta desativada pela equipe Inexci não recebe aviso nem grava log', async () => {
+      mockSurgeryRequestRepository.findStaleRequests.mockResolvedValue([
+        makeStaleRequest(30),
+        makeStaleRequest(15),
+      ]);
+      mockStaleLogRepository.hasBeenNotified.mockResolvedValue(false);
+      mockUserRepository.isAccountDeactivated.mockResolvedValue(true);
+
+      const count = await service.checkAndNotifyStaleRequests();
+
+      expect(count).toBe(0);
+      expect(mockUserRepository.isAccountDeactivated).toHaveBeenCalledTimes(1);
+      expect(
+        mockNotificationsService.createNotificationForUsers,
+      ).not.toHaveBeenCalled();
+      expect(mockWhatsappService.sendTemplate).not.toHaveBeenCalled();
+      expect(mockStaleLogRepository.record).not.toHaveBeenCalled();
+    });
+
     it('solicitação parada há 3 dias → notificação leve (6.3.1)', async () => {
       const request = makeStaleRequest(3);
       mockSurgeryRequestRepository.findStaleRequests.mockResolvedValue([
@@ -270,6 +293,24 @@ describe('StaleNotificationService', () => {
       await service.checkAndNotifyStaleRequests();
 
       expect(mockWhatsappService.sendTemplate).toHaveBeenCalled();
+    });
+
+    it('o WhatsApp sai no contexto da conta da solicitação, para o envio registrar a conta', async () => {
+      const request = { ...makeStaleRequest(15), ownerId: 'acc-1' };
+      mockSurgeryRequestRepository.findStaleRequests.mockResolvedValue([
+        request,
+      ]);
+      mockStaleLogRepository.hasBeenNotified.mockResolvedValue(false);
+      let tenantId: string | null | undefined;
+      mockWhatsappService.sendTemplate.mockImplementationOnce(() => {
+        tenantId = getRequestContext()?.tenantId;
+        return Promise.resolve(undefined);
+      });
+
+      await service.checkAndNotifyStaleRequests();
+
+      expect(tenantId).toBe('acc-1');
+      expect(getRequestContext()).toBeUndefined();
     });
 
     it('solicitação parada há 30 dias → crítico para todos (6.3.1)', async () => {

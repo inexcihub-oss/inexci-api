@@ -51,6 +51,46 @@ export class SubscriptionQuotaPeriodRepository extends BaseRepository<Subscripti
     return this.repoFor(manager).findOne({ where: { id: periodId } });
   }
 
+  insertWithManager(
+    data: Pick<
+      SubscriptionQuotaPeriod,
+      | 'subscriptionId'
+      | 'periodStart'
+      | 'periodEnd'
+      | 'surgeryRequestsLimit'
+      | 'surgeryRequestsUsed'
+    >,
+    manager: EntityManager,
+  ): Promise<SubscriptionQuotaPeriod> {
+    const repo = manager.getRepository(SubscriptionQuotaPeriod);
+    return repo.save(repo.create(data));
+  }
+
+  async extendPeriodEnd(
+    periodId: string,
+    periodEnd: Date,
+    manager: EntityManager,
+  ): Promise<void> {
+    await manager
+      .getRepository(SubscriptionQuotaPeriod)
+      .update(periodId, { periodEnd });
+  }
+
+  async closeCurrentPeriods(
+    subscriptionId: string,
+    at: Date,
+    manager: EntityManager,
+  ): Promise<void> {
+    await manager
+      .getRepository(SubscriptionQuotaPeriod)
+      .createQueryBuilder()
+      .update(SubscriptionQuotaPeriod)
+      .set({ periodEnd: at })
+      .where('subscription_id = :subscriptionId', { subscriptionId })
+      .andWhere('period_start <= :at AND period_end > :at', { at })
+      .execute();
+  }
+
   private repoFor(
     manager?: EntityManager,
   ): Repository<SubscriptionQuotaPeriod> {

@@ -7,6 +7,7 @@ import {
   TABELA_DE_CAIXA,
   TABELAS_DA_FUNDACAO_FINANCEIRA,
   TABELAS_DE_COBRANCA,
+  TABELAS_DO_PAINEL_ADMIN,
   TELEFONE_DUPLICADO,
   VERIFICACOES_PRE_MIGRATION,
   montarDiagnostico,
@@ -301,6 +302,19 @@ describe('tabelas do módulo financeiro', () => {
     ]);
     expect(montarDiagnostico(TABELA_DE_CAIXA, conflitos)).toContain(
       'CreateCashSessions1760900100000 bloqueada',
+    );
+  });
+});
+
+describe('tabelas do painel administrativo', () => {
+  it('a verificação está registrada, é read-only e cobre as duas tabelas', () => {
+    expect(VERIFICACOES_PRE_MIGRATION).toContain(TABELAS_DO_PAINEL_ADMIN);
+    expect(TABELAS_DO_PAINEL_ADMIN.migration).toBe(
+      'CreatePlatformAuditAndLastSeen1761000800000',
+    );
+    expect(TABELAS_DO_PAINEL_ADMIN.sql).toMatch(/^\s*SELECT/i);
+    expect(TABELAS_DO_PAINEL_ADMIN.sql).toContain(
+      "'platform_admins', 'platform_audit_logs'",
     );
   });
 });

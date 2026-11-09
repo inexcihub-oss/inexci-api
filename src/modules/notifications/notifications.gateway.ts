@@ -117,11 +117,12 @@ export class NotificationsGateway
       const userId: string = payload.userId;
 
       if (this.userRepository) {
-        const user = await this.userRepository.findOne({ id: userId });
+        const session = await this.userRepository.findSessionUser(userId);
         if (
-          !user ||
-          user.status !== UserStatus.ACTIVE ||
-          !tokenVersionValida(payload, user.tokenVersion)
+          !session ||
+          session.user.status !== UserStatus.ACTIVE ||
+          !tokenVersionValida(payload, session.user.tokenVersion) ||
+          session.accountDeactivated
         ) {
           client.disconnect(true);
           return;

@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import {
+  CONTA_DESATIVADA_WHATSAPP_MENSAGEM,
   MessageProcessorService,
   PreflightHooks,
 } from './message-processor.service';
@@ -33,7 +34,10 @@ describe('MessageProcessorService', () => {
     endSession: jest.Mock;
     preprocessUserInput: jest.Mock;
   };
-  let userRepository: { findManyByPhones: jest.Mock };
+  let userRepository: {
+    findManyByPhones: jest.Mock;
+    isAccountDeactivated: jest.Mock;
+  };
   let phoneNormalizer: PhoneNormalizerService;
   let responseNormalizer: ResponseNormalizerService;
 
@@ -56,7 +60,10 @@ describe('MessageProcessorService', () => {
       endSession: jest.fn(),
       preprocessUserInput: jest.fn((_id, t) => t),
     };
-    userRepository = { findManyByPhones: jest.fn() };
+    userRepository = {
+      findManyByPhones: jest.fn(),
+      isAccountDeactivated: jest.fn().mockResolvedValue(false),
+    };
     phoneNormalizer = new PhoneNormalizerService(userRepository as any);
     responseNormalizer = new ResponseNormalizerService();
 
@@ -70,6 +77,7 @@ describe('MessageProcessorService', () => {
       piiVault as any,
       phoneNormalizer,
       responseNormalizer,
+      userRepository as any,
     );
   });
 
@@ -269,6 +277,51 @@ describe('MessageProcessorService', () => {
       const result = await service.runPreflight(buildInput(), buildHooks());
 
       expect(result.status).toBe('continue');
+    });
+
+    it('recusa quem é de conta desativada pelo painel, mesmo ACTIVE', async () => {
+      userRepository.findManyByPhones.mockResolvedValue([
+        {
+          id: 'user-1',
+          ownerId: 'owner-1',
+          status: UserStatus.ACTIVE,
+          aiConsentAcceptedAt: new Date(),
+        },
+      ]);
+      userRepository.isAccountDeactivated.mockResolvedValue(true);
+
+      const result = await service.runPreflight(buildInput(), buildHooks());
+
+      expect(result.status).toBe('access_blocked');
+      expect(userRepository.isAccountDeactivated).toHaveBeenCalledWith(
+        'owner-1',
+      );
+      expect(whatsappService.sendMessage).toHaveBeenCalledWith(
+        '+5511999999999',
+        CONTA_DESATIVADA_WHATSAPP_MENSAGEM,
+      );
+    });
+
+    it('consulta a desativação mesmo com o usuário em cache', async () => {
+      userRepository.findManyByPhones.mockResolvedValue([
+        {
+          id: 'user-1',
+          ownerId: 'owner-1',
+          status: UserStatus.ACTIVE,
+          aiConsentAcceptedAt: new Date(),
+        },
+      ]);
+
+      const first = await service.runPreflight(buildInput(), buildHooks());
+      userRepository.isAccountDeactivated.mockResolvedValue(true);
+      const second = await service.runPreflight(
+        buildInput({ messageSid: 'sid-2' }),
+        buildHooks(),
+      );
+
+      expect(first.status).toBe('continue');
+      expect(second.status).toBe('access_blocked');
+      expect(userRepository.findManyByPhones).toHaveBeenCalledTimes(1);
     });
 
     it('não cacheia usuário INACTIVE/PENDING — próxima mensagem relê o banco', async () => {

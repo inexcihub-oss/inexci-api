@@ -34,6 +34,11 @@ jest.mock('bcryptjs', () => ({
   hash: jest.fn(),
 }));
 import * as bcryptjs from 'bcryptjs';
+import { CONTA_DESATIVADA_MENSAGEM } from './account-deactivation';
+import {
+  PlatformSecurityEvent,
+  registerPlatformSecuritySink,
+} from 'src/shared/observability/platform-security/platform-security-sink';
 
 jest.mock('uuid', () => ({ v4: () => 'mock-uuid-1234' }));
 jest.mock('src/shared/utils', () => ({
@@ -54,6 +59,8 @@ describe('AuthService', () => {
     create: jest.fn(),
     update: jest.fn(),
     incrementTokenVersion: jest.fn(),
+    touchLastSeen: jest.fn(),
+    isAccountDeactivated: jest.fn(),
   };
 
   const mockRecoveryCodeRepository = {
@@ -186,11 +193,53 @@ describe('AuthService', () => {
     mockAttemptLimiter.registerRecoveryFailure.mockResolvedValue(undefined);
     mockTurnstileService.assertHuman.mockResolvedValue(undefined);
     mockMfaService.isEnabled.mockResolvedValue(false);
+    mockUserRepository.touchLastSeen.mockResolvedValue(undefined);
+    mockUserRepository.isAccountDeactivated.mockResolvedValue(false);
     mockRecoveryCodeRepository.consumeAttempt.mockResolvedValue(1);
     mockRecoveryCodeRepository.issueResetToken.mockResolvedValue(true);
   });
 
   describe('me', () => {
+    it('devolve mfaEnabled e não expõe a flag legada de admin da plataforma', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'adm-1',
+        role: UserRole.ADMIN,
+        name: 'Admin',
+        phone: '11999999999',
+        email: 'adm@example.com',
+        ownerId: 'adm-1',
+        avatarUrl: null,
+        emailVerified: true,
+        isPlatformAdmin: true,
+        doctorProfile: null,
+      });
+      mockMfaService.isEnabled.mockResolvedValue(true);
+
+      const result = await service.me('adm-1');
+
+      expect(result).not.toHaveProperty('isPlatformAdmin');
+      expect(result.mfaEnabled).toBe(true);
+    });
+
+    it('mfaEnabled é false sem MFA ativo', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'u-1',
+        role: UserRole.ADMIN,
+        name: 'U',
+        phone: '11999999999',
+        email: 'u@example.com',
+        ownerId: 'u-1',
+        avatarUrl: null,
+        emailVerified: true,
+        doctorProfile: null,
+      });
+
+      const result = await service.me('u-1');
+
+      expect(result).not.toHaveProperty('isPlatformAdmin');
+      expect(result.mfaEnabled).toBe(false);
+    });
+
     it('inclui consents embutidos sem query adicional ao ConsentService', async () => {
       const user = {
         id: 'user-1',
@@ -409,7 +458,7 @@ describe('AuthService', () => {
         expect(result.permissions).toEqual([Permission.AGENDA]);
       });
 
-      it('não devolve isPlatformAdmin nem a coluna crua de permissions', async () => {
+      it('devolve só as permissões efetivas, sem a coluna crua nem a flag legada', async () => {
         mockUserRepository.findOneWithProfile.mockResolvedValue({
           id: 'colab-1',
           role: UserRole.COLLABORATOR,
@@ -691,6 +740,118 @@ describe('AuthService', () => {
       expect(mockRefreshTokenStore.revokeAllForUser).toHaveBeenCalledWith(
         'user-1',
       );
+    });
+  });
+
+  describe('eventos de segurança do painel', () => {
+    const eventos: PlatformSecurityEvent[] = [];
+    const conta = {
+      id: 'user-1',
+      ownerId: 'owner-1',
+      email: 'test@example.com',
+      password: 'hashed-password',
+      status: UserStatus.ACTIVE,
+      emailVerified: true,
+    };
+
+    beforeEach(() => {
+      eventos.length = 0;
+      registerPlatformSecuritySink((event) => eventos.push(event));
+    });
+
+    afterEach(() => registerPlatformSecuritySink(null));
+
+    it('senha errada de usuário existente registra login_failed com usuário e conta, sem e-mail', async () => {
+      mockUserRepository.findOne.mockResolvedValue(conta);
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(false);
+
+      await expect(
+        service.validateUser('test@example.com', 'errada'),
+      ).rejects.toThrow(HttpException);
+
+      expect(eventos).toEqual([
+        { type: 'login_failed', userId: 'user-1', ownerId: 'owner-1' },
+      ]);
+      expect(JSON.stringify(eventos)).not.toContain('test@example.com');
+    });
+
+    it('e-mail que não é de ninguém não gera evento, e a resposta continua idêntica', async () => {
+      const capturar = async (email: string) => {
+        try {
+          await service.validateUser(email, 'errada');
+          throw new Error('deveria ter lançado');
+        } catch (err: any) {
+          return { status: err.getStatus?.(), body: err.getResponse?.() };
+        }
+      };
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(false);
+
+      mockUserRepository.findOne.mockResolvedValue(null);
+      const semConta = await capturar('ninguem@example.com');
+      expect(eventos).toEqual([]);
+
+      mockUserRepository.findOne.mockResolvedValue(conta);
+      const comConta = await capturar('test@example.com');
+
+      expect(semConta).toEqual(comConta);
+      expect(eventos).toHaveLength(1);
+    });
+
+    it('a gravação não atrasa nem altera a resposta: sink que lança não muda o erro', async () => {
+      registerPlatformSecuritySink(() => {
+        throw new Error('sink quebrado');
+      });
+      mockUserRepository.findOne.mockResolvedValue(conta);
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(false);
+
+      await expect(
+        service.validateUser('test@example.com', 'errada'),
+      ).rejects.toMatchObject({ status: HttpStatus.BAD_REQUEST });
+    });
+
+    it('login bloqueado registra login_locked levando o e-mail só para a resolução', async () => {
+      mockAttemptLimiter.isLoginLocked.mockResolvedValue(true);
+
+      await expect(
+        service.validateUser('Test@Example.com', 'x'),
+      ).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
+
+      expect(eventos).toEqual([
+        { type: 'login_locked', email: 'test@example.com' },
+      ]);
+    });
+
+    it('troca de senha autenticada registra password_changed', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        ownerId: 'owner-1',
+        password: 'hash-atual',
+      });
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
+      (bcryptjs.hash as jest.Mock).mockResolvedValue('hash-novo');
+
+      await service.changePasswordAuthenticated(
+        { currentPassword: 'Atual123@', newPassword: 'Nova1234@' },
+        'user-1',
+      );
+
+      expect(eventos).toEqual([
+        { type: 'password_changed', userId: 'user-1', ownerId: 'owner-1' },
+      ]);
+    });
+
+    it('reuso de refresh token registra refresh_reuse', async () => {
+      mockRefreshTokenStore.consume.mockResolvedValue({
+        status: 'reused',
+        userId: 'user-1',
+        familyId: 'fam-1',
+      });
+
+      await expect(service.refreshAccessToken('rt')).rejects.toMatchObject({
+        status: HttpStatus.UNAUTHORIZED,
+      });
+
+      expect(eventos).toEqual([{ type: 'refresh_reuse', userId: 'user-1' }]);
     });
   });
 
@@ -1176,7 +1337,7 @@ describe('AuthService', () => {
         ]);
       });
 
-      it('não devolve isPlatformAdmin nem a coluna crua de permissions', async () => {
+      it('devolve mfaEnabled, sem a coluna crua de permissions nem a flag legada', async () => {
         (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
         const authenticatedUser = mockAuthenticatedUser({
           id: 'colab-1',
@@ -1196,15 +1357,176 @@ describe('AuthService', () => {
           password: '123456',
         });
 
-        expect((result as SessaoLogin).user).not.toHaveProperty(
-          'isPlatformAdmin',
-        );
+        const user = (result as SessaoLogin).user;
+        expect(user).not.toHaveProperty('isPlatformAdmin');
+        expect(user.mfaEnabled).toBe(false);
         expect((result as SessaoLogin).user.permissions).toEqual([
           Permission.AGENDA,
           Permission.ATENDIMENTO,
           Permission.SOLICITACOES,
         ]);
       });
+    });
+  });
+
+  describe('último acesso', () => {
+    const usuario = {
+      id: 'user-1',
+      email: 'test@example.com',
+      password: 'hashed-password',
+      role: UserRole.ADMIN,
+      name: 'Test User',
+      phone: '123',
+      cpf: '000',
+      status: UserStatus.ACTIVE,
+      emailVerified: true,
+      ownerId: 'user-1',
+      createdAt: new Date('2024-01-01'),
+      updatedAt: new Date('2024-01-01'),
+    };
+
+    function prepararLogin() {
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
+      mockUserRepository.findOne.mockResolvedValue(usuario);
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        ...usuario,
+        permissions: [],
+        isPlatformAdmin: false,
+        doctorProfile: null,
+      });
+    }
+
+    it('grava no login', async () => {
+      prepararLogin();
+
+      await service.login({ email: 'test@example.com', password: '123456' });
+      await new Promise(setImmediate);
+
+      expect(mockUserRepository.touchLastSeen).toHaveBeenCalledWith('user-1');
+    });
+
+    it('grava no refresh', async () => {
+      mockRefreshTokenStore.consume.mockResolvedValue({
+        status: 'valid',
+        userId: 'user-1',
+        familyId: 'fam-1',
+      });
+      mockUserRepository.findOne.mockResolvedValue(usuario);
+
+      await service.refreshAccessToken('rt-token');
+      await new Promise(setImmediate);
+
+      expect(mockUserRepository.touchLastSeen).toHaveBeenCalledWith('user-1');
+    });
+
+    it('falha ao gravar não derruba o login', async () => {
+      prepararLogin();
+      mockUserRepository.touchLastSeen.mockRejectedValue(new Error('db fora'));
+
+      const result = await service.login({
+        email: 'test@example.com',
+        password: '123456',
+      });
+      await new Promise(setImmediate);
+
+      expect((result as SessaoLogin).access_token).toBe('mock-jwt-token');
+    });
+
+    it('falha ao gravar não derruba o refresh', async () => {
+      mockRefreshTokenStore.consume.mockResolvedValue({
+        status: 'valid',
+        userId: 'user-1',
+        familyId: 'fam-1',
+      });
+      mockUserRepository.findOne.mockResolvedValue(usuario);
+      mockUserRepository.touchLastSeen.mockRejectedValue(new Error('db fora'));
+
+      const result = await service.refreshAccessToken('rt-token');
+      await new Promise(setImmediate);
+
+      expect(result.access_token).toBe('mock-jwt-token');
+    });
+  });
+
+  describe('conta desativada pelo painel', () => {
+    const membro = {
+      id: 'user-9',
+      ownerId: 'owner-9',
+      email: 'test@example.com',
+      password: 'hashed-password',
+      status: UserStatus.ACTIVE,
+      emailVerified: true,
+      tokenVersion: 0,
+    };
+
+    it('recusa o login com 403 e mensagem clara só depois da senha certa', async () => {
+      mockUserRepository.findOne.mockResolvedValue(membro);
+      mockUserRepository.isAccountDeactivated.mockResolvedValue(true);
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
+
+      await expect(
+        service.validateUser('test@example.com', 'correct-password'),
+      ).rejects.toMatchObject({
+        response: CONTA_DESATIVADA_MENSAGEM,
+        status: HttpStatus.FORBIDDEN,
+      });
+      expect(mockUserRepository.isAccountDeactivated).toHaveBeenCalledWith(
+        'owner-9',
+      );
+    });
+
+    it('senha errada em conta desativada continua com a resposta genérica', async () => {
+      mockUserRepository.findOne.mockResolvedValue(membro);
+      mockUserRepository.isAccountDeactivated.mockResolvedValue(true);
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(false);
+
+      await expect(
+        service.validateUser('test@example.com', 'errada'),
+      ).rejects.toMatchObject({ status: HttpStatus.BAD_REQUEST });
+      expect(mockUserRepository.isAccountDeactivated).not.toHaveBeenCalled();
+    });
+
+    it('recusa o segundo fator sem verificar o código', async () => {
+      mockMfaService.verifyLoginToken.mockReturnValue({
+        userId: 'user-9',
+        tv: 0,
+      });
+      mockUserRepository.findOne.mockResolvedValue(membro);
+      mockUserRepository.isAccountDeactivated.mockResolvedValue(true);
+
+      await expect(
+        service.loginWithMfa({ mfaToken: 't', code: '123456' }),
+      ).rejects.toMatchObject({ status: HttpStatus.FORBIDDEN });
+      expect(mockMfaService.verifySecondFactor).not.toHaveBeenCalled();
+      expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
+    });
+
+    it('recusa o refresh e revoga os tokens do usuário', async () => {
+      mockRefreshTokenStore.consume.mockResolvedValue({
+        status: 'valid',
+        userId: 'user-9',
+        familyId: 'fam-9',
+      });
+      mockUserRepository.findOne.mockResolvedValue(membro);
+      mockUserRepository.isAccountDeactivated.mockResolvedValue(true);
+
+      await expect(service.refreshAccessToken('rt')).rejects.toThrow(
+        new UnauthorizedException(CONTA_DESATIVADA_MENSAGEM),
+      );
+      expect(mockRefreshTokenStore.revokeAllForUser).toHaveBeenCalledWith(
+        'user-9',
+      );
+      expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
+    });
+
+    it('não emite sessão nova por issueSessionTokens', async () => {
+      mockUserRepository.findOne.mockResolvedValue(membro);
+      mockUserRepository.isAccountDeactivated.mockResolvedValue(true);
+
+      await expect(service.issueSessionTokens('user-9')).rejects.toMatchObject({
+        status: HttpStatus.FORBIDDEN,
+      });
+      expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
     });
   });
 
@@ -2206,6 +2528,27 @@ describe('AuthService', () => {
       expect(result.access_token).toBe('mock-jwt-token');
       expect(result.refresh_token).toBe('new-refresh-token');
       expect(result.user.id).toBe('user-1');
+      expect(result.user).not.toHaveProperty('isPlatformAdmin');
+      expect(result.user.mfaEnabled).toBe(true);
+    });
+
+    it('login/mfa não expõe a flag legada de admin da plataforma', async () => {
+      mockMfaService.verifyLoginToken.mockReturnValue({
+        userId: 'user-1',
+        tv: 2,
+      });
+      mockMfaService.verifySecondFactor.mockResolvedValue('totp');
+      mockUserRepository.findOne.mockResolvedValue(usuarioAtivo());
+      mockUserRepository.findOneWithProfile.mockResolvedValue(
+        usuarioAtivo({ isPlatformAdmin: true }),
+      );
+
+      const result = await service.loginWithMfa({
+        mfaToken: 'mfa-token',
+        code: '123456',
+      });
+
+      expect(result.user).not.toHaveProperty('isPlatformAdmin');
     });
 
     it('login/mfa recusa desafio emitido antes de uma revogação de sessões', async () => {

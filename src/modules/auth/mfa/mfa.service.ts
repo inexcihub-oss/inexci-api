@@ -32,6 +32,7 @@ import {
   hashRecoveryCode,
   isRecoveryCodeFormat,
 } from './mfa-recovery-codes.util';
+import { reportSecurityEvent } from 'src/shared/observability/platform-security/platform-security-sink';
 
 export const MFA_ISSUER = 'Inexci';
 export const MFA_TOKEN_PURPOSE = 'mfa';
@@ -181,6 +182,7 @@ export class MfaService {
     }
     await this.attemptLimiter.clearMfaFailures(userId);
     this.logger.log(`[AUTH_MFA_ENABLED] userId=${userId}`);
+    reportSecurityEvent({ type: 'mfa_enabled', userId });
     return { recoveryCodes };
   }
 
@@ -243,6 +245,7 @@ export class MfaService {
     await this.userRepository.disableMfa(userId);
     await this.sessionRevocation.revokeAllSessions(userId, 'mfa_disabled');
     this.logger.log(`[AUTH_MFA_DISABLED] userId=${userId}`);
+    reportSecurityEvent({ type: 'mfa_disabled', userId });
     return { message: 'Verificação em duas etapas desativada.' };
   }
 
@@ -283,6 +286,7 @@ export class MfaService {
   }
 
   private async falha(userId: string): Promise<never> {
+    reportSecurityEvent({ type: 'mfa_failed', userId });
     const bloqueou = await this.attemptLimiter.registerMfaFailure(userId);
     if (bloqueou) {
       this.logger.warn(`[AUTH_MFA_LOCKED] userId=${userId}`);

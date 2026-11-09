@@ -14,6 +14,10 @@ import { ResponseNormalizerService } from './response-normalizer.service';
 import { PROMPT_VERSION, SYSTEM_PROMPT } from '../../prompts/system-prompt';
 import { User, UserStatus } from '../../../../database/entities/user.entity';
 import { SimpleCache } from '../../utils/simple-cache';
+import { UserRepository } from '../../../../database/repositories/user.repository';
+
+export const CONTA_DESATIVADA_WHATSAPP_MENSAGEM =
+  'A conta da sua clínica na Inexci está desativada. Fale com o suporte da Inexci.';
 
 const INBOUND_DEDUPE_TTL_SECONDS = 24 * 60 * 60;
 const AI_CONSENT_NOTICE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -77,6 +81,7 @@ export class MessageProcessorService {
     private readonly piiVault: PiiVaultService,
     private readonly phoneNormalizer: PhoneNormalizerService,
     private readonly responseNormalizer: ResponseNormalizerService,
+    private readonly userRepository: UserRepository,
   ) {}
 
   async claimInboundMessage(messageSid: string): Promise<boolean> {
@@ -158,6 +163,18 @@ export class MessageProcessorService {
       await this.whatsappService.sendMessage(
         phone,
         this.buildAccessUnavailableMessage(),
+      );
+      return { status: 'access_blocked' };
+    }
+
+    if (await this.userRepository.isAccountDeactivated(user.ownerId)) {
+      this.logger.warn(
+        `[AI_ACCOUNT_DEACTIVATED] sid=${messageSid} user=${userId} phone=${maskedPhone}`,
+      );
+      this.userCache.delete(phone);
+      await this.whatsappService.sendMessage(
+        phone,
+        CONTA_DESATIVADA_WHATSAPP_MENSAGEM,
       );
       return { status: 'access_blocked' };
     }

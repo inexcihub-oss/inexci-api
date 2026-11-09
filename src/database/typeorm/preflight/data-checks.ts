@@ -466,6 +466,11 @@ export const TABELAS_DE_COBRANCA = tabelasQueAMigrationCria(
   ],
 );
 
+export const TABELAS_DO_PAINEL_ADMIN = tabelasQueAMigrationCria(
+  'CreatePlatformAuditAndLastSeen1761000800000',
+  ['platform_admins', 'platform_audit_logs'],
+);
+
 export const VERIFICACOES_PRE_MIGRATION: VerificacaoPreMigration[] = [
   TELEFONE_DUPLICADO,
   ORFAOS_ANTES_DA_CASCATA,
@@ -481,6 +486,7 @@ export const VERIFICACOES_PRE_MIGRATION: VerificacaoPreMigration[] = [
   TABELA_DE_CAIXA,
   TABELAS_DE_COBRANCA,
   TEXTO_RAPIDO_COM_ATALHO_REPETIDO,
+  TABELAS_DO_PAINEL_ADMIN,
 ];
 
 export function montarDiagnostico(

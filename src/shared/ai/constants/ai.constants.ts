@@ -15,4 +15,5 @@ export const MODEL_COST_PER_1K: Record<
   'gpt-4o-mini-2024-07-18': { input: 0.015, output: 0.06 },
   'gpt-4-turbo': { input: 1.0, output: 3.0 },
   'gpt-3.5-turbo': { input: 0.05, output: 0.15 },
+  'text-embedding-3-small': { input: 0.002, output: 0 },
 };
