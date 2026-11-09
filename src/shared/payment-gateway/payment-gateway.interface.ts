@@ -1,12 +1,21 @@
 import {
   CreateBillingPortalSessionInput,
   CreateCheckoutSessionInput,
+  CreateCouponInput,
   CreateCustomerInput,
   GatewayBillingPortalSession,
   GatewayCheckoutSession,
+  GatewayCoupon,
+  GatewayCouponPage,
   GatewayCustomer,
+  GatewayInvoice,
+  GatewayInvoicePage,
+  GatewayInvoicePreview,
+  GatewayPaymentSummary,
+  GatewayPrice,
   GatewayProviderId,
   GatewaySubscription,
+  ListGatewayInvoicesParams,
   NormalizedWebhookEvent,
   VerifyWebhookInput,
 } from './payment-gateway.types';
@@ -18,6 +27,7 @@ export interface PaymentGateway {
 
   createCustomer(input: CreateCustomerInput): Promise<GatewayCustomer>;
   getCustomer(customerId: string): Promise<GatewayCustomer | null>;
+  getCustomerPaymentSummary(customerId: string): Promise<GatewayPaymentSummary>;
 
   createCheckoutSession(
     input: CreateCheckoutSessionInput,
@@ -27,9 +37,35 @@ export interface PaymentGateway {
   ): Promise<GatewayBillingPortalSession>;
 
   getSubscription(subscriptionId: string): Promise<GatewaySubscription | null>;
+  getSubscriptionWithDiscount(
+    subscriptionId: string,
+  ): Promise<GatewaySubscription | null>;
   getLatestSubscriptionByCustomer(
     customerId: string,
   ): Promise<GatewaySubscription | null>;
+  updateTrialEnd(
+    subscriptionId: string,
+    trialEnd: Date,
+    idempotencyKey: string,
+  ): Promise<GatewaySubscription>;
+
+  listInvoices(params: ListGatewayInvoicesParams): Promise<GatewayInvoicePage>;
+  getInvoice(invoiceId: string): Promise<GatewayInvoice | null>;
+  previewNextInvoice(
+    subscriptionId: string,
+  ): Promise<GatewayInvoicePreview | null>;
+  getPrice(priceId: string): Promise<GatewayPrice | null>;
+
+  createCoupon(
+    input: CreateCouponInput,
+    idempotencyKey: string,
+  ): Promise<GatewayCoupon>;
+  listCoupons(maxItems?: number): Promise<GatewayCouponPage>;
+  getCoupon(promotionCodeId: string): Promise<GatewayCoupon | null>;
+  deactivateCoupon(
+    promotionCodeId: string,
+    idempotencyKey: string,
+  ): Promise<void>;
 
   verifyWebhook(input: VerifyWebhookInput): void;
   parseWebhookEvent(payload: unknown): NormalizedWebhookEvent;

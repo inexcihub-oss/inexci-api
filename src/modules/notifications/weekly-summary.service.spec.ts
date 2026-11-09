@@ -13,7 +13,10 @@ import { UserStatus } from 'src/database/entities/user.entity';
 
 describe('WeeklySummaryService', () => {
   let service: WeeklySummaryService;
-  let mockUserRepository: { repository: { find: jest.Mock } };
+  let mockUserRepository: {
+    repository: { find: jest.Mock };
+    isAccountDeactivated: jest.Mock;
+  };
   let mockSurgeryRequestRepository: { repository: { find: jest.Mock } };
   let mockSettingsRepository: { findByUserId: jest.Mock };
   let mockMailService: { sendWeeklySummary: jest.Mock };
@@ -31,6 +34,7 @@ describe('WeeklySummaryService', () => {
   beforeEach(async () => {
     mockUserRepository = {
       repository: { find: jest.fn().mockResolvedValue([baseUser]) },
+      isAccountDeactivated: jest.fn().mockResolvedValue(false),
     };
     mockSurgeryRequestRepository = {
       repository: { find: jest.fn().mockResolvedValue([]) },
@@ -135,6 +139,33 @@ describe('WeeklySummaryService', () => {
       expect(mockMailService.sendWeeklySummary).toHaveBeenCalledTimes(
         dispatched,
       );
+    });
+
+    it('não envia resumo para conta desativada pela equipe Inexci', async () => {
+      const lastWeek = new Date();
+      lastWeek.setDate(lastWeek.getDate() - 3);
+      mockSurgeryRequestRepository.repository.find.mockResolvedValue([
+        {
+          id: 'req-1',
+          protocol: 'SC-000001',
+          status: SurgeryRequestStatus.PENDING,
+          createdAt: lastWeek,
+          lastStatusChangedAt: lastWeek,
+          patient: { name: 'João' },
+        },
+      ]);
+      mockUserRepository.repository.find.mockResolvedValue([
+        { ...baseUser, ownerId: 'owner-off' },
+        { ...baseUser, id: 'user-2', ownerId: 'owner-off' },
+      ]);
+      mockUserRepository.isAccountDeactivated.mockResolvedValue(true);
+
+      const dispatched = await service.sendWeeklySummariesForAllUsers();
+
+      expect(dispatched).toBe(0);
+      expect(mockMailService.sendWeeklySummary).not.toHaveBeenCalled();
+      expect(mockSettingsRepository.findByUserId).not.toHaveBeenCalled();
+      expect(mockUserRepository.isAccountDeactivated).toHaveBeenCalledTimes(1);
     });
 
     it('respeita opt-out de weeklyReport=false', async () => {

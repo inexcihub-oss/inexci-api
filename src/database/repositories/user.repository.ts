@@ -6,6 +6,7 @@ import {
   FindOptionsWhere,
   QueryDeepPartialEntity,
   In,
+  EntityManager,
 } from 'typeorm';
 import { User, UserRole } from '../entities/user.entity';
 import { BaseRepository } from './base.repository';
@@ -32,7 +33,6 @@ const SELECT_COM_PERFIL: FindOptionsSelect<User> = {
   termsOfUseAcceptedAt: true,
   aiConsentAcceptedAt: true,
   ownerId: true,
-  isPlatformAdmin: true,
   tokenVersion: true,
   permissions: true,
   cep: true,
@@ -106,6 +106,31 @@ export class UserRepository extends BaseRepository<User> {
       relations: ['doctorProfile'],
       select: SELECT_COM_PERFIL,
     });
+  }
+
+  async findSessionUser(
+    id: string,
+  ): Promise<{ user: User; accountDeactivated: boolean } | null> {
+    const user = await this.repository.findOne({
+      where: { id },
+      relations: { doctorProfile: true, owner: true },
+      select: {
+        ...SELECT_COM_PERFIL,
+        accountDeactivatedAt: true,
+        owner: { id: true, accountDeactivatedAt: true },
+      },
+    });
+    if (!user) return null;
+    if (user.ownerId === user.id) {
+      return { user, accountDeactivated: !!user.accountDeactivatedAt };
+    }
+    if (user.owner) {
+      return { user, accountDeactivated: !!user.owner.accountDeactivatedAt };
+    }
+    return {
+      user,
+      accountDeactivated: await this.isAccountDeactivated(user.ownerId),
+    };
   }
 
   async findManyWithProfileByIds(ids: string[]): Promise<User[]> {
@@ -195,6 +220,58 @@ export class UserRepository extends BaseRepository<User> {
 
   async incrementTokenVersion(id: string): Promise<void> {
     await this.repository.increment({ id }, 'tokenVersion', 1);
+  }
+
+  async isAccountDeactivated(ownerId: string): Promise<boolean> {
+    const row = await this.repository
+      .createQueryBuilder('u')
+      .select('u.accountDeactivatedAt', 'deactivatedAt')
+      .where('u.id = :ownerId', { ownerId })
+      .withDeleted()
+      .getRawOne<{ deactivatedAt: Date | null }>();
+    return !!row?.deactivatedAt;
+  }
+
+  lockAccountOwner(
+    ownerId: string,
+    manager: EntityManager,
+  ): Promise<User | null> {
+    return manager
+      .getRepository(User)
+      .createQueryBuilder('u')
+      .select([
+        'u.id',
+        'u.ownerId',
+        'u.accountDeactivatedAt',
+        'u.accountDeactivatedById',
+      ])
+      .where('u.id = :ownerId AND u.ownerId = :ownerId', { ownerId })
+      .setLock('pessimistic_write')
+      .getOne();
+  }
+
+  async setAccountDeactivation(
+    ownerId: string,
+    values: { at: Date | null; byId: string | null },
+    manager: EntityManager,
+  ): Promise<void> {
+    await manager.getRepository(User).update(
+      { id: ownerId },
+      {
+        accountDeactivatedAt: values.at,
+        accountDeactivatedById: values.byId,
+      },
+    );
+  }
+
+  findAccountMembers(
+    ownerId: string,
+  ): Promise<Array<Pick<User, 'id' | 'phone'>>> {
+    return this.repository.find({
+      where: { ownerId },
+      select: { id: true, phone: true },
+      withDeleted: true,
+    });
   }
 
   findOneByPhone(phone: string): Promise<User | null> {
@@ -295,6 +372,18 @@ export class UserRepository extends BaseRepository<User> {
         mfaLastUsedStep: true,
       },
     });
+  }
+
+  async touchLastSeen(userId: string): Promise<void> {
+    await this.repository
+      .createQueryBuilder()
+      .update(User)
+      .set({ lastSeenAt: () => 'now()' })
+      .where('id = :userId', { userId })
+      .andWhere(
+        "(last_seen_at IS NULL OR last_seen_at < now() - interval '1 hour')",
+      )
+      .execute();
   }
 
   async isMfaEnabled(userId: string): Promise<boolean> {

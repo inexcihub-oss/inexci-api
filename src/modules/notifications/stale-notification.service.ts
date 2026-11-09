@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { runWithTenantContext } from 'src/shared/logging/request-context';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { StaleNotificationLogRepository } from 'src/database/repositories/stale-notification-log.repository';
 import { NotificationsService } from 'src/modules/notifications/notifications.service';
@@ -48,8 +49,18 @@ export class StaleNotificationService {
     const staleRequests =
       await this.surgeryRequestRepository.findStaleRequests(minDays);
 
+    const contaDesativada = new Map<string, Promise<boolean>>();
+
     for (const request of staleRequests) {
       try {
+        if (!contaDesativada.has(request.ownerId)) {
+          contaDesativada.set(
+            request.ownerId,
+            this.userRepository.isAccountDeactivated(request.ownerId),
+          );
+        }
+        if (await contaDesativada.get(request.ownerId)) continue;
+
         const staleDays = this.calculateStaleDays(request);
         const tier = this.getMatchingTier(staleDays);
         if (!tier) continue;
@@ -60,7 +71,9 @@ export class StaleNotificationService {
         );
         if (alreadyNotified) continue;
 
-        await this.sendStaleNotifications(request, tier, staleDays);
+        await runWithTenantContext({ tenantId: request.ownerId }, () =>
+          this.sendStaleNotifications(request, tier, staleDays),
+        );
         await this.staleLogRepository.record(request.id, tier.days, 'in_app');
         notifiedCount++;
       } catch (err: unknown) {

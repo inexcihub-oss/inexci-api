@@ -3,9 +3,22 @@ import { ConfigService } from '@nestjs/config';
 import { UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { Permission } from 'src/shared/permissions';
 import { JwtStrategy } from './jwt.strategy';
+import { CONTA_DESATIVADA_MENSAGEM } from './account-deactivation';
 
 describe('JwtStrategy — permissões', () => {
-  const userRepository = { findOneWithProfile: jest.fn() };
+  const userRepository = {
+    findOneWithProfile: jest.fn(),
+    accountDeactivated: jest.fn().mockReturnValue(false),
+    findSessionUser: jest.fn(),
+  };
+  userRepository.findSessionUser.mockImplementation(async (id: string) => {
+    const user = (await userRepository.findOneWithProfile({ id })) as
+      | { ownerId: string }
+      | undefined;
+    return user
+      ? { user, accountDeactivated: userRepository.accountDeactivated() }
+      : null;
+  });
   const configService = {
     get: jest.fn((chave: string, padrao?: string) =>
       chave === 'JWT_SECRET' ? 'segredo-de-teste' : padrao,
@@ -116,5 +129,42 @@ describe('JwtStrategy — permissões', () => {
         UnauthorizedException,
       );
     });
+  });
+
+  it('não expõe flags do painel administrativo no usuário da clínica', async () => {
+    userRepository.findOneWithProfile.mockResolvedValueOnce({
+      id: 'u-9',
+      ownerId: 'u-9',
+      role: UserRole.ADMIN,
+      status: UserStatus.ACTIVE,
+      permissions: [],
+      doctorProfile: null,
+      isPlatformAdmin: true,
+      mfaEnabledAt: new Date(),
+    });
+
+    const user = await strategy.validate({ userId: 'u-9' });
+
+    expect(user).not.toHaveProperty('isPlatformAdmin');
+    expect(user).not.toHaveProperty('mfaEnabled');
+  });
+
+  it('recusa sessão de quem é de conta desativada pelo painel', async () => {
+    userRepository.findOneWithProfile.mockResolvedValue({
+      id: 'u-1',
+      ownerId: 'o-1',
+      role: UserRole.COLLABORATOR,
+      status: UserStatus.ACTIVE,
+      tokenVersion: 0,
+      permissions: [],
+      doctorProfile: null,
+    });
+    userRepository.accountDeactivated.mockReturnValueOnce(true);
+
+    await expect(strategy.validate({ userId: 'u-1', tv: 0 })).rejects.toThrow(
+      new UnauthorizedException(CONTA_DESATIVADA_MENSAGEM),
+    );
+    expect(userRepository.findSessionUser).toHaveBeenCalledTimes(1);
+    expect(userRepository.findSessionUser).toHaveBeenCalledWith('u-1');
   });
 });

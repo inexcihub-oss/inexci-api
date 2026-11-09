@@ -278,11 +278,17 @@ async function main() {
     [adminMedicoId],
   );
   await createActiveSubscription(dataSource, adminMedicoId, professionalPlanId);
-  await dataSource.query(
-    `UPDATE "users" SET is_platform_admin = true WHERE id = $1`,
-    [adminMedicoId],
-  );
   logger.log('  ✅ medico@inexci.com criado (admin + médico, Ortopedia)\n');
+
+  logger.log('🛡️  Criando administrador da plataforma: admin@inexci.com...');
+  await dataSource.query(
+    `INSERT INTO "platform_admins" (name, email, password_hash, status)
+     VALUES ('Admin Inexci','admin@inexci.com',$1,'active')`,
+    [hashedPassword],
+  );
+  logger.log(
+    '  ✅ admin@inexci.com criado (painel /admin, MFA no primeiro login)\n',
+  );
 
   const procedureIdsConta1 = await createDefaultProceduresForOwner(
     dataSource,
@@ -1350,6 +1356,8 @@ async function main() {
   logger.log('  ┌─────────────────────────────────────────────────────────┐');
   logger.log('  │ CONTA 1 (Ortopedia — São Paulo)                         │');
   logger.log('  │  medico@inexci.com        Admin + Médico (Ortopedia)    │');
+  logger.log('  │ PAINEL ADMINISTRATIVO (/admin/login)                    │');
+  logger.log('  │  admin@inexci.com         Admin da plataforma           │');
   logger.log('  └─────────────────────────────────────────────────────────┘');
 
   await dataSource.destroy();

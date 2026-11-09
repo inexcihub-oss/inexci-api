@@ -12,7 +12,8 @@ export type SessionRevocationReason =
   | 'deactivated'
   | 'deleted'
   | 'refresh_reuse'
-  | 'mfa_disabled';
+  | 'mfa_disabled'
+  | 'account_deactivated';
 
 export interface UserSessionsRevokedEvent {
   userId: string;

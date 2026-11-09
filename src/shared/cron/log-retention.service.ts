@@ -9,6 +9,8 @@ import { AiPiiRedactionLog } from 'src/database/entities/ai-pii-redaction-log.en
 import { StaleNotificationLog } from 'src/database/entities/stale-notification-log.entity';
 import { NotificationRepository } from 'src/database/repositories/notification.repository';
 import { ClinicalAccessAuditRepository } from 'src/database/repositories/clinical-access-audit.repository';
+import { PlatformErrorDailyRepository } from 'src/database/repositories/platform-error-daily.repository';
+import { PlatformSecurityDailyRepository } from 'src/database/repositories/platform-security-daily.repository';
 import { errorMessage } from 'src/shared/utils/error-message.util';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -29,6 +31,8 @@ export class LogRetentionService {
     private readonly notificationRepository: NotificationRepository,
     private readonly config: ConfigService,
     private readonly clinicalAccessAuditRepository: ClinicalAccessAuditRepository,
+    private readonly platformErrorDailyRepository: PlatformErrorDailyRepository,
+    private readonly platformSecurityDailyRepository: PlatformSecurityDailyRepository,
   ) {}
 
   @Cron('0 4 * * *', { timeZone: 'America/Sao_Paulo' })
@@ -42,6 +46,8 @@ export class LogRetentionService {
       staleNotificationLogs: 0,
       readNotifications: 0,
       clinicalAccessAudit: 0,
+      platformErrorDaily: 0,
+      platformSecurityDaily: 0,
     };
 
     summary.notificationSendLogs = await this.purge(
@@ -78,6 +84,14 @@ export class LogRetentionService {
 
     summary.clinicalAccessAudit = await this.purgeClinicalAccessAudit(
       this.config.get<number>('LOG_RETENTION_CLINICAL_AUDIT_DAYS', 1825),
+    );
+
+    summary.platformErrorDaily = await this.purgePlatformErrorDaily(
+      this.config.get<number>('LOG_RETENTION_PLATFORM_ERROR_DAYS', 90),
+    );
+
+    summary.platformSecurityDaily = await this.purgePlatformSecurityDaily(
+      this.config.get<number>('LOG_RETENTION_PLATFORM_SECURITY_DAYS', 90),
     );
 
     this.logger.log(`[LogRetention] concluído ${JSON.stringify(summary)}`);
@@ -118,6 +132,47 @@ export class LogRetentionService {
     } catch (err: unknown) {
       this.logger.warn(
         `[LogRetention] falha ao limpar clinical_access_audit: ${errorMessage(err)}`,
+      );
+      return 0;
+    }
+  }
+
+  private async purgePlatformSecurityDaily(days: number): Promise<number> {
+    const cutoff = this.cutoffFor(days);
+    if (!cutoff) return 0;
+    const day = cutoff.toISOString().slice(0, 10);
+    try {
+      const affected =
+        await this.platformSecurityDailyRepository.purgeBefore(day);
+      if (affected > 0) {
+        this.logger.log(
+          `[LogRetention] platform_security_daily: removidas ${affected} linhas (antes de ${day})`,
+        );
+      }
+      return affected;
+    } catch (err: unknown) {
+      this.logger.warn(
+        `[LogRetention] falha ao limpar platform_security_daily: ${errorMessage(err)}`,
+      );
+      return 0;
+    }
+  }
+
+  private async purgePlatformErrorDaily(days: number): Promise<number> {
+    const cutoff = this.cutoffFor(days);
+    if (!cutoff) return 0;
+    const day = cutoff.toISOString().slice(0, 10);
+    try {
+      const affected = await this.platformErrorDailyRepository.purgeBefore(day);
+      if (affected > 0) {
+        this.logger.log(
+          `[LogRetention] platform_error_daily: removidas ${affected} linhas (antes de ${day})`,
+        );
+      }
+      return affected;
+    } catch (err: unknown) {
+      this.logger.warn(
+        `[LogRetention] falha ao limpar platform_error_daily: ${errorMessage(err)}`,
       );
       return 0;
     }

@@ -1,6 +1,16 @@
-import { BillingWebhookService } from './billing-webhook.service';
+import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BillingWebhookService,
+  EVENTO_EM_PROCESSAMENTO,
+  GATEWAY_EVENT_LOCK_TTL_MS,
+} from './billing-webhook.service';
+import {
+  registerPlatformErrorSink,
+  type PlatformErrorEvent,
+} from 'src/shared/observability/platform-errors/platform-error-sink';
 import type {
   NormalizedWebhookEvent,
+  GatewayInvoice,
   GatewaySubscription,
 } from 'src/shared/payment-gateway/payment-gateway.types';
 
@@ -10,6 +20,8 @@ describe('BillingWebhookService', () => {
   let eventRepo: any;
   let subscriptionService: any;
   let gateway: any;
+  let invoiceMirror: any;
+  let lock: any;
 
   const makeEvent = (
     overrides: Partial<NormalizedWebhookEvent> = {},
@@ -52,6 +64,7 @@ describe('BillingWebhookService', () => {
     };
     eventRepo = {
       findByProviderEvent: jest.fn(),
+      findOne: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
     };
@@ -66,6 +79,16 @@ describe('BillingWebhookService', () => {
       verifyWebhook: jest.fn(),
       parseWebhookEvent: jest.fn(),
       getSubscription: jest.fn(),
+      getInvoice: jest.fn().mockResolvedValue(null),
+      getSubscriptionWithDiscount: jest.fn(),
+    };
+    invoiceMirror = {
+      upsertFromGateway: jest.fn().mockResolvedValue(undefined),
+    };
+
+    lock = {
+      acquire: jest.fn().mockResolvedValue('tok'),
+      release: jest.fn().mockResolvedValue(undefined),
     };
 
     service = new BillingWebhookService(
@@ -73,6 +96,8 @@ describe('BillingWebhookService', () => {
       eventRepo,
       subscriptionService,
       gateway,
+      invoiceMirror,
+      lock,
     );
   });
 
@@ -414,6 +439,496 @@ describe('BillingWebhookService', () => {
       await service.handle(verifyInput);
 
       expect(subscriptionService.markPastDue).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('acesso interno', () => {
+    it('checkout.completed atrasado não religa a assinatura internal', async () => {
+      gateway.parseWebhookEvent.mockReturnValue(
+        makeEvent({
+          type: 'checkout.completed',
+          refs: { customerId: 'cus_abc', subscriptionId: 'gw-sub-9' },
+        }),
+      );
+      eventRepo.findByProviderEvent.mockResolvedValue(null);
+      eventRepo.create.mockResolvedValue({ id: 'stored-int' });
+      subscriptionRepo.findByGatewayCustomerId.mockResolvedValue({
+        id: 'sub-local',
+        status: 'internal',
+        gatewaySubscriptionId: null,
+      });
+
+      await service.handle(verifyInput);
+
+      expect(subscriptionRepo.update).not.toHaveBeenCalled();
+      expect(gateway.getSubscription).not.toHaveBeenCalled();
+      expect(
+        subscriptionService.syncFromGatewaySubscription,
+      ).not.toHaveBeenCalled();
+      expect(eventRepo.update).toHaveBeenCalledWith(
+        'stored-int',
+        expect.objectContaining({ processedAt: expect.any(Date) }),
+      );
+    });
+  });
+  describe('espelho de faturas', () => {
+    const fatura = (
+      overrides: Partial<GatewayInvoice> = {},
+    ): GatewayInvoice => ({
+      id: 'in_1',
+      customerId: 'cus_abc',
+      subscriptionId: 'gw-sub-1',
+      status: 'paid',
+      amountDueCents: 29900,
+      amountPaidCents: 29900,
+      amountDiscountCents: 0,
+      currency: 'BRL',
+      periodStart: null,
+      periodEnd: null,
+      dueDate: null,
+      paidAt: new Date('2026-11-01T01:00:00Z'),
+      hostedInvoiceUrl: null,
+      couponCode: null,
+      createdAt: new Date('2026-11-01T00:00:00Z'),
+      ...overrides,
+    });
+
+    const eventoDeFatura = (
+      type: NormalizedWebhookEvent['type'],
+      invoice: GatewayInvoice = fatura(),
+    ) =>
+      makeEvent({
+        type,
+        resourceId: invoice.id,
+        refs: { invoiceId: invoice.id, subscriptionId: 'gw-sub-1' },
+        invoice,
+      });
+
+    beforeEach(() => {
+      eventRepo.findByProviderEvent.mockResolvedValue(null);
+      eventRepo.create.mockResolvedValue({ id: 'stored-inv' });
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({
+        id: 'sub-local-9',
+      });
+    });
+
+    it.each([
+      'invoice.paid',
+      'invoice.failed',
+      'invoice.overdue',
+      'invoice.finalized',
+      'invoice.voided',
+    ] as const)('%s espelha a fatura relida da Stripe', async (type) => {
+      const relida = fatura({ couponCode: 'BEMVINDO' });
+      gateway.parseWebhookEvent.mockReturnValue(eventoDeFatura(type));
+      gateway.getInvoice.mockResolvedValue(relida);
+
+      await service.handle(verifyInput);
+
+      expect(gateway.getInvoice).toHaveBeenCalledWith('in_1');
+      expect(invoiceMirror.upsertFromGateway).toHaveBeenCalledWith(relida);
+      expect(eventRepo.update).toHaveBeenCalledWith(
+        'stored-inv',
+        expect.objectContaining({ processedAt: expect.any(Date) }),
+      );
+    });
+
+    it('regressão: status da assinatura segue igual com o espelho ligado', async () => {
+      const occurredAt = new Date('2026-03-15T08:00:00Z');
+      gateway.parseWebhookEvent.mockReturnValueOnce(
+        eventoDeFatura('invoice.paid'),
+      );
+      await service.handle(verifyInput);
+      gateway.parseWebhookEvent.mockReturnValueOnce({
+        ...eventoDeFatura('invoice.failed'),
+        occurredAt,
+      });
+      await service.handle(verifyInput);
+
+      expect(subscriptionService.markActive).toHaveBeenCalledTimes(1);
+      expect(subscriptionService.markActive).toHaveBeenCalledWith(
+        'sub-local-9',
+      );
+      expect(subscriptionService.markPastDue).toHaveBeenCalledTimes(1);
+      expect(subscriptionService.markPastDue).toHaveBeenCalledWith(
+        'sub-local-9',
+        occurredAt,
+      );
+    });
+
+    it.each(['invoice.finalized', 'invoice.voided'] as const)(
+      '%s não mexe no status da assinatura',
+      async (type) => {
+        gateway.parseWebhookEvent.mockReturnValue(eventoDeFatura(type));
+
+        await service.handle(verifyInput);
+
+        expect(subscriptionService.markActive).not.toHaveBeenCalled();
+        expect(subscriptionService.markPastDue).not.toHaveBeenCalled();
+        expect(subscriptionService.cancelImmediately).not.toHaveBeenCalled();
+        expect(
+          subscriptionService.syncFromGatewaySubscription,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
+    it('falha ao reler a fatura usa o retrato do evento', async () => {
+      const doEvento = fatura({ status: 'open', paidAt: null });
+      gateway.parseWebhookEvent.mockReturnValue(
+        eventoDeFatura('invoice.finalized', doEvento),
+      );
+      gateway.getInvoice.mockRejectedValue(new Error('stripe fora'));
+
+      await service.handle(verifyInput);
+
+      expect(invoiceMirror.upsertFromGateway).toHaveBeenCalledWith(doEvento);
+    });
+
+    it('falha do espelho não derruba o webhook nem desfaz o status', async () => {
+      gateway.parseWebhookEvent.mockReturnValue(eventoDeFatura('invoice.paid'));
+      invoiceMirror.upsertFromGateway.mockRejectedValue(new Error('db fora'));
+
+      await expect(service.handle(verifyInput)).resolves.toBeUndefined();
+
+      expect(subscriptionService.markActive).toHaveBeenCalledWith(
+        'sub-local-9',
+      );
+      expect(eventRepo.update).toHaveBeenCalledWith('stored-inv', {
+        processedAt: expect.any(Date),
+        error: null,
+      });
+    });
+
+    it('evento sem fatura e Stripe sem retorno não espelha nada', async () => {
+      gateway.parseWebhookEvent.mockReturnValue(
+        makeEvent({ type: 'invoice.voided', refs: { invoiceId: 'in_2' } }),
+      );
+
+      await service.handle(verifyInput);
+
+      expect(invoiceMirror.upsertFromGateway).not.toHaveBeenCalled();
+    });
+
+    it('eventos de assinatura não tocam no espelho', async () => {
+      gateway.parseWebhookEvent.mockReturnValue(makeEvent());
+      gateway.getSubscription.mockResolvedValue(makeGatewaySub());
+
+      await service.handle(verifyInput);
+
+      expect(gateway.getInvoice).not.toHaveBeenCalled();
+      expect(invoiceMirror.upsertFromGateway).not.toHaveBeenCalled();
+    });
+  });
+  describe('desconto ao vivo nos eventos de assinatura', () => {
+    const cupom = {
+      name: 'Parceiro',
+      percentOff: 20,
+      amountOffCents: null,
+      duration: 'forever' as const,
+      endsAt: null,
+    };
+
+    beforeEach(() => {
+      eventRepo.findByProviderEvent.mockResolvedValue(null);
+      eventRepo.create.mockResolvedValue({ id: 'stored-disc' });
+    });
+
+    it('desconto só com ids é relido expandido e vai para o sync', async () => {
+      gateway.parseWebhookEvent.mockReturnValue(makeEvent());
+      gateway.getSubscription.mockResolvedValue(
+        makeGatewaySub({ discount: undefined }),
+      );
+      gateway.getSubscriptionWithDiscount.mockResolvedValue(
+        makeGatewaySub({ discount: cupom }),
+      );
+
+      await service.handle(verifyInput);
+
+      expect(gateway.getSubscriptionWithDiscount).toHaveBeenCalledWith(
+        'gw-sub-1',
+      );
+      expect(
+        subscriptionService.syncFromGatewaySubscription,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'gw-sub-1', discount: cupom }),
+      );
+    });
+
+    it('falha ao reler o desconto não derruba o webhook nem limpa o desconto gravado', async () => {
+      gateway.parseWebhookEvent.mockReturnValue(makeEvent());
+      gateway.getSubscription.mockResolvedValue(
+        makeGatewaySub({ discount: undefined }),
+      );
+      gateway.getSubscriptionWithDiscount.mockRejectedValue(
+        new Error('stripe fora'),
+      );
+
+      await expect(service.handle(verifyInput)).resolves.toBeUndefined();
+
+      const synced =
+        subscriptionService.syncFromGatewaySubscription.mock.calls[0][0];
+      expect(synced.discount).toBeUndefined();
+      expect(eventRepo.update).toHaveBeenCalledWith('stored-disc', {
+        processedAt: expect.any(Date),
+        error: null,
+      });
+    });
+
+    it('assinatura sem descontos não faz chamada extra', async () => {
+      gateway.parseWebhookEvent.mockReturnValue(makeEvent());
+      gateway.getSubscription.mockResolvedValue(
+        makeGatewaySub({ discount: null }),
+      );
+
+      await service.handle(verifyInput);
+
+      expect(gateway.getSubscriptionWithDiscount).not.toHaveBeenCalled();
+      expect(
+        subscriptionService.syncFromGatewaySubscription,
+      ).toHaveBeenCalledWith(expect.objectContaining({ discount: null }));
+    });
+
+    it('checkout.completed não faz a releitura (só customer.subscription.*)', async () => {
+      gateway.parseWebhookEvent.mockReturnValue(
+        makeEvent({
+          type: 'checkout.completed',
+          refs: { customerId: 'cus_abc', subscriptionId: 'gw-sub-1' },
+        }),
+      );
+      subscriptionRepo.findByGatewayCustomerId.mockResolvedValue({
+        id: 'sub-local',
+        status: 'active',
+        gatewaySubscriptionId: 'gw-sub-1',
+      });
+      gateway.getSubscription.mockResolvedValue(
+        makeGatewaySub({ discount: undefined }),
+      );
+
+      await service.handle(verifyInput);
+
+      expect(gateway.getSubscriptionWithDiscount).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('reprocessStored', () => {
+    it('processa o payload gravado, sem verificar assinatura, e marca como processado', async () => {
+      const event = makeEvent();
+      eventRepo.findOne.mockResolvedValue({
+        id: 'stored-9',
+        processedAt: null,
+        payload: { id: 'evt_test_1', type: 'customer.subscription.updated' },
+      });
+      gateway.parseWebhookEvent.mockReturnValue(event);
+      gateway.getSubscription.mockResolvedValue(makeGatewaySub());
+
+      const result = await service.reprocessStored('stored-9');
+
+      expect(gateway.verifyWebhook).not.toHaveBeenCalled();
+      expect(gateway.parseWebhookEvent).toHaveBeenCalledWith({
+        id: 'evt_test_1',
+        type: 'customer.subscription.updated',
+      });
+      expect(
+        subscriptionService.syncFromGatewaySubscription,
+      ).toHaveBeenCalled();
+      expect(eventRepo.update).toHaveBeenCalledWith(
+        'stored-9',
+        expect.objectContaining({ processedAt: expect.any(Date), error: null }),
+      );
+      expect(result).toEqual({
+        id: 'stored-9',
+        eventId: 'evt_test_1',
+        processedAt: expect.any(Date),
+      });
+    });
+
+    it('evento já processado dá 409 e não reprocessa', async () => {
+      eventRepo.findOne.mockResolvedValue({
+        id: 'stored-9',
+        processedAt: new Date(),
+        payload: {},
+      });
+      await expect(service.reprocessStored('stored-9')).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(gateway.parseWebhookEvent).not.toHaveBeenCalled();
+    });
+
+    it('evento inexistente dá 404', async () => {
+      eventRepo.findOne.mockResolvedValue(null);
+      await expect(service.reprocessStored('x')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('payload não reconhecido dá 409', async () => {
+      eventRepo.findOne.mockResolvedValue({
+        id: 'stored-9',
+        processedAt: null,
+        payload: {},
+      });
+      gateway.parseWebhookEvent.mockReturnValue(makeEvent({ type: 'unknown' }));
+      await expect(service.reprocessStored('stored-9')).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+    });
+  });
+
+  describe('concorrência no processamento do evento', () => {
+    it('reprocessamento pega a trava do evento e a libera no fim', async () => {
+      eventRepo.findOne.mockResolvedValue({
+        id: 'stored-9',
+        processedAt: null,
+        payload: {},
+      });
+      gateway.parseWebhookEvent.mockReturnValue(makeEvent());
+      gateway.getSubscription.mockResolvedValue(makeGatewaySub());
+
+      await service.reprocessStored('stored-9');
+
+      expect(lock.acquire).toHaveBeenCalledWith(
+        'gateway-event:stored-9',
+        GATEWAY_EVENT_LOCK_TTL_MS,
+      );
+      expect(lock.acquire.mock.invocationCallOrder[0]).toBeLessThan(
+        eventRepo.findOne.mock.invocationCallOrder[0],
+      );
+      expect(lock.release).toHaveBeenCalledWith(
+        'gateway-event:stored-9',
+        'tok',
+      );
+    });
+
+    it('reprocessamento concorrente dá 409 e não despacha o evento', async () => {
+      lock.acquire.mockResolvedValue(null);
+
+      await expect(service.reprocessStored('stored-9')).rejects.toThrow(
+        EVENTO_EM_PROCESSAMENTO,
+      );
+      expect(eventRepo.findOne).not.toHaveBeenCalled();
+      expect(
+        subscriptionService.syncFromGatewaySubscription,
+      ).not.toHaveBeenCalled();
+      expect(lock.release).not.toHaveBeenCalled();
+    });
+
+    it('reprocessamento libera a trava mesmo quando o evento já foi processado', async () => {
+      eventRepo.findOne.mockResolvedValue({
+        id: 'stored-9',
+        processedAt: new Date(),
+        payload: {},
+      });
+
+      await expect(service.reprocessStored('stored-9')).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(lock.release).toHaveBeenCalledWith(
+        'gateway-event:stored-9',
+        'tok',
+      );
+    });
+
+    it('webhook com o evento em processamento devolve 409 para a Stripe tentar de novo', async () => {
+      gateway.parseWebhookEvent.mockReturnValue(makeEvent());
+      eventRepo.findByProviderEvent.mockResolvedValue({
+        id: 'stored-9',
+        processedAt: null,
+      });
+      lock.acquire.mockResolvedValue(null);
+
+      await expect(service.handle(verifyInput)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(
+        subscriptionService.syncFromGatewaySubscription,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('webhook não despacha se o evento foi processado enquanto esperava a trava', async () => {
+      gateway.parseWebhookEvent.mockReturnValue(makeEvent());
+      eventRepo.findByProviderEvent.mockResolvedValue({
+        id: 'stored-9',
+        processedAt: null,
+      });
+      eventRepo.findOne.mockResolvedValue({
+        id: 'stored-9',
+        processedAt: new Date(),
+      });
+
+      await service.handle(verifyInput);
+
+      expect(
+        subscriptionService.syncFromGatewaySubscription,
+      ).not.toHaveBeenCalled();
+      expect(eventRepo.update).not.toHaveBeenCalled();
+      expect(lock.release).toHaveBeenCalledWith(
+        'gateway-event:stored-9',
+        'tok',
+      );
+    });
+
+    it('webhook com o Redis fora processa sem a trava', async () => {
+      gateway.parseWebhookEvent.mockReturnValue(makeEvent());
+      eventRepo.findByProviderEvent.mockResolvedValue({
+        id: 'stored-9',
+        processedAt: null,
+      });
+      gateway.getSubscription.mockResolvedValue(makeGatewaySub());
+      lock.acquire.mockRejectedValue(new Error('redis fora'));
+
+      await service.handle(verifyInput);
+
+      expect(
+        subscriptionService.syncFromGatewaySubscription,
+      ).toHaveBeenCalled();
+      expect(lock.release).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('registro de erros do webhook', () => {
+    let reported: PlatformErrorEvent[];
+
+    beforeEach(() => {
+      reported = [];
+      registerPlatformErrorSink((event) => reported.push(event));
+    });
+
+    afterEach(() => registerPlatformErrorSink(null));
+
+    it('falha no processamento vai para a contagem de erros como stripe_webhook, com a conta', async () => {
+      const event = makeEvent();
+      gateway.parseWebhookEvent.mockReturnValue(event);
+      eventRepo.findByProviderEvent.mockResolvedValue(null);
+      eventRepo.create.mockResolvedValue({ id: 'stored-1' });
+      gateway.getSubscription.mockRejectedValue(new Error('Stripe fora'));
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({
+        id: 'sub-1',
+        ownerId: 'owner-1',
+      });
+
+      await expect(service.handle(verifyInput)).rejects.toThrow('Stripe fora');
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(reported).toEqual([
+        expect.objectContaining({
+          source: 'stripe_webhook',
+          route: 'subscription.updated',
+          ownerId: 'owner-1',
+        }),
+      ]);
+    });
+
+    it('sem assinatura local, registra o erro sem conta', async () => {
+      gateway.parseWebhookEvent.mockReturnValue(makeEvent());
+      eventRepo.findByProviderEvent.mockResolvedValue(null);
+      eventRepo.create.mockResolvedValue({ id: 'stored-1' });
+      gateway.getSubscription.mockRejectedValue(new Error('Stripe fora'));
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue(null);
+
+      await expect(service.handle(verifyInput)).rejects.toThrow('Stripe fora');
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(reported[0]).toMatchObject({ ownerId: null });
     });
   });
 });

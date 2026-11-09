@@ -8,6 +8,7 @@ import {
   DocumentClassificationIntent,
 } from './document-classifier.types';
 import { PiiVaultService } from '../services/pii-vault.service';
+import { AiUsageRecorder } from '../usage/ai-usage.recorder';
 import { errorMessage } from '../../utils/error-message.util';
 
 export interface ExtractFromBufferInput {
@@ -18,6 +19,7 @@ export interface ExtractFromBufferInput {
   intent?: DocumentClassificationIntent;
   maxOcrPages?: number;
   detokenizeExtracted?: boolean;
+  usageContext?: { ownerId: string; userId: string };
 }
 
 export interface ClassifierUsageSnapshot {
@@ -69,7 +71,27 @@ export class DocumentExtractionService {
     private readonly visionFallback?: DocumentVisionFallbackService,
     @Optional()
     private readonly piiVault?: PiiVaultService,
+    @Optional()
+    private readonly usageRecorder?: AiUsageRecorder,
   ) {}
+
+  private async recordUsage(
+    input: ExtractFromBufferInput,
+    snapshot: ClassifierUsageSnapshot,
+  ): Promise<void> {
+    if (!input.usageContext || !this.usageRecorder) return;
+    if (snapshot.promptTokens + snapshot.completionTokens === 0) return;
+    await this.usageRecorder.record({
+      source: 'document_extraction',
+      ownerId: input.usageContext.ownerId,
+      userId: input.usageContext.userId,
+      model: snapshot.model,
+      promptTokens: snapshot.promptTokens,
+      completionTokens: snapshot.completionTokens,
+      latencyMs: snapshot.latencyMs,
+      stage: snapshot.stage,
+    });
+  }
 
   async extractFromBuffer(
     input: ExtractFromBufferInput,
@@ -131,7 +153,12 @@ export class DocumentExtractionService {
         classification = result.classification;
         timing.classifierMs =
           result.usage.latencyMs ?? Date.now() - classifierStartedAt;
-        usageSnapshots.push({ stage: 'doc_classifier', ...result.usage });
+        const classifierSnapshot: ClassifierUsageSnapshot = {
+          stage: 'doc_classifier',
+          ...result.usage,
+        };
+        usageSnapshots.push(classifierSnapshot);
+        await this.recordUsage(input, classifierSnapshot);
         this.logger.log(
           `[DOC_EXTRACT] sid=${sessionId} stage=text_classifier kind=${classification.kind} confidence=${classification.confidence.toFixed(2)} classifier_ms=${timing.classifierMs}`,
         );
@@ -204,10 +231,12 @@ export class DocumentExtractionService {
           usedVisionFallback = true;
           timing.visionMs =
             visionResult.usage.latencyMs ?? Date.now() - visionStartedAt;
-          usageSnapshots.push({
+          const visionSnapshot: ClassifierUsageSnapshot = {
             stage: 'doc_vision_fallback',
             ...visionResult.usage,
-          });
+          };
+          usageSnapshots.push(visionSnapshot);
+          await this.recordUsage(input, visionSnapshot);
           classifierError = null;
           this.logger.log(
             `[DOC_EXTRACT] sid=${sessionId} stage=vision_llm kind=${classification.kind} confidence=${classification.confidence.toFixed(2)} vision_ms=${timing.visionMs}`,

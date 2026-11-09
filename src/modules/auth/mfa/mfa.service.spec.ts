@@ -13,6 +13,10 @@ import { generateTotp, totpStepAt } from 'src/shared/crypto/totp.util';
 import { AuthAttemptLimiter } from '../auth-attempt-limiter';
 import { SessionRevocationService } from '../session-revocation.service';
 import {
+  PlatformSecurityEvent,
+  registerPlatformSecuritySink,
+} from 'src/shared/observability/platform-security/platform-security-sink';
+import {
   JWT_DEFAULT_AUDIENCE,
   JWT_DEFAULT_ISSUER,
 } from '../jwt-payload.interface';
@@ -402,6 +406,41 @@ describe('MfaService', () => {
         service.regenerateRecoveryCodes('user-1', '000000'),
       ).rejects.toThrow(MFA_CODIGO_INVALIDO);
       expect(estado.mfaRecoveryCodes).toEqual(antes);
+    });
+  });
+
+  describe('eventos de segurança do painel', () => {
+    const eventos: PlatformSecurityEvent[] = [];
+
+    beforeEach(() => {
+      eventos.length = 0;
+      registerPlatformSecuritySink((event) => eventos.push(event));
+    });
+
+    afterEach(() => registerPlatformSecuritySink(null));
+
+    it('ativar e desativar registram mfa_enabled e mfa_disabled', async () => {
+      const { secret } = await ativar();
+      expect(eventos).toEqual([{ type: 'mfa_enabled', userId: 'user-1' }]);
+
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
+      await service.disable('user-1', 'Senha123@', generateTotp(secret));
+
+      expect(eventos).toEqual([
+        { type: 'mfa_enabled', userId: 'user-1' },
+        { type: 'mfa_disabled', userId: 'user-1' },
+      ]);
+    });
+
+    it('código errado registra mfa_failed e mantém a mesma resposta', async () => {
+      await ativar();
+      eventos.length = 0;
+
+      await expect(
+        service.verifySecondFactor('user-1', '000000', { allowRecovery: true }),
+      ).rejects.toThrow(MFA_CODIGO_INVALIDO);
+
+      expect(eventos).toEqual([{ type: 'mfa_failed', userId: 'user-1' }]);
     });
   });
 

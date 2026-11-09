@@ -5,11 +5,17 @@ jest.mock('./metrics.util', () => ({
     recordQueueJobDurationMock(...args),
 }));
 
+const reportPlatformErrorMock = jest.fn();
+
+jest.mock('./platform-errors/platform-error-sink', () => ({
+  reportPlatformError: (...args: unknown[]) => reportPlatformErrorMock(...args),
+}));
+
 import { QueueMetricsListener } from './queue-metrics.listener';
 
 interface FakeQueueHandlers {
   completed?: (job: { processedOn?: number; finishedOn?: number }) => void;
-  failed?: (job: { processedOn?: number; finishedOn?: number }) => void;
+  failed?: (job: Record<string, unknown>, error?: unknown) => void;
 }
 
 function createFakeQueue(name: string) {
@@ -36,6 +42,7 @@ describe('QueueMetricsListener', () => {
 
   beforeEach(() => {
     recordQueueJobDurationMock.mockClear();
+    reportPlatformErrorMock.mockClear();
 
     mailQueue = createFakeQueue('mail');
     whatsappQueue = createFakeQueue('whatsapp-messages');
@@ -107,5 +114,52 @@ describe('QueueMetricsListener', () => {
     documentExtractionQueue.handlers.completed?.({});
 
     expect(recordQueueJobDurationMock).not.toHaveBeenCalled();
+  });
+
+  it('falha final de um job vira erro da plataforma com a conta do job', () => {
+    const erro = new Error('pdf quebrou');
+    pdfGenerationQueue.handlers.failed?.(
+      {
+        attemptsMade: 3,
+        opts: { attempts: 3 },
+        data: { tenantId: 'owner-1', userId: 'user-1', requestId: 'req-1' },
+      },
+      erro,
+    );
+    expect(reportPlatformErrorMock).toHaveBeenCalledWith({
+      source: 'queue',
+      route: 'pdf-generation',
+      error: erro,
+      ownerId: 'owner-1',
+      userId: 'user-1',
+      requestId: 'req-1',
+    });
+  });
+
+  it('tentativa intermediária não conta como erro', () => {
+    documentExtractionQueue.handlers.failed?.(
+      { attemptsMade: 1, opts: { attempts: 3 }, data: {} },
+      new Error('x'),
+    );
+    expect(reportPlatformErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('e-mail e WhatsApp não duplicam: a falha já fica no registro de envios', () => {
+    mailQueue.handlers.failed?.(
+      { attemptsMade: 3, opts: { attempts: 3 }, data: {} },
+      new Error('smtp'),
+    );
+    whatsappQueue.handlers.failed?.(
+      { attemptsMade: 3, opts: { attempts: 3 }, data: {} },
+      new Error('twilio'),
+    );
+    expect(reportPlatformErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('job sem dono e sem opts conta como falha final sem conta', () => {
+    aiMessagesQueue.handlers.failed?.({ attemptsMade: 1, data: null }, 'x');
+    expect(reportPlatformErrorMock).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerId: null, userId: null, requestId: null }),
+    );
   });
 });

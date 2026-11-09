@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { runWithTenantContext } from 'src/shared/logging/request-context';
 import { ConfigService } from '@nestjs/config';
 import { In } from 'typeorm';
 
@@ -63,11 +64,24 @@ export class WeeklySummaryService {
     });
 
     let dispatched = 0;
+    const contaDesativada = new Map<string, Promise<boolean>>();
+    const isDeactivated = (ownerId: string): Promise<boolean> => {
+      let pending = contaDesativada.get(ownerId);
+      if (!pending) {
+        pending = this.userRepository.isAccountDeactivated(ownerId);
+        contaDesativada.set(ownerId, pending);
+      }
+      return pending;
+    };
 
     await Promise.all(
       users.map(async (user) => {
         try {
-          const sent = await this.dispatchForUser(user, start, end);
+          if (await isDeactivated(user.ownerId)) return;
+          const sent = await runWithTenantContext(
+            { tenantId: user.ownerId, userId: user.id },
+            () => this.dispatchForUser(user, start, end),
+          );
           if (sent) dispatched++;
         } catch (err: unknown) {
           this.logger.warn(

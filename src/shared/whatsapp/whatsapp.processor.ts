@@ -21,6 +21,8 @@ import {
 import { requestContextStorage } from 'src/shared/logging/request-context';
 import { randomUUID } from 'crypto';
 import { errorMessage as mensagemDoErro } from 'src/shared/utils/error-message.util';
+import { AccountStatusService } from 'src/shared/account-status/account-status.service';
+import { CONTA_DESATIVADA_MENSAGEM } from 'src/modules/auth/account-deactivation';
 
 @Injectable()
 @Processor('whatsapp-messages')
@@ -43,6 +45,7 @@ export class WhatsappProcessor {
     @InjectRepository(NotificationSendLog)
     private readonly sendLogRepository: Repository<NotificationSendLog>,
     private readonly configService: ConfigService,
+    private readonly accountStatus: AccountStatusService,
   ) {
     const accountSid = this.configService.get<string>('TWILIO_ACCOUNT_SID');
     const authToken = this.configService.get<string>('TWILIO_AUTH_TOKEN');
@@ -96,8 +99,16 @@ export class WhatsappProcessor {
 
     const maskedTo = maskPhone(toNormalized);
 
+    const skipped = await this.accountStatus.isDeactivated(job.data.tenantId);
+
     try {
-      if (!this.twilioClient) {
+      if (skipped) {
+        status = NotificationSendStatus.FAILED;
+        errorMessage = CONTA_DESATIVADA_MENSAGEM;
+        this.logger.warn(
+          `WhatsApp para ${maskedTo} não enviado: conta ${job.data.tenantId} desativada`,
+        );
+      } else if (!this.twilioClient) {
         this.logger.log(
           `[DEV] WhatsApp (sem Twilio) → ${maskedTo}: ${isTemplate ? `template ${contentSid}` : `texto ${logBody.length} chars`}`,
         );
@@ -147,6 +158,8 @@ export class WhatsappProcessor {
           errorMessage: truncateForLog(errorMessage, 500),
           jobId: String(job.id),
           attempts: job.attemptsMade + 1,
+          ownerId: job.data.tenantId ?? null,
+          userId: job.data.userId ?? null,
           sentAt: sentAt,
           messageSid,
           direction: NotificationDirection.OUTBOUND,

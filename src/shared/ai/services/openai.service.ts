@@ -186,16 +186,29 @@ export class OpenaiService {
   }
 
   async createEmbedding(text: string): Promise<number[]> {
+    return (await this.createEmbeddingWithUsage(text)).embedding;
+  }
+
+  async createEmbeddingWithUsage(text: string): Promise<{
+    embedding: number[];
+    model: string;
+    promptTokens: number;
+  }> {
+    const model = this.configService.get<string>(
+      'OPENAI_EMBEDDING_MODEL',
+      'text-embedding-3-small',
+    );
     const response = await this.client.embeddings.create(
       {
-        model: this.configService.get<string>(
-          'OPENAI_EMBEDDING_MODEL',
-          'text-embedding-3-small',
-        ),
+        model,
         input: text,
       },
       { timeout: this.requestTimeoutMs },
     );
-    return response.data[0].embedding;
+    return {
+      embedding: response.data[0].embedding,
+      model: response.model || model,
+      promptTokens: response.usage?.prompt_tokens ?? 0,
+    };
   }
 }

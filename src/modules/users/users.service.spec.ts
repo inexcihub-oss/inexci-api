@@ -183,7 +183,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
           name: 'Colaborador 1',
           role: UserRole.COLLABORATOR,
           permissions: [],
-          isPlatformAdmin: true,
           doctorProfile: { id: 'dp-1', council: 'CRM' },
         },
       ]);
@@ -207,7 +206,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         role: UserRole.COLLABORATOR,
         password: 'hash-secreto',
         permissions: [],
-        isPlatformAdmin: true,
         doctorProfile: { id: 'dp-1', council: 'CRM' },
       });
 
@@ -227,7 +225,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         id: 'user-1',
         role: UserRole.COLLABORATOR,
         permissions: [],
-        isPlatformAdmin: false,
         doctorProfile: null,
         onboardingState: null,
       });
@@ -252,7 +249,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
           ownerId: 'dono-1',
           password: 'hash-secreto',
           permissions: [],
-          isPlatformAdmin: false,
           doctorProfile: { id: 'dp-1', council: 'CRM' },
         });
       mockUserDoctorAccessRepository.findAllByUserId.mockResolvedValue([]);
@@ -281,7 +277,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
           role: UserRole.COLLABORATOR,
           ownerId: 'dono-1',
           permissions: [],
-          isPlatformAdmin: false,
           doctorProfile: null,
           onboardingState: null,
         });
@@ -528,7 +523,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         phone: '+5511999999999',
         role: UserRole.COLLABORATOR,
         permissions: [Permission.SOLICITACOES],
-        isPlatformAdmin: false,
       });
 
       const result = await service.createCollaborator(
@@ -559,7 +553,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         email: 'ana@email.com',
         role: UserRole.COLLABORATOR,
         permissions: [],
-        isPlatformAdmin: false,
       });
 
       const result = await service.createCollaborator(
@@ -2378,7 +2371,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
             signatureUrl: 'signatures/real-admin/x.png',
           },
           permissions: [Permission.SOLICITACOES],
-          isPlatformAdmin: true,
           onboardingState: null,
         });
       mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
@@ -2419,7 +2411,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
             signatureUrl: 'signatures/real-admin/x.png',
           },
           permissions: [Permission.SOLICITACOES],
-          isPlatformAdmin: false,
           onboardingState: null,
         });
       mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([

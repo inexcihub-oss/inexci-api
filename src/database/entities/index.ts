@@ -69,6 +69,13 @@ import { AiKnowledgeChunk } from './ai-knowledge-chunk.entity';
 import { AiTokenUsageLog } from './ai-token-usage-log.entity';
 import { AiPiiRedactionLog } from './ai-pii-redaction-log.entity';
 import { ClinicalAccessAudit } from './clinical-access-audit.entity';
+import { PlatformAuditLog } from './platform-audit-log.entity';
+import { PlatformAdmin } from './platform-admin.entity';
+import { GatewayInvoice } from './gateway-invoice.entity';
+import { PlatformMetricsDaily } from './platform-metrics-daily.entity';
+import { PlatformErrorDaily } from './platform-error-daily.entity';
+import { PlatformSecurityDaily } from './platform-security-daily.entity';
+import { AccountHealthDaily } from './account-health-daily.entity';
 import {
   FinancialAccount,
   FinancialAccountType,
@@ -153,6 +160,13 @@ export { AiKnowledgeChunk };
 export { AiTokenUsageLog };
 export { AiPiiRedactionLog };
 export { ClinicalAccessAudit };
+export { PlatformAuditLog };
+export { PlatformAdmin };
+export { GatewayInvoice };
+export { PlatformMetricsDaily };
+export { PlatformErrorDaily };
+export { PlatformSecurityDaily };
+export { AccountHealthDaily };
 
 export { FinancialAccount, FinancialAccountType };
 export { PaymentMethodConfig, PaymentMethod };
@@ -214,6 +228,13 @@ export const ENTITIES = [
   AiTokenUsageLog,
   AiPiiRedactionLog,
   ClinicalAccessAudit,
+  PlatformAuditLog,
+  PlatformAdmin,
+  GatewayInvoice,
+  PlatformMetricsDaily,
+  PlatformErrorDaily,
+  PlatformSecurityDaily,
+  AccountHealthDaily,
   FinancialAccount,
   PaymentMethodConfig,
   CashSession,

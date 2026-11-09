@@ -1,14 +1,9 @@
-import {
-  Controller,
-  Get,
-  ServiceUnavailableException,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { NotificationsHealthService } from './notifications-health.service';
 import { Public } from 'src/shared/decorators/is-public.decorator';
-import { PlatformAdminGuard } from 'src/shared/guards/platform-admin.guard';
+import { PlatformAdminOnly } from 'src/modules/admin/auth/platform-admin-only.decorator';
 
 @ApiTags('Health')
 @Controller('health/notifications')
@@ -33,8 +28,7 @@ export class NotificationsHealthController {
   }
 
   @Get('details')
-  @ApiBearerAuth()
-  @UseGuards(PlatformAdminGuard)
+  @PlatformAdminOnly()
   @HealthCheck()
   @ApiOperation({
     summary:

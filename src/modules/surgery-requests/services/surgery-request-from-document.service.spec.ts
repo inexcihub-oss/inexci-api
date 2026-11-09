@@ -154,6 +154,7 @@ describe('SurgeryRequestFromDocumentService', () => {
         filename: 'laudo.pdf',
         intent: 'create_sc',
         maxOcrPages: 15,
+        usageContext: { ownerId: expect.any(String), userId: 'user-1' },
       }),
     );
     expect(storage.uploadBuffer).toHaveBeenCalled();

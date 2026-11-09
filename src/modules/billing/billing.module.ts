@@ -15,10 +15,12 @@ import { SubscriptionQuotaPeriodRepository } from 'src/database/repositories/sub
 import { PaymentGatewayEventRepository } from 'src/database/repositories/payment-gateway-event.repository';
 
 import { PaymentGatewayModule } from 'src/shared/payment-gateway';
+import { DistributedLockModule } from 'src/shared/locks/distributed-lock.module';
 
 import { SubscriptionService } from './services/subscription.service';
 import { QuotaService } from './services/quota.service';
 import { BillingWebhookService } from './services/billing-webhook.service';
+import { InvoiceMirrorService } from './services/invoice-mirror.service';
 
 import { PlansController } from './controllers/plans.controller';
 import { SubscriptionsController } from './controllers/subscriptions.controller';
@@ -36,6 +38,7 @@ import { BillingWebhooksController } from './controllers/billing-webhooks.contro
       PaymentGatewayEvent,
     ]),
     PaymentGatewayModule,
+    DistributedLockModule,
   ],
   providers: [
     UserRepository,
@@ -46,6 +49,7 @@ import { BillingWebhooksController } from './controllers/billing-webhooks.contro
     SubscriptionService,
     QuotaService,
     BillingWebhookService,
+    InvoiceMirrorService,
   ],
   controllers: [
     PlansController,
@@ -53,6 +57,11 @@ import { BillingWebhooksController } from './controllers/billing-webhooks.contro
     QuotaController,
     BillingWebhooksController,
   ],
-  exports: [SubscriptionService, QuotaService],
+  exports: [
+    SubscriptionService,
+    QuotaService,
+    InvoiceMirrorService,
+    BillingWebhookService,
+  ],
 })
 export class BillingModule {}

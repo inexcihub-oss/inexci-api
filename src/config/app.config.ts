@@ -98,6 +98,12 @@ export const envValidationSchema = Joi.object({
   OTEL_TRACES_SAMPLER_ARG: Joi.number().min(0).max(1).optional(),
   OTEL_EXPORTER_OTLP_HEADERS: Joi.string().allow('').optional(),
   OTEL_METRICS_ENABLED: Joi.string().allow('').default('false'),
+  GRAFANA_LOKI_READ_URL: Joi.string().uri().allow('').optional(),
+  GRAFANA_LOKI_READ_USER: Joi.string().allow('').optional(),
+  GRAFANA_LOKI_READ_TOKEN: Joi.string().allow('').optional(),
+  GRAFANA_LOKI_SERVICE: Joi.string().allow('').default('inexci-api'),
+  GRAFANA_LOKI_DATASOURCE_UID: Joi.string().allow('').optional(),
+  GRAFANA_EXPLORE_URL: Joi.string().uri().allow('').optional(),
 
   AI_RAG_TOP_K: Joi.number().default(3),
   AI_RAG_MIN_SCORE: Joi.number().default(0.65),
@@ -201,5 +207,7 @@ export const envValidationSchema = Joi.object({
   LOG_RETENTION_STALE_DAYS: Joi.number().default(60),
   LOG_RETENTION_READ_NOTIFICATION_DAYS: Joi.number().default(90),
   LOG_RETENTION_CLINICAL_AUDIT_DAYS: Joi.number().default(1825),
+  LOG_RETENTION_PLATFORM_ERROR_DAYS: Joi.number().default(90),
+  LOG_RETENTION_PLATFORM_SECURITY_DAYS: Joi.number().default(90),
   SLOW_REQUEST_THRESHOLD_MS: Joi.number().positive().default(1500),
 }).options({ allowUnknown: true });

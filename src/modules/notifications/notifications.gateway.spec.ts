@@ -19,7 +19,10 @@ describe('NotificationsGateway', () => {
   let gateway: NotificationsGateway;
   let jwtService: { verify: jest.Mock };
   let notificationRepository: { countUnread: jest.Mock };
-  let userRepository: { findOne: jest.Mock };
+  let userRepository: {
+    findOne: jest.Mock;
+    findSessionUser: jest.Mock;
+  };
   let configService: { get: jest.Mock };
 
   beforeEach(async () => {
@@ -27,8 +30,13 @@ describe('NotificationsGateway', () => {
     notificationRepository = {
       countUnread: jest.fn().mockResolvedValue(0),
     };
+    const findOne = jest.fn().mockResolvedValue({ status: UserStatus.ACTIVE });
     userRepository = {
-      findOne: jest.fn().mockResolvedValue({ status: UserStatus.ACTIVE }),
+      findOne,
+      findSessionUser: jest.fn(async (id: string) => {
+        const user = (await findOne({ id })) as unknown;
+        return user ? { user, accountDeactivated: false } : null;
+      }),
     };
     configService = {
       get: jest.fn((_key: string, fallback?: unknown) => fallback),
@@ -140,6 +148,21 @@ describe('NotificationsGateway', () => {
 
       await gateway.handleConnection(client);
 
+      expect(client.disconnect).toHaveBeenCalled();
+      expect(client.join).not.toHaveBeenCalled();
+    });
+
+    it('desconecta quem é de conta desativada pelo painel', async () => {
+      const client = makeSocket('valid-token');
+      jwtService.verify.mockReturnValue({ userId: 'user-123' });
+      userRepository.findSessionUser.mockResolvedValue({
+        user: { status: UserStatus.ACTIVE, ownerId: 'owner-1' },
+        accountDeactivated: true,
+      });
+
+      await gateway.handleConnection(client);
+
+      expect(userRepository.findSessionUser).toHaveBeenCalledWith('user-123');
       expect(client.disconnect).toHaveBeenCalled();
       expect(client.join).not.toHaveBeenCalled();
     });

@@ -10,6 +10,7 @@ import { QueryFailedError, EntityNotFoundError } from 'typeorm';
 import { Response, Request } from 'express';
 import { getRequestContext } from '../logging/request-context';
 import { PaymentGatewayError } from '../payment-gateway/payment-gateway.interface';
+import { reportPlatformError } from '../observability/platform-errors/platform-error-sink';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -65,6 +66,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     const requestId = getRequestContext()?.requestId ?? null;
 
+    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+      reportPlatformError({
+        source: 'http',
+        route: routeOf(request),
+        error: exception,
+      });
+    }
+
     response.status(status).json({
       ...extra,
       statusCode: status,
@@ -75,6 +84,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
       path: request.url,
     });
   }
+}
+
+function routeOf(request: Request): string {
+  const route = (request as Request & { route?: { path?: unknown } }).route;
+  const path =
+    typeof route?.path === 'string'
+      ? `${request.baseUrl ?? ''}${route.path}`
+      : request.url;
+  return `${request.method} ${path}`;
 }
 
 function isPayloadTooLargeError(exception: unknown): boolean {

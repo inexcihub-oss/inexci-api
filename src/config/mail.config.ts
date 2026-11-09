@@ -27,6 +27,7 @@ export type MailTemplateName =
   | 'appointment-reminder'
   | 'welcome-patient'
   | 'invite-collaborator'
+  | 'invite-platform-admin'
   | 'password-recovery'
   | 'email-verification'
   | 'weekly-summary'
@@ -44,6 +45,7 @@ export const MAIL_TEMPLATES: MailTemplateName[] = [
   'appointment-reminder',
   'welcome-patient',
   'invite-collaborator',
+  'invite-platform-admin',
   'password-recovery',
   'email-verification',
   'weekly-summary',

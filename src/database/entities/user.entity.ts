@@ -136,9 +136,6 @@ export class User {
   @Column({ name: 'owner_id', type: 'uuid' })
   ownerId: string;
 
-  @Column({ name: 'is_platform_admin', type: 'boolean', default: false })
-  isPlatformAdmin: boolean;
-
   @Exclude()
   @Column({ name: 'token_version', type: 'integer', default: 0 })
   tokenVersion: number;
@@ -190,6 +187,23 @@ export class User {
     select: false,
   })
   mfaLastUsedStep: number | null;
+
+  @Index('idx_users_last_seen_at')
+  @Column({ name: 'last_seen_at', type: 'timestamptz', nullable: true })
+  lastSeenAt: Date | null;
+
+  @Exclude()
+  @Column({
+    name: 'account_deactivated_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  accountDeactivatedAt: Date | null;
+
+  @Exclude()
+  @Index('idx_users_account_deactivated_by_id')
+  @Column({ name: 'account_deactivated_by_id', type: 'uuid', nullable: true })
+  accountDeactivatedById: string | null;
 
   @Column({
     name: 'permissions',

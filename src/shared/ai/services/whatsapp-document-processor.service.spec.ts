@@ -94,6 +94,10 @@ describe('WhatsappDocumentProcessorService', () => {
         intent: 'attach',
       }),
     );
+    expect(extractor.extractFromBuffer).toHaveBeenCalledWith(
+      expect.not.objectContaining({ usageContext: expect.anything() }),
+    );
+    expect(aiTokenUsageLogRepo.create).toHaveBeenCalledTimes(1);
 
     expect(dispatcher.savePending).toHaveBeenCalledWith(
       '+5511988887777',

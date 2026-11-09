@@ -1,13 +1,10 @@
-import {
-  ForbiddenException,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { ServiceUnavailableException } from '@nestjs/common';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
-import { ExecutionContext } from '@nestjs/common';
 import { HealthCheckService } from '@nestjs/terminus';
 import { NotificationsHealthController } from './notifications-health.controller';
 import { NotificationsHealthService } from './notifications-health.service';
-import { PlatformAdminGuard } from 'src/shared/guards/platform-admin.guard';
+import { AdminSessionGuard } from 'src/modules/admin/auth/admin-session.guard';
+import { SKIP_CONSENT_CHECK_KEY } from 'src/shared/guards/consents.guard';
 import { IS_PUBLIC_KEY } from 'src/shared/decorators/is-public.decorator';
 
 describe('NotificationsHealthController', () => {
@@ -52,42 +49,20 @@ describe('NotificationsHealthController', () => {
     expect(corpo).not.toContain('ECONNREFUSED');
   });
 
-  it('a rota pública é @Public e a detalhada exige administrador de plataforma', () => {
-    expect(
-      Reflect.getMetadata(
-        IS_PUBLIC_KEY,
-        NotificationsHealthController.prototype.check,
-      ),
-    ).toBe(true);
-    expect(
-      Reflect.getMetadata(
-        IS_PUBLIC_KEY,
-        NotificationsHealthController.prototype.details,
-      ),
-    ).toBeUndefined();
-    expect(
-      Reflect.getMetadata(
-        GUARDS_METADATA,
-        NotificationsHealthController.prototype.details,
-      ),
-    ).toEqual([PlatformAdminGuard]);
+  it('a rota pública é @Public e a detalhada exige a sessão do painel administrativo', () => {
+    const { check, details } = NotificationsHealthController.prototype;
+    expect(Reflect.getMetadata(IS_PUBLIC_KEY, check)).toBe(true);
+    expect(Reflect.getMetadata(GUARDS_METADATA, check)).toBeUndefined();
+    expect(Reflect.getMetadata(GUARDS_METADATA, details)).toEqual([
+      AdminSessionGuard,
+    ]);
+    expect(Reflect.getMetadata(IS_PUBLIC_KEY, details)).toBe(true);
+    expect(Reflect.getMetadata(SKIP_CONSENT_CHECK_KEY, details)).toBe(true);
   });
 
   it('a rota detalhada devolve o resultado completo para o admin de plataforma', async () => {
     health.check.mockResolvedValue(detalhado);
 
     await expect(controller.details()).resolves.toEqual(detalhado);
-  });
-
-  it('o guard recusa quem não é administrador de plataforma', () => {
-    const ctx = {
-      switchToHttp: () => ({
-        getRequest: () => ({ user: { isPlatformAdmin: false } }),
-      }),
-    } as unknown as ExecutionContext;
-
-    expect(() => new PlatformAdminGuard().canActivate(ctx)).toThrow(
-      ForbiddenException,
-    );
   });
 });

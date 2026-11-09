@@ -12,6 +12,12 @@ describe('LogRetentionService', () => {
     const clinicalAccessAuditRepository = {
       deleteOlderThan: jest.fn().mockResolvedValue(0),
     };
+    const platformErrorDailyRepository = {
+      purgeBefore: jest.fn().mockResolvedValue(0),
+    };
+    const platformSecurityDailyRepository = {
+      purgeBefore: jest.fn().mockResolvedValue(0),
+    };
     const config = {
       get: jest.fn((key: string, def: unknown) =>
         key in configValues ? configValues[key] : def,
@@ -25,8 +31,16 @@ describe('LogRetentionService', () => {
       notificationRepository as never,
       config as never,
       clinicalAccessAuditRepository as never,
+      platformErrorDailyRepository as never,
+      platformSecurityDailyRepository as never,
     );
-    return { service, notificationRepository, clinicalAccessAuditRepository };
+    return {
+      service,
+      notificationRepository,
+      clinicalAccessAuditRepository,
+      platformErrorDailyRepository,
+      platformSecurityDailyRepository,
+    };
   }
 
   it('apaga notificações lidas com mais de 90 dias por padrão', async () => {
@@ -84,6 +98,56 @@ describe('LogRetentionService', () => {
 
     const outro = build();
     outro.clinicalAccessAuditRepository.deleteOlderThan.mockRejectedValue(
+      new Error('db'),
+    );
+    await expect(outro.service.runDaily()).resolves.toBeUndefined();
+  });
+
+  it('apaga contagens de erro com mais de 90 dias por padrão, pelo dia', async () => {
+    const { service, platformErrorDailyRepository } = build();
+    const esperado = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+
+    await service.runDaily();
+
+    expect(platformErrorDailyRepository.purgeBefore).toHaveBeenCalledWith(
+      esperado,
+    );
+  });
+
+  it('LOG_RETENTION_PLATFORM_ERROR_DAYS=0 desliga e falha não derruba o ciclo', async () => {
+    const desligado = build({ LOG_RETENTION_PLATFORM_ERROR_DAYS: 0 });
+    await desligado.service.runDaily();
+    expect(
+      desligado.platformErrorDailyRepository.purgeBefore,
+    ).not.toHaveBeenCalled();
+
+    const outro = build();
+    outro.platformErrorDailyRepository.purgeBefore.mockRejectedValue(
+      new Error('db'),
+    );
+    await expect(outro.service.runDaily()).resolves.toBeUndefined();
+  });
+
+  it('apaga contagens de segurança pelo dia e LOG_RETENTION_PLATFORM_SECURITY_DAYS=0 desliga', async () => {
+    const { service, platformSecurityDailyRepository } = build();
+    const esperado = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    await service.runDaily();
+    expect(platformSecurityDailyRepository.purgeBefore).toHaveBeenCalledWith(
+      esperado,
+    );
+
+    const desligado = build({ LOG_RETENTION_PLATFORM_SECURITY_DAYS: 0 });
+    await desligado.service.runDaily();
+    expect(
+      desligado.platformSecurityDailyRepository.purgeBefore,
+    ).not.toHaveBeenCalled();
+
+    const outro = build();
+    outro.platformSecurityDailyRepository.purgeBefore.mockRejectedValue(
       new Error('db'),
     );
     await expect(outro.service.runDaily()).resolves.toBeUndefined();

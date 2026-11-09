@@ -15,6 +15,7 @@ describe('AppointmentReminderService', () => {
   const mockUserRepository = {
     findOne: jest.fn(),
     isPatientNotificationEnabled: jest.fn(),
+    isAccountDeactivated: jest.fn(),
   };
   const mockMailService = { sendAppointmentReminder: jest.fn() };
   const mockWhatsappService = { sendAppointmentConfirmation: jest.fn() };
@@ -34,6 +35,7 @@ describe('AppointmentReminderService', () => {
     jest.clearAllMocks();
     mockUserRepository.findOne.mockResolvedValue({ id: 'd1', name: 'House' });
     mockUserRepository.isPatientNotificationEnabled.mockResolvedValue(true);
+    mockUserRepository.isAccountDeactivated.mockResolvedValue(false);
     mockAppointmentRepository.update.mockResolvedValue({});
     service = new AppointmentReminderService(
       mockAppointmentRepository as any,
@@ -42,6 +44,33 @@ describe('AppointmentReminderService', () => {
       mockMailService as any,
       mockWhatsappService as any,
     );
+  });
+
+  it('conta desativada pela equipe Inexci: não envia lembrete nem marca reminderSentAt', async () => {
+    mockUserRepository.isAccountDeactivated.mockResolvedValue(true);
+    mockAppointmentRepository.findDueForReminder.mockResolvedValue([
+      appt,
+      { ...appt, id: 'appt-2' },
+    ]);
+    mockPatientRepository.findOne.mockResolvedValue({
+      id: 'p1',
+      name: 'Ana',
+      email: 'ana@x.com',
+      phone: '5511999',
+    });
+
+    const sent = await service.sendDueReminders();
+
+    expect(sent).toBe(0);
+    expect(mockUserRepository.isAccountDeactivated).toHaveBeenCalledTimes(1);
+    expect(mockUserRepository.isAccountDeactivated).toHaveBeenCalledWith(
+      'owner-1',
+    );
+    expect(mockMailService.sendAppointmentReminder).not.toHaveBeenCalled();
+    expect(
+      mockWhatsappService.sendAppointmentConfirmation,
+    ).not.toHaveBeenCalled();
+    expect(mockAppointmentRepository.update).not.toHaveBeenCalled();
   });
 
   it('lembrete desligado pela clínica: não envia nada e não marca reminderSentAt', async () => {

@@ -11,6 +11,7 @@ import {
   JWT_DEFAULT_ISSUER,
   tokenVersionValida,
 } from './jwt-payload.interface';
+import { CONTA_DESATIVADA_MENSAGEM } from './account-deactivation';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -38,11 +39,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Sessão inválida');
     }
 
-    const user = await this.userRepository.findOneWithProfile({
-      id: payload.userId,
-    });
+    const session = await this.userRepository.findSessionUser(payload.userId);
+    const user = session?.user;
 
-    if (!user || user.status !== UserStatus.ACTIVE) {
+    if (!session || !user || user.status !== UserStatus.ACTIVE) {
       throw new UnauthorizedException('Sessão inválida');
     }
 
@@ -52,11 +52,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       );
     }
 
+    if (session.accountDeactivated) {
+      throw new UnauthorizedException(CONTA_DESATIVADA_MENSAGEM);
+    }
+
     return {
       userId: payload.userId,
       ownerId: user.ownerId,
       role: user.role,
-      isPlatformAdmin: user.isPlatformAdmin ?? false,
       permissions: permissionsOf(user),
       privacyPolicyAcceptedAt: user.privacyPolicyAcceptedAt ?? null,
       termsOfUseAcceptedAt: user.termsOfUseAcceptedAt ?? null,

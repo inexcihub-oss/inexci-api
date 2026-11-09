@@ -61,6 +61,30 @@ describe('RagService', () => {
     expect(results[0].score).toBe(0.85);
   });
 
+  it('repassa o contexto de uso como rag_embedding quando há ownerId', async () => {
+    mockDataSource.query.mockResolvedValue([]);
+
+    await service.search('Como funciona?', {
+      usage: { ownerId: 'owner-1', userId: 'user-1' },
+    });
+
+    expect(mockEmbeddingService.generate).toHaveBeenCalledWith(
+      'Como funciona?',
+      { source: 'rag_embedding', ownerId: 'owner-1', userId: 'user-1' },
+    );
+  });
+
+  it('não repassa contexto de uso quando não há ownerId', async () => {
+    mockDataSource.query.mockResolvedValue([]);
+
+    await service.search('Como funciona?');
+
+    expect(mockEmbeddingService.generate).toHaveBeenCalledWith(
+      'Como funciona?',
+      undefined,
+    );
+  });
+
   it('deve retornar array vazio se nenhum chunk relevante', async () => {
     mockEmbeddingService.generate.mockResolvedValue([]);
     mockEmbeddingService.toSqlVector.mockReturnValue('[]');

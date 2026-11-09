@@ -71,6 +71,11 @@ import {
     MfaService,
   ],
   controllers: [AuthController],
-  exports: [AuthService, RefreshTokenStore, SessionRevocationService],
+  exports: [
+    AuthService,
+    RefreshTokenStore,
+    SessionRevocationService,
+    AuthAttemptLimiter,
+  ],
 })
 export class AuthModule {}

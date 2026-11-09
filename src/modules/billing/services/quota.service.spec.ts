@@ -220,4 +220,70 @@ describe('QuotaService', () => {
       ]);
     });
   });
+
+  describe('acesso interno', () => {
+    const internal = () =>
+      buildSub({
+        status: SubscriptionStatus.INTERNAL,
+        internalAccessGrantedAt: new Date('2026-10-01T12:00:00Z'),
+        currentPeriodStart: new Date('2026-09-01T12:00:00Z'),
+        currentPeriodEnd: new Date('2026-10-01T12:00:00Z'),
+      });
+
+    it('assertCanSendSurgeryRequest passa sem período de cota', async () => {
+      subscriptionRepo.findByOwnerId.mockResolvedValue(internal());
+      quotaPeriodRepo.findCurrentForSubscription.mockResolvedValue(null);
+
+      await expect(
+        service.assertCanSendSurgeryRequest('owner-1'),
+      ).resolves.toBeUndefined();
+      expect(quotaPeriodRepo.findCurrentForSubscription).not.toHaveBeenCalled();
+    });
+
+    it('consumeSurgeryRequest não consome e devolve snapshot ilimitado', async () => {
+      subscriptionRepo.findByOwnerId.mockResolvedValue(internal());
+      quotaPeriodRepo.findCurrentForSubscription.mockResolvedValue(null);
+
+      const snapshot = await service.consumeSurgeryRequest('owner-1', {
+        manager: {} as never,
+      });
+
+      expect(quotaPeriodRepo.tryConsume).not.toHaveBeenCalled();
+      expect(snapshot).toEqual(
+        expect.objectContaining({
+          limit: -1,
+          isUnlimited: true,
+          remaining: Number.POSITIVE_INFINITY,
+          periodStart: new Date('2026-10-01T12:00:00Z'),
+        }),
+      );
+    });
+
+    it('consumeSurgeryRequest ignora período de cota antigo esgotado', async () => {
+      subscriptionRepo.findByOwnerId.mockResolvedValue(internal());
+      quotaPeriodRepo.findCurrentForSubscription.mockResolvedValue(
+        buildPeriod({ surgeryRequestsLimit: 1, surgeryRequestsUsed: 1 }),
+      );
+
+      const snapshot = await service.consumeSurgeryRequest('owner-1');
+
+      expect(snapshot.isUnlimited).toBe(true);
+      expect(quotaPeriodRepo.tryConsume).not.toHaveBeenCalled();
+    });
+
+    it('getQuotaStatus mostra ilimitado mesmo sem período', async () => {
+      subscriptionRepo.findByOwnerId.mockResolvedValue(internal());
+      quotaPeriodRepo.findCurrentForSubscription.mockResolvedValue(null);
+
+      const status = await service.getQuotaStatus('owner-1');
+
+      expect(status).toEqual(
+        expect.objectContaining({
+          isUnlimited: true,
+          limit: -1,
+          remaining: null,
+        }),
+      );
+    });
+  });
 });

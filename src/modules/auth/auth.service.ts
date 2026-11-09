@@ -61,6 +61,8 @@ import {
   canonicalizarTelefone,
   variantesLegadasDoTelefone,
 } from 'src/shared/utils/phone.util';
+import { CONTA_DESATIVADA_MENSAGEM } from './account-deactivation';
+import { reportSecurityEvent } from 'src/shared/observability/platform-security/platform-security-sink';
 
 export const PHONE_ALREADY_IN_USE_MESSAGE =
   'Este telefone já está sendo utilizado por outra conta.';
@@ -150,6 +152,7 @@ export class AuthService {
   async validateUser(rawEmail: string, password: string): Promise<User | null> {
     const email = normalizarEmail(rawEmail);
     if (await this.attemptLimiter.isLoginLocked(email)) {
+      reportSecurityEvent({ type: 'login_locked', email });
       throw new HttpException(
         LOGIN_BLOQUEADO_MENSAGEM,
         HttpStatus.TOO_MANY_REQUESTS,
@@ -174,10 +177,17 @@ export class AuthService {
 
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
+      reportSecurityEvent({
+        type: 'login_failed',
+        userId: user.id,
+        ownerId: user.ownerId,
+      });
       return this.falhaDeLogin(email);
     }
 
     await this.attemptLimiter.clearLoginFailures(email);
+
+    await this.assertContaAtiva(user.ownerId);
 
     if (!user.emailVerified) {
       throw new HttpException(
@@ -192,6 +202,12 @@ export class AuthService {
     }
 
     return user;
+  }
+
+  private async assertContaAtiva(ownerId: string): Promise<void> {
+    if (await this.userRepository.isAccountDeactivated(ownerId)) {
+      throw new HttpException(CONTA_DESATIVADA_MENSAGEM, HttpStatus.FORBIDDEN);
+    }
   }
 
   async checkEmailAvailability(
@@ -383,7 +399,7 @@ export class AuthService {
       };
     }
 
-    return this.emitirSessao(result);
+    return this.emitirSessao(result, false);
   }
 
   async loginWithMfa(data: LoginMfaDto) {
@@ -399,11 +415,13 @@ export class AuthService {
       );
     }
 
+    await this.assertContaAtiva(user.ownerId);
+
     await this.mfaService.verifySecondFactor(userId, data.code, {
       allowRecovery: true,
     });
 
-    return this.emitirSessao(user);
+    return this.emitirSessao(user, true);
   }
 
   async issueSessionTokens(userId: string) {
@@ -412,13 +430,24 @@ export class AuthService {
       status: UserStatus.ACTIVE,
     });
     if (!user) throw new UnauthorizedException('Sessão inválida');
+    await this.assertContaAtiva(user.ownerId);
     return {
       access_token: this.signAccessToken(user),
       refresh_token: await this.createRefreshToken(user),
     };
   }
 
-  private async emitirSessao(result: User) {
+  private touchLastSeen(userId: string): void {
+    Promise.resolve()
+      .then(() => this.userRepository.touchLastSeen(userId))
+      .catch((err: unknown) => {
+        this.logger.warn(
+          `Falha ao gravar último acesso do usuário ${userId}: ${errorMessage(err)}`,
+        );
+      });
+  }
+
+  private async emitirSessao(result: User, mfaEnabled: boolean) {
     const fullUser = await this.userRepository.findOneWithProfile({
       id: result.id,
     });
@@ -426,6 +455,7 @@ export class AuthService {
     const account = await this.buildAccountInfo(result.id, fullUser?.ownerId);
 
     const refreshToken = await this.createRefreshToken(result);
+    this.touchLastSeen(result.id);
 
     let pendingConsents: string[] = [];
     try {
@@ -455,6 +485,7 @@ export class AuthService {
         canIssueClinicalDocuments:
           isClinicalDocumentIssuerProfile(doctorProfile),
         emailVerified: fullUser?.emailVerified ?? false,
+        mfaEnabled,
         permissions: permissionsOf({
           role: result.role,
           permissions: fullUser?.permissions,
@@ -707,6 +738,11 @@ export class AuthService {
     await this.recoveryCodeRepository.deleteMany({ userId: user.id });
 
     await this.sessionRevocation.revokeAllSessions(user.id, 'password_reset');
+    reportSecurityEvent({
+      type: 'password_changed',
+      userId: user.id,
+      ownerId: user.ownerId,
+    });
 
     return { message: 'Senha alterada com sucesso' };
   }
@@ -738,6 +774,11 @@ export class AuthService {
     await this.userRepository.update(user.id, { password: newPasswordHash });
 
     await this.sessionRevocation.revokeAllSessions(user.id, 'password_changed');
+    reportSecurityEvent({
+      type: 'password_changed',
+      userId: user.id,
+      ownerId: user.ownerId,
+    });
 
     return { message: 'Senha alterada com sucesso' };
   }
@@ -753,6 +794,7 @@ export class AuthService {
         consumed.userId,
         'refresh_reuse',
       );
+      reportSecurityEvent({ type: 'refresh_reuse', userId: consumed.userId });
       throw new UnauthorizedException(
         'Sessão revogada por segurança. Faça login novamente.',
       );
@@ -786,10 +828,16 @@ export class AuthService {
       throw new UnauthorizedException('Sessão revogada. Faça login novamente.');
     }
 
+    if (await this.userRepository.isAccountDeactivated(user.ownerId)) {
+      await this.revokeRefreshTokens(user.id);
+      throw new UnauthorizedException(CONTA_DESATIVADA_MENSAGEM);
+    }
+
     const newRefreshToken = await this.createRefreshToken(
       user,
       consumed.familyId,
     );
+    this.touchLastSeen(user.id);
 
     return {
       access_token: this.signAccessToken(user),

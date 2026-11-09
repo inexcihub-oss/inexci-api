@@ -23,8 +23,7 @@ export type ConsumeResult =
   | ({ status: 'reused' } & ConsumedToken)
   | { status: 'not_found' };
 
-const TOKEN_KEY_PREFIX = 'refresh:tok:';
-const USER_KEY_PREFIX = 'refresh:user:';
+export const REFRESH_KEY_PREFIX = 'refresh:';
 
 const REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60;
 
@@ -134,12 +133,16 @@ export class RefreshTokenStore implements OnModuleDestroy {
     return this.redis;
   }
 
+  protected keyPrefix(): string {
+    return REFRESH_KEY_PREFIX;
+  }
+
   private tokenKey(hash: string): string {
-    return `${TOKEN_KEY_PREFIX}${hash}`;
+    return `${this.keyPrefix()}tok:${hash}`;
   }
 
   private userKey(userId: string): string {
-    return `${USER_KEY_PREFIX}${userId}`;
+    return `${this.keyPrefix()}user:${userId}`;
   }
 
   async issue(

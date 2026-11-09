@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bull';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AccountStatusModule } from 'src/shared/account-status/account-status.module';
 import { WhatsappService } from './whatsapp.service';
 import { WhatsappProcessor } from './whatsapp.processor';
 import { NotificationSendLog } from 'src/database/entities/notification-send-log.entity';
@@ -16,6 +17,7 @@ import { WhatsappMediaService } from './whatsapp-media.service';
       },
     }),
     TypeOrmModule.forFeature([NotificationSendLog]),
+    AccountStatusModule,
   ],
   providers: [WhatsappService, WhatsappProcessor, WhatsappMediaService],
   exports: [WhatsappService, WhatsappMediaService],

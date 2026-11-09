@@ -6,6 +6,15 @@ import {
   Index,
 } from 'typeorm';
 
+export const AI_USAGE_SOURCES = [
+  'whatsapp',
+  'document_extraction',
+  'rag_embedding',
+  'rag_ingestion',
+] as const;
+
+export type AiUsageSource = (typeof AI_USAGE_SOURCES)[number];
+
 @Entity('ai_token_usage_logs')
 @Index('idx_ai_token_usage_message_sid', ['messageSid'])
 @Index('idx_ai_token_usage_conversation_created_at', [
@@ -19,11 +28,14 @@ export class AiTokenUsageLog {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'message_sid', type: 'varchar', length: 64 })
-  messageSid: string;
+  @Column({ name: 'message_sid', type: 'varchar', length: 64, nullable: true })
+  messageSid: string | null;
 
-  @Column({ name: 'phone_hash', type: 'varchar', length: 64 })
-  phoneHash: string;
+  @Column({ name: 'phone_hash', type: 'varchar', length: 64, nullable: true })
+  phoneHash: string | null;
+
+  @Column({ type: 'varchar', length: 30, default: 'whatsapp' })
+  source: AiUsageSource;
 
   @Column({ name: 'user_id', type: 'uuid', nullable: true })
   userId: string | null;
